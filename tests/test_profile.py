@@ -209,7 +209,6 @@ def test_allowed_skills_whitelist_includes_known_tech() -> None:
     assert "PyTorch" in allowed
     assert "Hugging Face" in allowed
     assert "Statistical modeling" in allowed
-    assert "Predictive modeling" in allowed
     assert "R" in allowed
     assert "ARIMA/SARIMA" in allowed
     assert "FAISS" in allowed

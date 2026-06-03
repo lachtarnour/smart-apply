@@ -33,7 +33,13 @@ with session_scope() as s:
     apps = list_applications(s)
     rows = []
     for a in apps:
-        docs = {doc.doc_type: doc.path for doc in a.documents if doc.path}
+        docs = {doc.doc_type: doc for doc in a.documents}
+        letter_doc = docs.get("motivation_letter")
+        letter_extra = (
+            letter_doc.extra if letter_doc and isinstance(letter_doc.extra, dict) else {}
+        )
+        cv_pdf_doc = docs.get("cv_pdf")
+        letter_pdf_doc = docs.get("motivation_letter_pdf")
         rows.append(
             {
                 "id": a.id,
@@ -50,12 +56,14 @@ with session_scope() as s:
                 ),
                 "subject": a.email_subject,
                 "body": a.email_body or "",
+                "letter_subject": letter_extra.get("subject", ""),
+                "letter_body": letter_doc.content if letter_doc else "",
                 "contact": a.contact.email if a.contact else None,
                 "strategy": a.application_strategy,
                 "form_url": a.form_submission_url,
                 "cv_path": a.cv_docx_path,
-                "cv_pdf_path": a.cv_pdf_path or docs.get("cv_pdf"),
-                "letter_pdf_path": docs.get("motivation_letter_pdf"),
+                "cv_pdf_path": a.cv_pdf_path or (cv_pdf_doc.path if cv_pdf_doc else None),
+                "letter_pdf_path": letter_pdf_doc.path if letter_pdf_doc else None,
                 "eml_path": a.eml_path,
                 "notes": a.notes,
                 "updated_at": a.updated_at,
@@ -101,6 +109,8 @@ st.dataframe(
         columns=[
             "status",
             "body",
+            "letter_subject",
+            "letter_body",
             "cv_path",
             "cv_pdf_path",
             "letter_pdf_path",
@@ -139,6 +149,17 @@ st.write(f"Contact : `{r['contact']}`")
 st.write(f"Stratégie : `{r['strategy']}`")
 if r["form_url"]:
     st.link_button("Ouvrir le formulaire", r["form_url"])
+
+if r["letter_body"]:
+    st.subheader("Lettre de motivation")
+    if r["letter_subject"]:
+        st.text_input("Sujet de la lettre", value=r["letter_subject"], disabled=True)
+    st.text_area(
+        "Corps de la lettre",
+        value=r["letter_body"],
+        height=220,
+        disabled=True,
+    )
 
 st.subheader("Email final")
 subject_key = f"applications_subject_{int(app_id)}"

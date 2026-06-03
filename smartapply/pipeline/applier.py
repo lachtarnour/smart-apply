@@ -7,9 +7,9 @@ semantics of the legacy ``apply_to`` and ``apply_to_autopilot``.
 
 The differences between presets:
 
-- ``MANUAL``    : two LLM calls (CV smart + email cheap), no quality gate,
+- ``MANUAL``    : two LLM calls (CV smart + letter/email legacy), no quality gate,
                   ContactFinder regex on the application URL, no audit blob.
-- ``AUTOPILOT`` : one combined LLM call (CV + email together), quality gate,
+- ``AUTOPILOT`` : one combined LLM call (CV + motivation letter), quality gate,
                   ContactProviderChain (Snov.io + persistent cache), audit
                   blob persisted as a generated_document.
 """
@@ -23,6 +23,7 @@ from typing import Any, Literal
 
 from smartapply.config import get_settings
 from smartapply.cv import CvAdapter, CvValidator
+from smartapply.cv.motivation_validator import MotivationLetterValidator
 from smartapply.database import session_scope
 from smartapply.database.models import Job, JobStatus
 from smartapply.database.repository import (
@@ -35,6 +36,7 @@ from smartapply.email_agent import (
     ContactCandidate,
     ContactFinder,
     EmailWriter,
+    build_application_email,
     export_eml,
 )
 from smartapply.email_agent.gmail_draft import GmailDraftError, create_draft
@@ -44,6 +46,7 @@ from smartapply.llm import (
     EmailDraft,
     JobAnalysis,
     LLMProvider,
+    MotivationLetter,
 )
 from smartapply.llm.prompts import application_quality_review as quality_prompts
 from smartapply.logging_setup import get_logger
@@ -134,6 +137,7 @@ class Applier:
         self.renderer = renderer
         self.contact_service = contact_service
         self.contact_finder = contact_finder
+        self.letter_validator = MotivationLetterValidator(profile)
         self.settings = get_settings()
 
     # ============================================================
@@ -188,13 +192,14 @@ class Applier:
         job, analysis = self._load_job_analysis(job_id)
         offer_language = analysis.offer_language or "fr"
 
-        adapted, email_draft = self._generate_draft(
+        adapted, letter_draft, email_draft = self._generate_draft(
             spec=spec,
             job=job,
             analysis=analysis,
             offer_language=offer_language,
         )
-        self._validate_with_auto_fix(adapted, report)
+        adapted = self._validate_with_auto_fix(adapted, report)
+        self._validate_letter(letter_draft, adapted, analysis, report)
 
         score_components = job.score.components if job.score else None
         quality, approved = self._maybe_quality_gate(
@@ -202,6 +207,7 @@ class Applier:
             job=job,
             analysis=analysis,
             adapted=adapted,
+            letter_draft=letter_draft,
             email_draft=email_draft,
             report=report,
             score_components=score_components,
@@ -231,7 +237,7 @@ class Applier:
         self.renderer.render_all(
             report=report,
             adapted=adapted,
-            email_draft=email_draft,
+            letter_draft=letter_draft,
             job_title=job.title,
             job_company=job.company,
             contact_email=report.contact_email,
@@ -273,6 +279,7 @@ class Applier:
         self._persist_application(
             report=report,
             adapted=adapted,
+            letter_draft=letter_draft,
             email_draft=email_draft,
             job_company=job.company,
             apply_url=job.application_url,
@@ -295,17 +302,23 @@ class Applier:
         job: Job,
         analysis: JobAnalysis,
         offer_language: str,
-    ) -> tuple[Any, EmailDraft]:
+    ) -> tuple[Any, MotivationLetter, EmailDraft]:
         """Run either the combined ApplicationDraft call or the two-call legacy path."""
         if spec.combined_call:
-            adapted, email_draft, _selection = self.adapter.adapt_application(
+            adapted, letter_draft, _selection = self.adapter.adapt_application(
                 analysis,
                 job_title=job.title,
                 job_company=job.company,
                 language=offer_language,
                 job_id=job.id,
             )
-            return adapted, email_draft
+            email_draft = build_application_email(
+                candidate_name=self.profile.identity.full_name,
+                job_title=job.title,
+                job_company=job.company,
+                language=offer_language,
+            )
+            return adapted, letter_draft, email_draft
         adapted, _selection = self.adapter.adapt(
             analysis,
             job_title=job.title,
@@ -319,7 +332,17 @@ class Applier:
             language=offer_language,
             job_id=job.id,
         )
-        return adapted, email_draft
+        letter_draft = MotivationLetter(
+            subject=email_draft.subject,
+            body=email_draft.body,
+        )
+        email_draft = build_application_email(
+            candidate_name=self.profile.identity.full_name,
+            job_title=job.title,
+            job_company=job.company,
+            language=offer_language,
+        )
+        return adapted, letter_draft, email_draft
 
     def _maybe_quality_gate(
         self,
@@ -328,6 +351,7 @@ class Applier:
         job: Job,
         analysis: JobAnalysis,
         adapted,
+        letter_draft: MotivationLetter,
         email_draft: EmailDraft,
         report: ApplyReport,
         score_components: dict[str, Any] | None,
@@ -339,6 +363,7 @@ class Applier:
             job=job,
             analysis=analysis,
             adapted=adapted,
+            letter_draft=letter_draft,
             email_draft=email_draft,
             report=report,
             score_components=score_components,
@@ -391,12 +416,28 @@ class Applier:
     # Shared building blocks (unchanged from the previous version)
     # ============================================================
 
-    def _validate_with_auto_fix(self, adapted, report: ApplyReport) -> None:
+    def _validate_with_auto_fix(self, adapted, report: ApplyReport):
         result = self.validator.validate(adapted)
         if not result.ok:
             adapted, removed = self.validator.auto_fix(adapted)
             result = self.validator.validate(adapted)
             report.validation_warnings.extend(f"auto_fixed:{r}" for r in removed)
+        report.validation_warnings.extend(result.warnings)
+        report.validation_errors.extend(result.errors)
+        return adapted
+
+    def _validate_letter(
+        self,
+        letter_draft: MotivationLetter,
+        adapted,
+        analysis: JobAnalysis,
+        report: ApplyReport,
+    ) -> None:
+        result = self.letter_validator.validate(
+            letter_draft,
+            cv=adapted,
+            analysis=analysis,
+        )
         report.validation_warnings.extend(result.warnings)
         report.validation_errors.extend(result.errors)
 
@@ -475,6 +516,7 @@ class Applier:
         job: Job,
         analysis: JobAnalysis,
         adapted,
+        letter_draft: MotivationLetter,
         email_draft: EmailDraft,
         report: ApplyReport,
         score_components: dict[str, Any] | None,
@@ -487,6 +529,7 @@ class Applier:
             score_components=score_components,
             analysis=analysis,
             adapted_cv=adapted,
+            motivation_letter=letter_draft,
             email_draft=email_draft,
             validation_warnings=report.validation_warnings,
             validation_errors=report.validation_errors,
@@ -512,6 +555,9 @@ class Applier:
             "low_text_overlap",
             "summary_too_long",
             "bullet_too_long",
+            "letter_too_short",
+            "letter_too_long",
+            "unsupported_term_in_letter",
         )
         severe_warnings = [
             w for w in report.validation_warnings if w.startswith(severe_prefixes)
@@ -565,6 +611,7 @@ class Applier:
         *,
         report: ApplyReport,
         adapted,
+        letter_draft: MotivationLetter,
         email_draft: EmailDraft,
         job_company: str,
         apply_url: str | None,
@@ -625,6 +672,13 @@ class Applier:
                 doc_type="email",
                 content=email_draft.body,
                 extra={"subject": email_draft.subject},
+            )
+            upsert_document(
+                s,
+                app.id,
+                doc_type="motivation_letter",
+                content=letter_draft.body,
+                extra={"subject": letter_draft.subject},
             )
             upsert_document(s, app.id, doc_type="eml", path=report.eml_path)
             if audit is not None:

@@ -17,6 +17,7 @@ from smartapply.llm.schemas import (
     ApplicationQualityReview,
     EmailDraft,
     JobAnalysis,
+    MotivationLetter,
     SkillSelectionBlock,
 )
 from smartapply.llm.usage import OPENAI_PRICING, estimate_cost_usd
@@ -29,6 +30,7 @@ __all__ = [
     "ApplicationQualityReview",
     "EmailDraft",
     "JobAnalysis",
+    "MotivationLetter",
     "SkillSelectionBlock",
     "LLMError",
     "LLMProvider",

@@ -7,9 +7,9 @@ from smartapply.cv.selector import CvBlockSelector, SelectionResult
 from smartapply.llm import (
     AdaptedCV,
     ApplicationDraft,
-    EmailDraft,
     JobAnalysis,
     LLMProvider,
+    MotivationLetter,
     SkillSelectionBlock,
     get_llm_provider,
 )
@@ -71,7 +71,7 @@ class CvAdapter:
         job_company: str,
         language: str = "fr",
         job_id: int | None = None,
-    ) -> tuple[AdaptedCV, EmailDraft, SelectionResult]:
+    ) -> tuple[AdaptedCV, MotivationLetter, SelectionResult]:
         selection = self.selector.select(self.profile, analysis)
         prompt = application_draft.build_user_prompt(
             profile=self.profile,
@@ -93,7 +93,7 @@ class CvAdapter:
         )
         adapted = self._ensure_supported_offer_skills(draft.to_cv(), analysis)
         adapted = self._apply_role_family_contract(adapted, analysis, job_title)
-        return adapted, draft.to_email(), selection
+        return adapted, draft.to_motivation_letter(), selection
 
     def _ensure_supported_offer_skills(
         self,

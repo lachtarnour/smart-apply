@@ -1,4 +1,20 @@
 {
+  "_global_baseline": {
+    "enabled": true,
+    "skills": {
+      "ml_ai": [
+        "PyTorch",
+        "TensorFlow",
+        "Scikit-learn"
+      ],
+      "data_infra": [
+        "SQL",
+        "Docker",
+        "Git",
+        "AWS"
+      ]
+    }
+  },
   "data_scientist": {
     "profile_id": "mixed",
     "allowed_categories": [
@@ -18,6 +34,31 @@
         "R",
         "Pandas",
         "NumPy"
+      ]
+    },
+    "min_total_skills": 12,
+    "fill_skills": {
+      "ml_ai": [
+        "PyTorch",
+        "Scikit-learn",
+        "Time-series modeling",
+        "Anomaly detection"
+      ],
+      "data_analysis": [
+        "Python",
+        "SQL",
+        "R",
+        "Pandas",
+        "NumPy",
+        "Statistical analysis",
+        "Forecasting",
+        "Data visualization"
+      ],
+      "data_infra": [
+        "Git",
+        "Docker",
+        "FastAPI",
+        "Data pipelines"
       ]
     },
     "forbidden": [
@@ -49,6 +90,32 @@
         "Docker",
         "Git",
         "Spark"
+      ]
+    },
+    "min_total_skills": 12,
+    "fill_skills": {
+      "ml_ai": [
+        "PyTorch",
+        "Scikit-learn",
+        "TensorFlow",
+        "NLP",
+        "Fine-tuning"
+      ],
+      "data_analysis": [
+        "Python",
+        "SQL",
+        "Pandas",
+        "NumPy"
+      ],
+      "data_infra": [
+        "FastAPI",
+        "REST APIs",
+        "Data pipelines",
+        "Docker",
+        "Git",
+        "Spark",
+        "CI/CD",
+        "Model monitoring"
       ]
     },
     "forbidden": [
@@ -86,6 +153,36 @@
         "REST APIs"
       ]
     },
+    "min_total_skills": 13,
+    "fill_skills": {
+      "ml_ai": [
+        "NLP",
+        "LLMs",
+        "Transformers",
+        "Hugging Face",
+        "Fine-tuning",
+        "PyTorch",
+        "Scikit-learn"
+      ],
+      "rag_retrieval": [
+        "RAG",
+        "Vector search",
+        "FAISS"
+      ],
+      "data_analysis": [
+        "Python",
+        "SQL",
+        "Pandas",
+        "NumPy"
+      ],
+      "data_infra": [
+        "FastAPI",
+        "REST APIs",
+        "Docker",
+        "Git",
+        "CI/CD"
+      ]
+    },
     "forbidden": [
       "OpenAI Gym",
       "Markov chains",
@@ -99,7 +196,6 @@
     "profile_id": "data_analyst",
     "allowed_categories": [
       "data_analysis",
-      "data_infra",
       "stats_signal"
     ],
     "must_show": {
@@ -111,6 +207,24 @@
         "Data visualization"
       ]
     },
+    "min_total_skills": 10,
+    "fill_skills": {
+      "data_analysis": [
+        "SQL",
+        "Python",
+        "R",
+        "Pandas",
+        "NumPy",
+        "Data visualization",
+        "Statistical analysis",
+        "Statistical modeling",
+        "Forecasting",
+        "Streamlit"
+      ],
+      "stats_signal": [
+        "Time-series analysis"
+      ]
+    },
     "forbidden": [
       "FAISS",
       "RAG",
@@ -120,11 +234,18 @@
       "Hugging Face",
       "OpenAI Gym",
       "Markov chains",
+      "Docker",
+      "Git",
+      "Data pipelines",
       "Whisper",
       "Pyannote",
       "OpenSMILE",
       "FastAPI",
       "Flask",
+      "REST APIs",
+      "CI/CD",
+      "AWS",
+      "Spark",
       "ARIMA/SARIMA",
       "ONNX",
       "Model quantization",
@@ -156,6 +277,28 @@
         "Spark"
       ]
     },
+    "min_total_skills": 12,
+    "fill_skills": {
+      "ml_ai": [
+        "PyTorch",
+        "Scikit-learn"
+      ],
+      "data_analysis": [
+        "SQL",
+        "Python",
+        "R",
+        "Pandas",
+        "NumPy",
+        "Data visualization",
+        "Statistical analysis"
+      ],
+      "data_infra": [
+        "Data pipelines",
+        "Git",
+        "Spark",
+        "Docker"
+      ]
+    },
     "forbidden": [
       "FAISS",
       "RAG",
@@ -173,6 +316,65 @@
       "ONNX",
       "Model quantization",
       "Model monitoring"
+    ]
+  },
+  "data_engineer": {
+    "profile_id": "machine_learning",
+    "allowed_categories": [
+      "data_analysis",
+      "data_infra"
+    ],
+    "must_show": {
+      "data_analysis": [
+        "Python",
+        "SQL"
+      ],
+      "data_infra": [
+        "Data pipelines",
+        "Spark",
+        "Docker",
+        "Git",
+        "CI/CD"
+      ]
+    },
+    "min_total_skills": 9,
+    "fill_skills": {
+      "data_analysis": [
+        "Python",
+        "SQL",
+        "Pandas",
+        "NumPy"
+      ],
+      "data_infra": [
+        "Data pipelines",
+        "Spark",
+        "Docker",
+        "Git",
+        "CI/CD",
+        "REST APIs"
+      ]
+    },
+    "forbidden": [
+      "PyTorch",
+      "TensorFlow",
+      "Scikit-learn",
+      "NLP",
+      "LLMs",
+      "Transformers",
+      "Hugging Face",
+      "Fine-tuning",
+      "FAISS",
+      "RAG",
+      "Vector search",
+      "OpenAI Gym",
+      "Markov chains",
+      "Whisper",
+      "Pyannote",
+      "OpenSMILE",
+      "FastAPI",
+      "Flask",
+      "ONNX",
+      "Model quantization"
     ]
   },
   "mlops": {
@@ -194,6 +396,29 @@
       "data_analysis": [
         "Python",
         "SQL"
+      ]
+    },
+    "min_total_skills": 11,
+    "fill_skills": {
+      "data_infra": [
+        "Docker",
+        "AWS",
+        "CI/CD",
+        "Data pipelines",
+        "Spark",
+        "Model monitoring",
+        "Git",
+        "REST APIs"
+      ],
+      "data_analysis": [
+        "Python",
+        "SQL",
+        "Pandas",
+        "NumPy"
+      ],
+      "ml_ai": [
+        "PyTorch",
+        "Scikit-learn"
       ]
     },
     "forbidden": [
@@ -223,6 +448,20 @@
         "CI/CD"
       ]
     },
+    "min_total_skills": 8,
+    "fill_skills": {
+      "data_analysis": [
+        "Python",
+        "SQL",
+        "Pandas",
+        "NumPy"
+      ],
+      "data_infra": [
+        "Git",
+        "Docker",
+        "CI/CD"
+      ]
+    },
     "forbidden": [
       "FAISS",
       "RAG",
@@ -237,6 +476,8 @@
       "Whisper",
       "Pyannote",
       "OpenSMILE",
+      "FastAPI",
+      "Flask",
       "ONNX",
       "Model quantization",
       "Model monitoring"
@@ -261,6 +502,32 @@
       ],
       "data_analysis": [
         "Python"
+      ]
+    },
+    "min_total_skills": 11,
+    "fill_skills": {
+      "computer_vision": [
+        "CNNs",
+        "OpenCV",
+        "Image processing",
+        "Classification",
+        "Segmentation",
+        "Object detection"
+      ],
+      "ml_ai": [
+        "PyTorch",
+        "TensorFlow",
+        "Scikit-learn",
+        "Fine-tuning"
+      ],
+      "data_analysis": [
+        "Python",
+        "SQL"
+      ],
+      "data_infra": [
+        "Git",
+        "Docker",
+        "FastAPI"
       ]
     },
     "forbidden": [
@@ -295,6 +562,33 @@
         "Python"
       ]
     },
+    "min_total_skills": 11,
+    "fill_skills": {
+      "speech_audio": [
+        "Speech processing",
+        "Audio processing",
+        "Whisper",
+        "Pyannote",
+        "Speech-to-text",
+        "Speaker diarization"
+      ],
+      "ml_ai": [
+        "PyTorch",
+        "TensorFlow",
+        "Scikit-learn",
+        "NLP"
+      ],
+      "data_analysis": [
+        "Python",
+        "SQL"
+      ],
+      "data_infra": [
+        "Git",
+        "Docker",
+        "FastAPI",
+        "ONNX"
+      ]
+    },
     "forbidden": [
       "FAISS",
       "RAG",
@@ -324,6 +618,39 @@
         "R"
       ]
     },
+    "min_total_skills": 12,
+    "fill_skills": {
+      "ml_ai": [
+        "PyTorch",
+        "Scikit-learn",
+        "NLP",
+        "Time-series modeling",
+        "Anomaly detection"
+      ],
+      "speech_audio": [
+        "Speech processing",
+        "Whisper",
+        "Pyannote"
+      ],
+      "computer_vision": [
+        "Facial analysis",
+        "Image processing"
+      ],
+      "data_analysis": [
+        "Python",
+        "SQL",
+        "R",
+        "Pandas",
+        "NumPy",
+        "Statistical analysis"
+      ],
+      "data_infra": [
+        "FastAPI",
+        "REST APIs",
+        "Docker",
+        "Git"
+      ]
+    },
     "forbidden": [
       "OpenAI Gym",
       "Markov chains"
@@ -350,6 +677,26 @@
         "NumPy"
       ]
     },
+    "min_total_skills": 9,
+    "fill_skills": {
+      "rl": [
+        "OpenAI Gym"
+      ],
+      "ml_ai": [
+        "PyTorch",
+        "Scikit-learn"
+      ],
+      "data_analysis": [
+        "Python",
+        "NumPy",
+        "Pandas"
+      ],
+      "stats_signal": [
+        "Monte Carlo methods",
+        "Markov chains",
+        "Optimization"
+      ]
+    },
     "forbidden": [
       "FAISS",
       "RAG",
@@ -357,6 +704,79 @@
       "Whisper",
       "Pyannote",
       "OpenSMILE"
+    ]
+  },
+  "other": {
+    "profile_id": "mixed",
+    "allowed_categories": [
+      "data_analysis",
+      "data_infra"
+    ],
+    "must_show": {
+      "data_analysis": [
+        "Python"
+      ],
+      "data_infra": [
+        "Git"
+      ]
+    },
+    "min_total_skills": 8,
+    "fill_skills": {
+      "data_analysis": [
+        "Python",
+        "SQL",
+        "Pandas",
+        "NumPy"
+      ],
+      "data_infra": [
+        "Git",
+        "Docker",
+        "CI/CD"
+      ]
+    },
+    "forbidden": [
+      "PyTorch",
+      "TensorFlow",
+      "Scikit-learn",
+      "NLP",
+      "LLMs",
+      "Transformers",
+      "Time-series modeling",
+      "Anomaly detection",
+      "Fine-tuning",
+      "Hugging Face",
+      "FAISS",
+      "RAG",
+      "Vector search",
+      "CNNs",
+      "OpenCV",
+      "Image processing",
+      "Classification",
+      "Segmentation",
+      "Object detection",
+      "Facial analysis",
+      "Speech processing",
+      "Audio processing",
+      "Whisper",
+      "Speaker diarization",
+      "Speech-to-text",
+      "OpenSMILE",
+      "Pyannote",
+      "OpenAI Gym",
+      "Markov chains",
+      "ARIMA/SARIMA",
+      "Forecasting",
+      "Time-series analysis",
+      "Data visualization",
+      "FastAPI",
+      "Flask",
+      "AWS",
+      "Spark",
+      "Data pipelines",
+      "ONNX",
+      "Model monitoring",
+      "Model quantization",
+      "Weights & Biases"
     ]
   }
 }

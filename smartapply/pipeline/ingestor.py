@@ -22,15 +22,21 @@ logger = get_logger(__name__)
 
 OR_SPLIT_RE = re.compile(r"\s+\bOR\b\s+", flags=re.IGNORECASE)
 ROLE_QUERY_ALIASES_FR = {
+    "data scientist": "Scientifique des données",
+    "data analyst": "Analyste Data",
     "machine learning engineer": "Ingénieur Machine Learning",
     "machine learning ing": "Ingénieur Machine Learning",
     "ml engineer": "Ingénieur Machine Learning",
     "ml ing": "Ingénieur Machine Learning",
+    "nlp engineer": "Ingénieur NLP",
+    "computer vision engineer": "Ingénieur Vision par ordinateur",
     "ai engineer": "Ingénieur IA",
     "ai ing": "Ingénieur IA",
     "artificial intelligence engineer": "Ingénieur IA",
     "research engineer": "Ingénieur Recherche IA",
+    "research engineer ai": "Ingénieur Recherche IA",
     "mlops engineer": "Ingénieur MLOps",
+    "analytics engineer": "Analytics Engineer",
 }
 
 
@@ -59,7 +65,10 @@ def expand_query_for_source(source: str, query: str) -> list[str]:
     suffix = ""
     if key.endswith(" cdi"):
         key = key[:-4].strip()
-        suffix = " CDI"
+        if source.lower() == "serpapi":
+            normalized = re.sub(r"\s+cdi$", "", normalized, flags=re.IGNORECASE).strip()
+        else:
+            suffix = " CDI"
     alias = ROLE_QUERY_ALIASES_FR.get(key)
     variants = [normalized]
     if alias:

@@ -1328,6 +1328,9 @@ def _render_application_detail(application_id: int) -> None:
         if app is None:
             st.error("Candidature introuvable.")
             return
+        docs = {doc.doc_type: doc for doc in app.documents}
+        letter_doc = docs.get("motivation_letter")
+        letter_extra = letter_doc.extra if letter_doc and isinstance(letter_doc.extra, dict) else {}
         data = {
             "job_title": app.job.title,
             "job_company": app.job.company,
@@ -1338,19 +1341,15 @@ def _render_application_detail(application_id: int) -> None:
             "form_url": app.form_submission_url,
             "email_subject": app.email_subject or "",
             "email_body": app.email_body or "",
+            "motivation_letter_subject": letter_extra.get("subject", ""),
+            "motivation_letter_body": letter_doc.content if letter_doc else "",
             "cv_pdf_path": app.cv_pdf_path,
             "cv_docx_path": app.cv_docx_path,
             "validation_warnings": app.validation_warnings or [],
             "notes": app.notes,
         }
-        letter_pdf_path = next(
-            (
-                doc.path
-                for doc in app.documents
-                if doc.doc_type == "motivation_letter_pdf"
-            ),
-            None,
-        )
+        letter_pdf = docs.get("motivation_letter_pdf")
+        letter_pdf_path = letter_pdf.path if letter_pdf else None
 
     # ---- Header ----
     st.markdown(f"### {data['job_title']} @ {data['job_company']}")
@@ -1405,9 +1404,26 @@ def _render_application_detail(application_id: int) -> None:
                 "application/pdf",
                 f"letter_pdf_{application_id}",
             )
+            if data["motivation_letter_body"]:
+                with st.expander("Texte brut de la lettre"):
+                    if data["motivation_letter_subject"]:
+                        st.markdown(f"**Sujet** : {data['motivation_letter_subject']}")
+                    st.text_area(
+                        "Corps",
+                        data["motivation_letter_body"],
+                        height=300,
+                        disabled=True,
+                        key=f"wf_letter_body_{application_id}",
+                    )
         else:
             st.info("Pas de PDF de lettre de motivation.")
-            st.text_area("Corps (texte brut)", data["email_body"], height=300, disabled=True)
+            st.text_area(
+                "Corps (texte brut)",
+                data["motivation_letter_body"],
+                height=300,
+                disabled=True,
+                key=f"wf_letter_fallback_{application_id}",
+            )
 
     with tab_email:
         st.markdown(f"**Sujet** : {data['email_subject']}")
@@ -1450,36 +1466,32 @@ def step4_send() -> None:
         apps = s.query(Application).filter(Application.id.in_(app_ids)).all()
         # Pull out the data we need into plain dicts to avoid using detached
         # SQLAlchemy objects after the session closes.
-        rows = [
-            {
-                "id": app.id,
-                "title": app.job.title,
-                "company": app.job.company,
-                "status": app.status,
-                "status_label": status_label(app.status),
-                "strategy": app.application_strategy,
-                "contact": app.contact.email if app.contact else None,
-                "subject": app.email_subject or "",
-                "body": app.email_body or "",
-                "cv_pdf_path": app.cv_pdf_path,
-                "cv_docx_path": app.cv_docx_path,
-                "eml_path": app.eml_path,
-                "letter_pdf_path": next(
-                    (
-                        doc.path
-                        for doc in app.documents
-                        if doc.doc_type == "motivation_letter_pdf"
-                    ),
-                    None,
-                ),
-                "form_url": app.form_submission_url,
-                "gmail_draft_id": app.gmail_draft_id,
-                "email_sent_at": app.email_sent_at,
-                "form_submitted_at": app.form_submitted_at,
-                "validation_warnings": app.validation_warnings or [],
-            }
-            for app in apps
-        ]
+        rows = []
+        for app in apps:
+            docs = {doc.doc_type: doc for doc in app.documents}
+            letter_pdf = docs.get("motivation_letter_pdf")
+            rows.append(
+                {
+                    "id": app.id,
+                    "title": app.job.title,
+                    "company": app.job.company,
+                    "status": app.status,
+                    "status_label": status_label(app.status),
+                    "strategy": app.application_strategy,
+                    "contact": app.contact.email if app.contact else None,
+                    "subject": app.email_subject or "",
+                    "body": app.email_body or "",
+                    "cv_pdf_path": app.cv_pdf_path,
+                    "cv_docx_path": app.cv_docx_path,
+                    "eml_path": app.eml_path,
+                    "letter_pdf_path": letter_pdf.path if letter_pdf else None,
+                    "form_url": app.form_submission_url,
+                    "gmail_draft_id": app.gmail_draft_id,
+                    "email_sent_at": app.email_sent_at,
+                    "form_submitted_at": app.form_submitted_at,
+                    "validation_warnings": app.validation_warnings or [],
+                }
+            )
 
     if not rows:
         st.info("Pas de candidature à envoyer.")

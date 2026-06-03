@@ -253,7 +253,8 @@ def test_serpapi_defaults_to_last_week_filter(mocker) -> None:
     list(s.search("data scientist"))
 
     params = get_mock.call_args.kwargs["params"]
-    assert params["q"] == "data scientist in the last week"
+    assert params["q"] == "data scientist"
+    assert params["chips"] == "date_posted:week"
     assert "uds" not in params
 
 
@@ -311,7 +312,28 @@ def test_serpapi_date_filter_can_be_disabled_or_combined_with_uds(mocker) -> Non
 
     params = get_mock.call_args.kwargs["params"]
     assert params["q"] == "data scientist"
+    assert "chips" not in params
     assert params["uds"] == "raw-filter"
+
+
+def test_serpapi_date_filter_combines_with_existing_chips(mocker) -> None:
+    get_mock = mocker.patch(
+        "smartapply.scrapers.serpapi.requests.get",
+        return_value=_mock_response({"jobs_results": []}),
+    )
+
+    s = SerpApiGoogleJobsScraper(api_key="fake", hl="fr")
+    list(
+        s.search(
+            "data scientist",
+            chips="employment_type:FULLTIME",
+            date_posted="3days",
+        )
+    )
+
+    params = get_mock.call_args.kwargs["params"]
+    assert params["q"] == "data scientist"
+    assert params["chips"] == "employment_type:FULLTIME,date_posted:3days"
 
 
 def test_serpapi_stops_when_no_results(mocker) -> None:

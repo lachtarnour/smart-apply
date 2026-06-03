@@ -157,8 +157,12 @@ def test_ingestor_splits_or_queries_and_balances_results(monkeypatch: pytest.Mon
         "AI Engineer",
     ]
     assert expand_query_for_source("serpapi", "Machine Learning Engineer CDI") == [
-        "Machine Learning Engineer CDI",
-        "Ingénieur Machine Learning CDI",
+        "Machine Learning Engineer",
+        "Ingénieur Machine Learning",
+    ]
+    assert expand_query_for_source("serpapi", "Data Analyst") == [
+        "Data Analyst",
+        "Analyste Data",
     ]
     assert expand_query_for_source("francetravail", "machine learning ing") == [
         "machine learning ing",
@@ -195,20 +199,22 @@ def test_ingestor_splits_or_queries_and_balances_results(monkeypatch: pytest.Mon
 
     assert [query for query, _ in calls] == [
         "Data Scientist",
+        "Scientifique des données",
         "Machine Learning Engineer",
         "Ingénieur Machine Learning",
         "AI Engineer",
         "Ingénieur IA",
     ]
-    assert [max_results for _, max_results in calls] == [2, 2, 2, 2, 2]
+    assert [max_results for _, max_results in calls] == [2, 2, 2, 2, 2, 2]
     assert report.fetched == 7
     assert report.persisted == 7
 
 
-def test_serpapi_cdi_suffix_is_applied_to_each_or_query(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_serpapi_cdi_uses_fulltime_chip_not_query_suffix(monkeypatch: pytest.MonkeyPatch) -> None:
     from smartapply.pipeline import Pipeline
 
     calls: list[str] = []
+    chips_seen: list[str | None] = []
 
     class FakeScraper:
         name = "serpapi"
@@ -218,6 +224,7 @@ def test_serpapi_cdi_suffix_is_applied_to_each_or_query(monkeypatch: pytest.Monk
 
         def search(self, query, location=None, *, max_results=None, **kwargs):  # noqa: ANN001, ARG002
             calls.append(query)
+            chips_seen.append(kwargs.get("chips"))
             for i in range(max_results or 1):
                 yield RawJob(
                     external_id=f"serpapi:{query}:{i}",
@@ -238,10 +245,12 @@ def test_serpapi_cdi_suffix_is_applied_to_each_or_query(monkeypatch: pytest.Monk
     )
 
     assert calls == [
-        "Data Scientist CDI",
-        "Machine Learning Engineer CDI",
-        "Ingénieur Machine Learning CDI",
+        "Data Scientist",
+        "Scientifique des données",
+        "Machine Learning Engineer",
+        "Ingénieur Machine Learning",
     ]
+    assert all(chips == "employment_type:FULLTIME" for chips in chips_seen)
 
 
 def test_process_pending_can_analyze_only_selected_jobs() -> None:

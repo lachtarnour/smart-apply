@@ -4,6 +4,8 @@ Documentation: https://serpapi.com/google-jobs-api
 
 Pagination uses ``next_page_token`` returned in ``serpapi_pagination``.
 Each page returns up to 10 results; we cap pages via ``SERPAPI_MAX_PAGES``.
+Date filtering uses Google Jobs ``chips`` such as ``date_posted:week``.
+Do not append freshness phrases to ``q``: it hurts recall for role titles.
 """
 
 from __future__ import annotations
@@ -24,10 +26,10 @@ logger = get_logger(__name__)
 SERPAPI_URL = "https://serpapi.com/search.json"
 SERPAPI_DATE_POSTED_OPTIONS = {
     "any": "",
-    "today": "since yesterday",
-    "3days": "in the last 3 days",
-    "week": "in the last week",
-    "month": "in the last month",
+    "today": "date_posted:today",
+    "3days": "date_posted:3days",
+    "week": "date_posted:week",
+    "month": "date_posted:month",
 }
 SERPAPI_DATE_POSTED_LABELS = {
     "any": "Toutes dates",
@@ -75,16 +77,27 @@ def normalize_date_posted(value: str | None) -> str:
     return normalized
 
 
-def query_with_date_posted(query: str, date_posted: str | None) -> str:
-    """Append the Google Jobs date phrase used by SerpApi date filters."""
+def date_posted_chip(date_posted: str | None) -> str:
+    """Return the static Google Jobs chip for a freshness filter."""
     normalized = normalize_date_posted(date_posted)
-    suffix = SERPAPI_DATE_POSTED_OPTIONS[normalized]
-    if not suffix:
-        return query
-    q = query.strip()
-    if suffix.lower() in q.lower():
-        return q
-    return f"{q} {suffix}"
+    return SERPAPI_DATE_POSTED_OPTIONS[normalized]
+
+
+def combine_chips(*values: str | None) -> str:
+    """Combine comma-separated chip values while preserving order."""
+    chips: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        for part in (value or "").split(","):
+            chip = part.strip()
+            if not chip:
+                continue
+            key = chip.lower()
+            if key in seen:
+                continue
+            chips.append(chip)
+            seen.add(key)
+    return ",".join(chips)
 
 
 class SerpApiGoogleJobsScraper(Scraper):
@@ -130,6 +143,7 @@ class SerpApiGoogleJobsScraper(Scraper):
         *,
         max_results: int | None = None,
         ltype: str | None = None,
+        chips: str | None = None,
         uds: str | None = None,
         date_posted: str | None = None,
         hl: str | None = None,
@@ -145,7 +159,9 @@ class SerpApiGoogleJobsScraper(Scraper):
             if date_posted is None
             else normalize_date_posted(date_posted)
         )
-        search_query = query_with_date_posted(query, freshness)
+        search_query = query.strip()
+        date_chip = date_posted_chip(freshness)
+        search_chips = combine_chips(chips, date_chip)
         search_uds = (uds if uds is not None else self.uds).strip()
         languages = split_localization_values(hl, fallback=self.hl)
         countries = split_localization_values(gl, fallback=self.gl)
@@ -173,6 +189,8 @@ class SerpApiGoogleJobsScraper(Scraper):
                     }
                     if ltype:
                         params["ltype"] = ltype
+                    if search_chips:
+                        params["chips"] = search_chips
                     if search_uds:
                         params["uds"] = search_uds
 
@@ -210,11 +228,12 @@ class SerpApiGoogleJobsScraper(Scraper):
             jobs = payload.get("jobs_results") or []
             if not jobs:
                 logger.info(
-                    "SerpApi pagination exhausted at page %d for hl=%s gl=%s q=%r",
+                    "SerpApi pagination exhausted at page %d for hl=%s gl=%s q=%r chips=%r",
                     pages_fetched,
                     params.get("hl"),
                     params.get("gl"),
                     params.get("q"),
+                    params.get("chips"),
                 )
                 break
 

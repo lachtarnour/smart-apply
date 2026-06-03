@@ -10,7 +10,8 @@ The contract is a deterministic post-filter that:
    ``required_skills`` or ``cv_keywords_to_include``).
 3. Adds the ``must_show`` skills that are missing, anchoring a coherent
    baseline for the role (e.g. PyTorch + Scikit-learn for a Data Scientist).
-4. Reorders ``selected_skills`` and ``skills_order`` so that ``must_show``
+4. Fills a minimum number of skills from contract-approved fallback skills.
+5. Reorders ``selected_skills`` and ``skills_order`` so that ``must_show``
    categories come first, then the rest in their existing order.
 
 The contract operates on canonical profile skills only — anything that does
@@ -121,6 +122,111 @@ def _offer_anchored_skills(analysis: JobAnalysis) -> set[str]:
     }
 
 
+def _selected_skill_count(skills_by_category: dict[str, list[str]]) -> int:
+    return sum(len(skills) for skills in skills_by_category.values())
+
+
+def _add_skill_if_supported(
+    skills_by_category: dict[str, list[str]],
+    category_order: list[str],
+    *,
+    category_id: str,
+    skill: str,
+    forbidden_active: set[str],
+    allowed_skills_lower: set[str],
+) -> bool:
+    norm = _normalize(skill)
+    if not norm:
+        return False
+    if norm in forbidden_active:
+        return False
+    if norm not in allowed_skills_lower:
+        return False
+    if category_id not in skills_by_category:
+        skills_by_category[category_id] = []
+        category_order.append(category_id)
+    existing_lower = {s.lower() for s in skills_by_category[category_id]}
+    if norm in existing_lower:
+        return False
+    skills_by_category[category_id].append(skill)
+    return True
+
+
+def _fill_minimum_skills(
+    filtered: dict[str, list[str]],
+    category_order: list[str],
+    *,
+    contract: dict[str, Any],
+    allowed_categories: set[str],
+    forbidden_active: set[str],
+    allowed_skills_lower: set[str],
+) -> None:
+    """Add contract-approved fallback skills until ``min_total_skills`` is met."""
+    min_total = int(contract.get("min_total_skills", 0) or 0)
+    fill_skills = contract.get("fill_skills", {})
+    if min_total <= 0 or not isinstance(fill_skills, dict):
+        return
+
+    for cid, skills in fill_skills.items():
+        if allowed_categories and cid not in allowed_categories:
+            continue
+        if not isinstance(skills, list):
+            continue
+        for skill in skills:
+            if _selected_skill_count(filtered) >= min_total:
+                return
+            if isinstance(skill, str):
+                _add_skill_if_supported(
+                    filtered,
+                    category_order,
+                    category_id=cid,
+                    skill=skill,
+                    forbidden_active=forbidden_active,
+                    allowed_skills_lower=allowed_skills_lower,
+                )
+
+
+def _apply_global_baseline(
+    filtered: dict[str, list[str]],
+    category_order: list[str],
+    *,
+    contracts: dict[str, dict[str, Any]],
+    allowed_skills_lower: set[str],
+) -> list[str]:
+    """Always keep the candidate's core positioning visible in the CV."""
+    baseline = contracts.get("_global_baseline", {})
+    if not baseline.get("enabled", True):
+        return []
+    skills_by_category = baseline.get("skills", {})
+    if not isinstance(skills_by_category, dict):
+        return []
+
+    baseline_categories: list[str] = []
+    for cid, skills in skills_by_category.items():
+        if not isinstance(skills, list):
+            continue
+        for skill in skills:
+            if not isinstance(skill, str):
+                continue
+            if _normalize(skill) in {
+                _normalize(existing)
+                for existing_skills in filtered.values()
+                for existing in existing_skills
+            }:
+                continue
+            _add_skill_if_supported(
+                filtered,
+                category_order,
+                category_id=cid,
+                skill=skill,
+                forbidden_active=set(),
+                allowed_skills_lower=allowed_skills_lower,
+            )
+        if filtered.get(cid) and cid not in baseline_categories:
+            baseline_categories.append(cid)
+    return baseline_categories
+
+
 def apply_contract(
     adapted: AdaptedCV,
     *,
@@ -174,23 +280,41 @@ def apply_contract(
         if cid not in filtered:
             filtered[cid] = []
             category_order.append(cid)
-        existing_lower = {s.lower() for s in filtered[cid]}
         for skill in skills:
-            norm = _normalize(skill)
-            if norm in forbidden_active:
-                continue
-            if norm in existing_lower:
-                continue
-            if norm not in allowed_skills_lower:
-                continue
-            filtered[cid].append(skill)
-            existing_lower.add(skill.lower())
+            _add_skill_if_supported(
+                filtered,
+                category_order,
+                category_id=cid,
+                skill=skill,
+                forbidden_active=forbidden_active,
+                allowed_skills_lower=allowed_skills_lower,
+            )
+
+    _fill_minimum_skills(
+        filtered,
+        category_order,
+        contract=contract,
+        allowed_categories=allowed_categories,
+        forbidden_active=forbidden_active,
+        allowed_skills_lower=allowed_skills_lower,
+    )
+    baseline_order = _apply_global_baseline(
+        filtered,
+        category_order,
+        contracts=contracts,
+        allowed_skills_lower=allowed_skills_lower,
+    )
 
     # Promote must_show categories to the top, preserve the rest of the order.
-    must_show_order: list[str] = [
-        cid for cid in must_show.keys() if filtered.get(cid)
-    ]
-    final_order: list[str] = list(must_show_order)
+    priority_order: list[str] = []
+    priority_candidates = list(baseline_order) + list(must_show.keys())
+    for cid in ("ml_ai", "data_analysis", "data_infra"):
+        if cid in priority_candidates and filtered.get(cid):
+            priority_order.append(cid)
+    for cid in priority_candidates:
+        if filtered.get(cid) and cid not in priority_order:
+            priority_order.append(cid)
+    final_order: list[str] = list(priority_order)
     for cid in category_order:
         if cid not in final_order and filtered.get(cid):
             final_order.append(cid)

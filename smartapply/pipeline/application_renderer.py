@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 from smartapply.config import get_settings
 from smartapply.cv import CvDocxRenderer, HtmlApplicationRenderer
 from smartapply.database.repository import upsert_document
-from smartapply.llm import EmailDraft
+from smartapply.llm import MotivationLetter
 from smartapply.logging_setup import get_logger
 from smartapply.profile import Profile
 
@@ -37,7 +37,7 @@ class ApplicationDocumentRenderer:
         *,
         report: "ApplyReport",
         adapted,
-        email_draft: EmailDraft,
+        letter_draft: MotivationLetter,
         job_title: str,
         job_company: str,
         contact_email: str | None,
@@ -57,7 +57,7 @@ class ApplicationDocumentRenderer:
         letter_html_path = out_dir / f"Lettre_motivation_{safe_name}.html"
         self.html.save_cv_html(adapted, cv_html_path)
         self.html.save_letter_html(
-            email_draft=email_draft,
+            email_draft=letter_draft,
             job_title=job_title,
             job_company=job_company,
             contact_email=contact_email,
@@ -73,7 +73,7 @@ class ApplicationDocumentRenderer:
             letter_pdf_path = out_dir / f"Lettre_motivation_{safe_name}.pdf"
             self.html.save_cv_pdf(adapted, cv_pdf_path)
             self.html.save_letter_pdf(
-                email_draft=email_draft,
+                email_draft=letter_draft,
                 job_title=job_title,
                 job_company=job_company,
                 contact_email=contact_email,

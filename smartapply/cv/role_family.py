@@ -21,16 +21,10 @@ RoleFamily = str
 
 OTHER: Final[RoleFamily] = "other"
 
-# Families that must match against the *primary* signal only (title +
-# role_type). They describe the core role: classifying a Data Scientist as
-# MLOps just because the offer asks for ``ML Ops workflows`` as a required
-# skill would be wrong. Other families can scan the full haystack.
-_PRIMARY_ONLY_FAMILIES: Final[frozenset[str]] = frozenset({"mlops"})
-
-# Ordered list of (family_id, regex patterns). Order matters: the first
-# family with a matching pattern wins. Put the more specific families first
-# (LLM/RAG before generic Data Scientist, MLOps before ML Engineer, ...).
-_FAMILY_PATTERNS: Final[list[tuple[RoleFamily, list[str]]]] = [
+# Ordered title/role_type patterns. These are high-confidence signals: when
+# the title says "Data Scientist" or "Backend Software Engineer", the family
+# should not be overwritten by noisy skills found later in the description.
+_TITLE_PATTERNS: Final[list[tuple[RoleFamily, list[str]]]] = [
     (
         "llm_engineer",
         [
@@ -38,6 +32,7 @@ _FAMILY_PATTERNS: Final[list[tuple[RoleFamily, list[str]]]] = [
             r"\bllms\b",
             r"\bgen[- ]?ai\b",
             r"\bgenerative ai\b",
+            r"\bia générative\b",
             r"\brag\b",
             r"\bretrieval[- ]augmented\b",
             r"\bvector (db|search|database|store)\b",
@@ -84,23 +79,11 @@ _FAMILY_PATTERNS: Final[list[tuple[RoleFamily, list[str]]]] = [
         ],
     ),
     (
-        "medical_ai",
-        [
-            r"\bmedical ai\b",
-            r"\bdigital health\b",
-            r"\bhealthtech\b",
-            r"\bbiomark",
-            r"\bclinical ai\b",
-            r"\bsanté numérique\b",
-            r"\bclinique",
-            r"\bdispositif médical\b",
-        ],
-    ),
-    (
         "mlops",
         [
             r"\bml[- ]?ops\b",
             r"\bdevops/ml\b",
+            r"\bdevops\s*/\s*ml\b",
             r"\bml platform\b",
             r"\bml infrastructure\b",
             r"\bmodel monitoring\b",
@@ -108,6 +91,65 @@ _FAMILY_PATTERNS: Final[list[tuple[RoleFamily, list[str]]]] = [
             r"\bplateforme ml\b",
         ],
     ),
+    (
+        "data_scientist",
+        [
+            r"\bdata scientist\b",
+            r"\bdatascientist\b",
+            r"\bdata[- ]scientist\b",
+            r"\bscientifique des données\b",
+            r"\bdata science\b",
+        ],
+    ),
+    (
+        "data_analyst",
+        [
+            r"\bdata analyst\b",
+            r"\bproduct data analyst\b",
+            r"\bproduct analyst\b",
+            r"\bbusiness analyst\b",
+            r"\banalyste (de )?donn",
+            r"\bdata miner\b",
+        ],
+    ),
+    (
+        "analytics_engineer",
+        [
+            r"\banalytics engineer\b",
+            r"\bbi engineer\b",
+        ],
+    ),
+    (
+        "data_engineer",
+        [
+            r"\bdata engineer\b",
+            r"\bcloud data engineer\b",
+            r"\bbig data engineer\b",
+            r"\bdata platform engineer\b",
+            r"\bingénieur data\b",
+        ],
+    ),
+    (
+        "software_engineer",
+        [
+            r"\bsoftware engineer\b",
+            r"\bsoftware developer\b",
+            r"\bbackend engineer\b",
+            r"\bbackend developer\b",
+            r"\bfullstack\b",
+            r"\bfull[- ]stack\b",
+            r"\bfrontend\b",
+            r"\bc\+\+",
+            r"\bqt framework\b",
+        ],
+    ),
+]
+
+
+# Generic ML/AI titles are intentionally handled after the locked title
+# patterns. A plain "AI Engineer" may become LLM/CV/Speech if the offer body is
+# clearly specialised, otherwise it falls back to ml_engineer.
+_GENERIC_PRIMARY_PATTERNS: Final[list[tuple[RoleFamily, list[str]]]] = [
     (
         "ml_engineer",
         [
@@ -120,6 +162,97 @@ _FAMILY_PATTERNS: Final[list[tuple[RoleFamily, list[str]]]] = [
             r"\bapplied (ai|ml) engineer\b",
         ],
     ),
+]
+
+
+_OFF_TARGET_PRIMARY_PATTERNS: Final[list[str]] = [
+    r"\bdevops\b",
+    r"\biam\b",
+    r"\bidentity and access\b",
+    r"\bcybersecurity\b",
+    r"\bcybersécurité\b",
+    r"\bsécurité\b",
+    r"\bresponsable développement\b",
+    r"\bjava development manager\b",
+]
+
+
+# Extended patterns are used only when the primary signal is ambiguous or
+# absent. They let "AI Engineer" become LLM Engineer when the offer body says
+# RAG/LLMs, without turning "Data Scientist" into "LLM Engineer".
+_SPECIALIST_EXTENDED_PATTERNS: Final[list[tuple[RoleFamily, list[str]]]] = [
+    (
+        "llm_engineer",
+        [
+            r"\bllm\b",
+            r"\bllms\b",
+            r"\bgen[- ]?ai\b",
+            r"\bgenerative ai\b",
+            r"\bia générative\b",
+            r"\brag\b",
+            r"\bretrieval[- ]augmented\b",
+            r"\bvector (db|search|database|store)\b",
+            r"\bprompt engineer",
+            r"\blangchain\b",
+            r"\bllamaindex\b",
+        ],
+    ),
+    (
+        "computer_vision",
+        [
+            r"\bcomputer vision\b",
+            r"\bvision par ordinateur\b",
+            r"\bopencv\b",
+            r"\bobject detection\b",
+            r"\bimage segmentation\b",
+            r"\bsemantic segmentation\b",
+            r"\binstance segmentation\b",
+            r"\bimage processing\b",
+            r"\bimage classification\b",
+            r"\bvision pipeline",
+        ],
+    ),
+    (
+        "speech_audio",
+        [
+            r"\bspeech[- ]to[- ]text\b",
+            r"\bspeech processing\b",
+            r"\btraitement de la voix\b",
+            r"\bvoice\b",
+            r"\baudio processing\b",
+            r"\btranscription\b",
+            r"\bdiarization\b",
+            r"\bwhisper\b",
+            r"\bpyannote\b",
+        ],
+    ),
+    (
+        "reinforcement_learning",
+        [
+            r"\breinforcement learning\b",
+            r"\bapprentissage par renforcement\b",
+            r"\bcontrol tasks?\b",
+            r"\bopenai gym\b",
+            r"\bpolicy gradient\b",
+        ],
+    ),
+    (
+        "medical_ai",
+        [
+            r"\bmedical ai\b",
+            r"\bdigital health\b",
+            r"\bhealthtech\b",
+            r"\bbiomark",
+            r"\bclinical ai\b",
+            r"\bsanté numérique\b",
+            r"\bclinique",
+            r"\bdispositif médical\b",
+        ],
+    ),
+]
+
+
+_EXTENDED_PATTERNS: Final[list[tuple[RoleFamily, list[str]]]] = [
     (
         "analytics_engineer",
         [
@@ -129,6 +262,19 @@ _FAMILY_PATTERNS: Final[list[tuple[RoleFamily, list[str]]]] = [
             r"\bsnowflake\b",
             r"\banalytics engineering\b",
             r"\bsemantic layer\b",
+        ],
+    ),
+    (
+        "data_engineer",
+        [
+            r"\bdata engineer\b",
+            r"\bcloud data engineer\b",
+            r"\bbig data engineer\b",
+            r"\bdata platform engineer\b",
+            r"\bdata pipelines?\b",
+            r"\bairflow\b",
+            r"\bbigquery\b",
+            r"\bdata transformation\b",
         ],
     ),
     (
@@ -154,25 +300,7 @@ _FAMILY_PATTERNS: Final[list[tuple[RoleFamily, list[str]]]] = [
             r"\bdata science\b",
         ],
     ),
-    (
-        "software_engineer",
-        [
-            r"\bsoftware engineer\b",
-            r"\bsoftware developer\b",
-            r"\bdéveloppeur\b",
-            r"\bdeveloper\b",
-            r"\bbackend engineer\b",
-            r"\bbackend developer\b",
-            r"\bfullstack\b",
-            r"\bfull[- ]stack\b",
-            r"\bfrontend\b",
-            r"\bc\+\+",
-            r"\btypescript\b",
-            r"\bangular\b",
-            r"\bnode\.?js\b",
-            r"\bqt framework\b",
-        ],
-    ),
+    *_GENERIC_PRIMARY_PATTERNS,
 ]
 
 
@@ -221,15 +349,45 @@ def _haystack(analysis: JobAnalysis, title: str) -> str:
     return " ".join(p for p in parts if p).lower()
 
 
+def _matches(patterns: list[str], text: str) -> bool:
+    return any(re.search(pattern, text) for pattern in patterns)
+
+
+def _match_family(
+    patterns_by_family: list[tuple[RoleFamily, list[str]]],
+    text: str,
+) -> RoleFamily | None:
+    for family_id, patterns in patterns_by_family:
+        if _matches(patterns, text):
+            return family_id
+    return None
+
+
 def classify(analysis: JobAnalysis, *, title: str = "") -> RoleFamily:
     """Return the role family id, or ``other`` when no pattern matches."""
     primary = _primary_haystack(analysis, title)
     extended = _haystack(analysis, title)
-    for family_id, patterns in _FAMILY_PATTERNS:
-        scope = primary if family_id in _PRIMARY_ONLY_FAMILIES else extended
-        for pattern in patterns:
-            if re.search(pattern, scope):
-                return family_id
+
+    locked_family = _match_family(_TITLE_PATTERNS, primary)
+    if locked_family:
+        return locked_family
+
+    if _matches(_OFF_TARGET_PRIMARY_PATTERNS, primary):
+        return OTHER
+
+    generic_family = _match_family(_GENERIC_PRIMARY_PATTERNS, primary)
+    if generic_family:
+        specialist_family = _match_family(_SPECIALIST_EXTENDED_PATTERNS, extended)
+        return specialist_family or generic_family
+
+    specialist_family = _match_family(_SPECIALIST_EXTENDED_PATTERNS, extended)
+    if specialist_family:
+        return specialist_family
+
+    extended_family = _match_family(_EXTENDED_PATTERNS, extended)
+    if extended_family:
+        return extended_family
+
     return OTHER
 
 
@@ -240,8 +398,8 @@ def has_data_scientist_ia_signal(
     """True when a Data Scientist offer also asks for AI/NLP/LLM/GenAI.
 
     Used to augment the data_scientist contract with NLP + Transformers +
-    Hugging Face on the ml_ai block. A vanilla DS role (forecasting,
-    classical stats, predictive modeling) gets a leaner ml_ai baseline.
+    Hugging Face on the ml_ai block. A vanilla DS role (forecasting or
+    classical statistics) gets a leaner ml_ai baseline.
     """
     haystack = _haystack(analysis, title)
     return any(re.search(p, haystack) for p in _DS_IA_SIGNAL_PATTERNS)

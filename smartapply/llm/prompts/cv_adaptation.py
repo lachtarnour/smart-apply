@@ -40,7 +40,7 @@ Hard rules:
 15. selected_skills is the exact Skills section to display. Build organized category blocks from allowed_skills_by_category only.
 16. Skill selection strategy: include offer-required skills that exist in allowed_skills; add core/profile skills only when they strengthen the application for this offer; omit generic or unrelated skills even if the candidate has them.
 17. Unsupported offer terms are a no-claim list: do not describe the candidate as having those skills in the summary, bullets, title, skills, email or warnings.
-18. selected_project_ids must contain at least 3 relevant projects when available. Prefer overlap with job tasks, required skills and project evidence; avoid unrelated filler when a more relevant project exists.
+18. selected_project_ids must contain 2 to 4 projects. Include at least 3 only when 3 genuinely relevant projects are available. Do not select a project only as filler.
 19. Output ONLY the JSON. No prose, no commentary.
 """
 
@@ -58,6 +58,9 @@ _NON_DISPLAY_DOMAIN_TERMS = {
     "llms",
     "speech processing",
     "audio processing",
+    "artificial intelligence",
+    "ai",
+    "deep learning",
 }
 
 
@@ -247,9 +250,10 @@ Don't:
 Produce a JSON conformant to the AdaptedCV schema. Choose the most relevant bullets for THIS offer. Anything you write about a bullet must be expressible by combining/paraphrasing its allowed_claims.
 
 Project output rule:
-- selected_project_ids must include at least 3 projects when at least 3 candidate projects are provided.
+- selected_project_ids must contain 2 to 4 projects.
+- Include at least 3 only when 3 genuinely relevant projects are available.
 - Rank projects by direct relevance to the job tasks, required skills and keywords.
-- Do not pick a project only as filler when another provided project has stronger overlap.
+- Do not pick a project only as filler.
 
 Skills output rule:
 - Fill selected_skills as a list of blocks: {{"category_id": "...", "skills": ["..."]}}.

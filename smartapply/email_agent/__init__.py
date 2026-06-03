@@ -16,6 +16,7 @@ from smartapply.email_agent.contact_providers import (
 )
 from smartapply.email_agent.eml_export import export_eml
 from smartapply.email_agent.gmail_draft import GmailDraftError, create_draft
+from smartapply.email_agent.template import build_application_email
 from smartapply.email_agent.writer import EmailWriter
 
 __all__ = [
@@ -27,6 +28,7 @@ __all__ = [
     "FoundContact",
     "GmailDraftError",
     "SnovContactProvider",
+    "build_application_email",
     "contact_lookup_key",
     "create_draft",
     "default_contact_chain",

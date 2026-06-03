@@ -93,6 +93,12 @@ def _selected_map(cv: AdaptedCV) -> dict[str, list[str]]:
             ["Build dbt models"],
             "analytics_engineer",
         ),
+        (
+            "Cloud Data Engineer",
+            "Cloud Data Engineer",
+            ["Build BigQuery, Airflow and dbt pipelines"],
+            "data_engineer",
+        ),
         ("MLOps Engineer", "MLOps", [], "mlops"),
         ("C++ Software Engineer", "Software Engineer", [], "software_engineer"),
         (
@@ -117,6 +123,18 @@ def _selected_map(cv: AdaptedCV) -> dict[str, list[str]]:
             "Marketing Manager",
             "Marketing",
             ["Run campaigns"],
+            "other",
+        ),
+        (
+            "DevOps (H/F)",
+            "DevOps",
+            ["Maintain BI portals and CI/CD scripts"],
+            "other",
+        ),
+        (
+            "Ingénieur IAM F/H",
+            "IAM Engineer",
+            ["Design identity and access management policies"],
             "other",
         ),
     ],
@@ -150,6 +168,43 @@ def test_mlops_requires_match_in_title_or_role_type():
     # But a genuine MLOps role still matches.
     mlops = _analysis(role_type="MLOps Engineer", main_tasks=["Build ML platform"])
     assert classify(mlops, title="MLOps Engineer") == "mlops"
+
+
+def test_title_family_wins_over_noisy_offer_body():
+    """Regression benchmark: explicit titles should not be rerouted by skills."""
+    product_analyst = _analysis(
+        role_type="Product Data Analyst",
+        main_tasks=["Build dashboards and analyze customer journey"],
+        required=["SQL", "Snowflake", "Power BI"],
+        keywords=["Machine learning", "Data visualization"],
+    )
+    assert (
+        classify(
+            product_analyst,
+            title="Product Data Analyst F/H - Système, réseaux, données",
+        )
+        == "data_analyst"
+    )
+
+    backend = _analysis(
+        role_type="Backend Software Engineer",
+        main_tasks=[
+            "Design backend features",
+            "Collaborate with data science and product teams",
+        ],
+        required=["Node.js", "API development", "Software architecture"],
+        keywords=["data engineering", "software architecture"],
+    )
+    assert classify(backend, title="Backend Software Engineer (H/F)") == "software_engineer"
+
+    ds_llm = _analysis(
+        role_type="Data Scientist",
+        main_tasks=["Integrate LLMs and generative AI into support projects"],
+        required=["Machine Learning", "NLP", "Databricks"],
+        keywords=["NLP", "Data pipelines"],
+    )
+    assert classify(ds_llm, title="Data scientist (H/F)") == "data_scientist"
+    assert has_data_scientist_ia_signal(ds_llm, "Data scientist (H/F)")
 
 
 def test_segmentation_in_data_mining_context_does_not_trigger_cv():
@@ -233,9 +288,8 @@ def test_data_scientist_strips_forbidden_prestige_skills():
     assert "ARIMA/SARIMA" in selected.get("stats_signal", [])
 
 
-def test_analytics_engineer_strips_fastapi_and_nlp_keeps_ml_baseline():
-    """Analytics Engineer keeps PyTorch/Scikit-learn baseline (relaxed profile),
-    but still strips Flask/FastAPI and NLP/Transformers from selected_skills."""
+def test_analytics_engineer_strips_fastapi_and_nlp_keeps_global_baseline():
+    """Analytics keeps the global baseline, while stripping noisy AI extras."""
     cv = _cv(
         {
             "data_analysis": ["SQL", "Python", "Data visualization"],
@@ -252,12 +306,34 @@ def test_analytics_engineer_strips_fastapi_and_nlp_keeps_ml_baseline():
     selected = _selected_map(adapted)
     assert "FastAPI" not in selected["data_infra"]
     assert "Flask" not in selected["data_infra"]
-    # ml_ai survives via must_show baseline (PyTorch + Scikit-learn).
-    assert "PyTorch" in selected["ml_ai"]
-    assert "Scikit-learn" in selected["ml_ai"]
+    assert {"Docker", "Git", "AWS"}.issubset(set(selected["data_infra"]))
+    assert {"PyTorch", "TensorFlow", "Scikit-learn"}.issubset(set(selected["ml_ai"]))
     # But forbidden NLP/Transformers are stripped.
     assert "NLP" not in selected["ml_ai"]
     assert "Transformers" not in selected["ml_ai"]
+
+
+def test_data_engineer_keeps_global_ml_and_pipeline_stack():
+    cv = _cv(
+        {
+            "ml_ai": ["PyTorch", "Scikit-learn", "NLP"],
+            "data_analysis": ["SQL"],
+            "data_infra": ["Data pipelines", "Docker"],
+        }
+    )
+    analysis = _analysis(
+        role_type="Cloud Data Engineer",
+        main_tasks=["Build BigQuery, Airflow and dbt pipelines"],
+        required=["SQL", "CI/CD", "Terraform"],
+    )
+    adapted, family = _apply(cv, analysis, "Cloud Data Engineer")
+    assert family == "data_engineer"
+    selected = _selected_map(adapted)
+    assert {"PyTorch", "TensorFlow", "Scikit-learn"}.issubset(set(selected["ml_ai"]))
+    assert "Python" in selected["data_analysis"]
+    assert {"Data pipelines", "Spark", "Docker", "Git", "CI/CD"}.issubset(
+        set(selected["data_infra"])
+    )
 
 
 def test_llm_engineer_anchors_rag_block():
@@ -278,7 +354,7 @@ def test_software_engineer_strips_nlp_when_not_explicitly_required():
     cv = _cv(
         {
             "data_analysis": ["Python"],
-            "data_infra": ["Git", "Docker", "CI/CD"],
+            "data_infra": ["Git", "Docker", "CI/CD", "FastAPI", "Flask"],
             "ml_ai": ["NLP", "Transformers"],
         }
     )
@@ -289,8 +365,12 @@ def test_software_engineer_strips_nlp_when_not_explicitly_required():
     adapted, family = _apply(cv, analysis, "C++ Software Engineer")
     assert family == "software_engineer"
     selected = _selected_map(adapted)
-    assert "ml_ai" not in selected
-    assert {"Git", "Docker", "CI/CD"}.issubset(set(selected["data_infra"]))
+    assert {"PyTorch", "TensorFlow", "Scikit-learn"}.issubset(set(selected["ml_ai"]))
+    assert "FastAPI" not in selected["data_infra"]
+    assert {"Git", "Docker", "CI/CD", "AWS"}.issubset(
+        set(selected["data_infra"])
+    )
+    assert "REST APIs" not in selected["data_infra"]
 
 
 def test_explicit_required_skill_lifts_forbidden_lock():
@@ -310,12 +390,27 @@ def test_explicit_required_skill_lifts_forbidden_lock():
     assert "NLP" in selected.get("ml_ai", [])
 
 
-def test_other_family_is_a_noop():
-    cv = _cv({"data_analysis": ["Python", "SQL"]})
+def test_other_family_uses_minimal_contract():
+    cv = _cv(
+        {
+            "ml_ai": ["NLP", "PyTorch", "Scikit-learn"],
+            "data_analysis": ["Python", "SQL"],
+            "data_infra": ["AWS"],
+        }
+    )
     analysis = _analysis(role_type="Marketing Manager")
     adapted, family = _apply(cv, analysis, "Marketing Manager")
     assert family == "other"
-    assert _selected_map(adapted) == {"data_analysis": ["Python", "SQL"]}
+    selected = _selected_map(adapted)
+    assert {"PyTorch", "TensorFlow", "Scikit-learn"}.issubset(set(selected["ml_ai"]))
+    assert {"Python", "SQL", "Pandas", "NumPy"}.issubset(
+        set(selected["data_analysis"])
+    )
+    assert {"Git", "Docker", "AWS", "CI/CD"}.issubset(
+        set(selected["data_infra"])
+    )
+    assert "REST APIs" not in selected["data_infra"]
+    assert sum(len(skills) for skills in selected.values()) >= 8
 
 
 def test_data_scientist_anchors_r_in_data_analysis():
@@ -326,12 +421,18 @@ def test_data_scientist_anchors_r_in_data_analysis():
     assert "R" in _selected_map(adapted)["data_analysis"]
 
 
-def test_data_scientist_does_not_force_spark():
-    """Spark stays out unless the offer explicitly asks for it."""
+def test_data_scientist_keeps_global_infra_baseline():
+    """The global baseline keeps core infra visible on every CV."""
     cv = _cv({"data_analysis": ["Python", "SQL"]})
     analysis = _analysis(role_type="Data Scientist")
     adapted, _ = _apply(cv, analysis, "Data Scientist")
-    assert "Spark" not in _selected_map(adapted).get("data_infra", [])
+    selected = _selected_map(adapted)
+    assert {"Docker", "Git", "AWS"}.issubset(
+        set(selected["data_infra"])
+    )
+    assert "Spark" not in selected["data_infra"]
+    assert "Flask" not in selected["data_infra"]
+    assert "TensorFlow" in selected["ml_ai"]
 
 
 def test_data_scientist_keeps_spark_when_offer_requires_it():
@@ -356,13 +457,18 @@ def test_mlops_forces_spark():
     assert "Spark" in _selected_map(adapted)["data_infra"]
 
 
-def test_data_analyst_forces_r_not_spark():
+def test_data_analyst_keeps_r_and_global_baseline():
     cv = _cv({"data_analysis": ["SQL", "Python"]})
     analysis = _analysis(role_type="Data Analyst")
     adapted, _ = _apply(cv, analysis, "Data Analyst")
     selected = _selected_map(adapted)
     assert "R" in selected["data_analysis"]
-    assert "Spark" not in selected.get("data_infra", [])
+    assert {"PyTorch", "TensorFlow", "Scikit-learn"}.issubset(set(selected["ml_ai"]))
+    assert {"Docker", "Git", "AWS"}.issubset(
+        set(selected["data_infra"])
+    )
+    assert "Spark" not in selected["data_infra"]
+    assert "Flask" not in selected["data_infra"]
 
 
 def test_analytics_engineer_forces_r_and_spark():
@@ -375,7 +481,7 @@ def test_analytics_engineer_forces_r_and_spark():
 
 
 def test_must_show_ordered_first():
-    """must_show categories should sit at the top of skills_order."""
+    """Global baseline and must_show categories should sit at the top."""
     cv = _cv(
         {
             "stats_signal": ["ARIMA/SARIMA"],
@@ -384,7 +490,5 @@ def test_must_show_ordered_first():
     )
     analysis = _analysis(role_type="Data Scientist")
     adapted, _family = _apply(cv, analysis, "Data Scientist")
-    # ml_ai (must_show) and data_analysis (must_show) before stats_signal.
-    assert adapted.skills_order[0] in {"ml_ai", "data_analysis"}
-    assert adapted.skills_order[1] in {"ml_ai", "data_analysis"}
+    assert adapted.skills_order[:3] == ["ml_ai", "data_analysis", "data_infra"]
     assert adapted.skills_order[-1] == "stats_signal"

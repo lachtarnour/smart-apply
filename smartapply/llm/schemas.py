@@ -148,7 +148,19 @@ class EmailDraft(BaseModel):
 
     subject: str = Field(description="Email subject line, concise and specific")
     body: str = Field(
-        description="120-170 words, friendly-professional, no buzzwords, no fluff."
+        description="Short deterministic sending email, friendly-professional, no fluff."
+    )
+
+
+class MotivationLetter(BaseModel):
+    model_config = _strict
+
+    subject: str = Field(description="Motivation letter subject line")
+    body: str = Field(
+        description=(
+            "180-280 words, natural and professional. Must be grounded in the "
+            "selected CV/project evidence."
+        )
     )
 
 
@@ -189,9 +201,12 @@ class ApplicationDraft(BaseModel):
     warnings: list[str] = Field(
         description="Any concern the model wants to surface to the validator"
     )
-    email_subject: str = Field(description="Email subject line, concise and specific")
-    email_body: str = Field(
-        description="120-170 words, friendly-professional, no buzzwords, no fluff."
+    motivation_letter_subject: str = Field(description="Motivation letter subject line")
+    motivation_letter_body: str = Field(
+        description=(
+            "180-280 words, natural and professional. Must reuse evidence from "
+            "selected_experiences or selected_project_ids."
+        )
     )
 
     def to_cv(self) -> AdaptedCV:
@@ -206,8 +221,11 @@ class ApplicationDraft(BaseModel):
             warnings=self.warnings,
         )
 
-    def to_email(self) -> EmailDraft:
-        return EmailDraft(subject=self.email_subject, body=self.email_body)
+    def to_motivation_letter(self) -> MotivationLetter:
+        return MotivationLetter(
+            subject=self.motivation_letter_subject,
+            body=self.motivation_letter_body,
+        )
 
 
 class ApplicationQualityReview(BaseModel):
@@ -216,7 +234,11 @@ class ApplicationQualityReview(BaseModel):
     approved: bool = Field(description="True only if the application is safe to draft/send")
     match_score: float = Field(ge=0.0, le=1.0, description="Offer/profile fit")
     cv_score: float = Field(ge=0.0, le=1.0, description="CV relevance and specificity")
-    email_score: float = Field(ge=0.0, le=1.0, description="Email relevance and quality")
+    email_score: float = Field(
+        ge=0.0,
+        le=1.0,
+        description="Motivation letter relevance plus short email suitability",
+    )
     risks: list[str] = Field(description="Concrete risks or blockers")
     fixes_required: list[str] = Field(description="Changes needed before sending")
     decision_reason: str = Field(description="Short explanation of the decision")

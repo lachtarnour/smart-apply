@@ -1,4 +1,4 @@
-"""Email writer — small LLM call producing a short, personalised email."""
+"""Legacy LLM writer for a concise motivation letter."""
 
 from __future__ import annotations
 

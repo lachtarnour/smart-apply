@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from smartapply.llm import AdaptedCV, EmailDraft, JobAnalysis
+from smartapply.llm import AdaptedCV, EmailDraft, JobAnalysis, MotivationLetter
 from smartapply.profile import Profile
 
 
@@ -15,7 +15,8 @@ Your job is to decide if an automated application is safe to turn into a Gmail d
 Approve ONLY when:
 - the role is a strong fit for this candidate;
 - the CV is specific to the offer and grounded in the profile;
-- the email clearly references the role/company and a concrete matching proof;
+- the motivation letter clearly references the role/company and concrete matching proof;
+- the short email is suitable as a deterministic sending note;
 - there is no obvious hallucination, overclaim, weak match, or generic message.
 
 Reject if the application is mediocre, too generic, outside target roles, too senior,
@@ -34,6 +35,7 @@ def build_user_prompt(
     score_components: dict[str, Any] | None,
     analysis: JobAnalysis,
     adapted_cv: AdaptedCV,
+    motivation_letter: MotivationLetter,
     email_draft: EmailDraft,
     validation_warnings: list[str],
     validation_errors: list[str],
@@ -62,7 +64,12 @@ Description:
 === GENERATED CV JSON ===
 {adapted_cv.model_dump_json()}
 
-=== GENERATED EMAIL ===
+=== GENERATED MOTIVATION LETTER ===
+Subject: {motivation_letter.subject}
+Body:
+{motivation_letter.body}
+
+=== GENERATED EMAIL TEMPLATE ===
 Subject: {email_draft.subject}
 Body:
 {email_draft.body}
@@ -71,6 +78,6 @@ Body:
 Warnings: {validation_warnings}
 Errors: {validation_errors}
 
-Decide if this is safe to create as an automated Gmail draft.
+Decide if this is safe to create as an automated Gmail draft with CV and motivation letter attachments.
 Use scores from 0.0 to 1.0. Be strict: average applications should be rejected.
 """

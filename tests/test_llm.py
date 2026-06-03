@@ -85,11 +85,11 @@ def test_application_draft_maps_to_cv_and_email() -> None:
         selected_project_ids=["proj_scifact_rag"],
         skills_order=["ml_ai"],
         warnings=[],
-        email_subject="Application: Data Scientist",
-        email_body="Hello,\n...",
+        motivation_letter_subject="Application: Data Scientist",
+        motivation_letter_body="Hello,\n...",
     )
     assert draft.to_cv().cv_title == "Data Scientist NLP"
-    assert draft.to_email().subject == "Application: Data Scientist"
+    assert draft.to_motivation_letter().subject == "Application: Data Scientist"
 
 
 # ---------------- Cache key ----------------

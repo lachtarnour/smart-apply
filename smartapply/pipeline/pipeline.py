@@ -32,7 +32,7 @@ from smartapply.logging_setup import get_logger
 from smartapply.pipeline.applier import Applier, ApplyMode, ApplyReport
 from smartapply.pipeline.application_renderer import ApplicationDocumentRenderer
 from smartapply.pipeline.contact_service import ContactService
-from smartapply.pipeline.ingestor import Ingestor, IngestReport, split_or_query
+from smartapply.pipeline.ingestor import Ingestor, IngestReport
 from smartapply.pipeline.language import detect_offer_language
 from smartapply.pipeline.processor import ProcessReport, Processor
 from smartapply.profile import get_profile
@@ -110,8 +110,17 @@ class Pipeline:
         if accepted == ["cdi"]:
             if source == "francetravail" and "type_contrat" not in search_kwargs:
                 search_kwargs["type_contrat"] = "CDI"
-            elif source == "serpapi" and "cdi" not in query.lower():
-                query = " OR ".join(f"{part} CDI" for part in split_or_query(query))
+            elif source == "serpapi":
+                existing_chips = search_kwargs.get("chips", "")
+                fulltime_chip = "employment_type:FULLTIME"
+                chips = [
+                    chip.strip()
+                    for chip in str(existing_chips).split(",")
+                    if chip.strip()
+                ]
+                if fulltime_chip.lower() not in {chip.lower() for chip in chips}:
+                    chips.append(fulltime_chip)
+                search_kwargs["chips"] = ",".join(chips)
         return self._ingestor.from_source(
             source,
             query,

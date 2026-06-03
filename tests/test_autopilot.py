@@ -75,6 +75,29 @@ def _isolated_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 def _register_llm(approved: bool = True) -> None:
     MockLLMProvider.clear()
+    motivation_body = (
+        "Bonjour,\n\n"
+        "Je vous adresse ma candidature pour le poste de Data Scientist NLP. "
+        "Chez Emobot, j'ai construit des pipelines de biomarqueurs numeriques "
+        "a partir de donnees faciales, de mobilite et de smartphone, avec une "
+        "correlation de 0.67 avec des scores cliniques valides. Cette experience "
+        "m'a donne une pratique concrete de Python, PyTorch et de la modelisation "
+        "appliquee a des donnees sensibles, avec une attention forte portee a la "
+        "qualite des signaux et a la validation. J'ai aussi developpe des pipelines "
+        "speech et NLP autour de Whisper et Pyannote, utiles pour structurer des "
+        "donnees complexes avant leur exploitation. En parallele, mon projet "
+        "SciFact RAG Verifier m'a permis de construire une chaine de verification "
+        "avec BM25, FAISS, reranking et generation de reponses fondees. Ces elements "
+        "correspondent bien aux missions de construction de pipelines RAG, de "
+        "fine-tuning et de mise en production de modeles que vous decrivez. "
+        "Mon parcours combine donc experimentation, evaluation et integration "
+        "logicielle, ce qui me permet d'avancer rapidement sur des cas d'usage "
+        "data tout en restant attentif a la robustesse des resultats. "
+        "Je serais heureux d'echanger sur la maniere dont ce profil pourrait "
+        "contribuer a vos sujets data et IA.\n\n"
+        "Cordialement,\n"
+        "Lachtar Nour"
+    )
     MockLLMProvider.register(
         "job_analysis",
         JobAnalysis(
@@ -109,7 +132,7 @@ def _register_llm(approved: bool = True) -> None:
                     ],
                 )
             ],
-            selected_project_ids=["proj_scifact_rag"],
+            selected_project_ids=["proj_scifact_rag", "proj_ner_camembert"],
             skills_order=["ml_ai", "data_infra", "stats_signal"],
             warnings=[],
         ),
@@ -134,16 +157,11 @@ def _register_llm(approved: bool = True) -> None:
                     ],
                 )
             ],
-            selected_project_ids=["proj_scifact_rag"],
+            selected_project_ids=["proj_scifact_rag", "proj_ner_camembert"],
             skills_order=["ml_ai", "data_infra", "stats_signal"],
             warnings=[],
-            email_subject="Candidature : Data Scientist NLP - Lachtar Nour",
-            email_body=(
-                "Bonjour,\n\nJe candidate au poste de Data Scientist NLP. "
-                "Mon experience en pipelines NLP/RAG et multimodal AI chez Emobot "
-                "correspond aux missions de modelisation et d'industrialisation que "
-                "vous decrivez. Je serais ravi d'echanger avec vous.\n\nCordialement,\nNour"
-            ),
+            motivation_letter_subject="Candidature - Data Scientist NLP - Lachtar Nour",
+            motivation_letter_body=motivation_body,
         ),
     )
     MockLLMProvider.register(
