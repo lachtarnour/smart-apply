@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="{{ 'en' if labels.document_title == 'Motivation Letter' else 'fr' }}">
+<head>
+  <meta charset="utf-8">
+  <title>{{ labels.document_title }} - {{ profile.identity.full_name }}</title>
+  <style>
+    @page {
+      size: A4;
+      margin: 17mm 18mm 16mm 18mm;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      color: #111111;
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 11pt;
+      line-height: 1.35;
+    }
+
+    h1 {
+      margin: 0 0 5px 0;
+      font-size: 17.5pt;
+      line-height: 1;
+      font-weight: 500;
+      letter-spacing: 0;
+    }
+
+    .headline {
+      margin: 0 0 11px 0;
+      font-style: italic;
+    }
+
+    .contact {
+      margin: 0 0 22px 0;
+      font-size: 10pt;
+    }
+
+    .contact a {
+      color: #2368d1;
+      text-decoration: none;
+    }
+
+    .contact-separator {
+      color: #333333;
+    }
+
+    .meta {
+      margin: 0 0 18px auto;
+      width: 68mm;
+      font-size: 10.6pt;
+    }
+
+    .section-title {
+      margin: 0 0 18px 0;
+      padding-bottom: 2px;
+      border-bottom: 1px solid #111111;
+      color: #2368d1;
+      font-size: 11.4pt;
+      line-height: 1.1;
+      font-weight: 700;
+      letter-spacing: 1px;
+    }
+
+    .subject {
+      margin: 0 0 18px 0;
+      font-weight: 700;
+    }
+
+    .body p {
+      margin: 0 0 13px 0;
+      text-align: justify;
+    }
+
+    .signature {
+      margin-top: 22px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>{{ profile.identity.full_name }}</h1>
+    <p class="headline">{{ profile.identity.title }}</p>
+    <p class="contact">
+      {% for item in contact_items -%}
+      {% if item.href %}<a href="{{ item.href }}">{{ item.label }}</a>{% else %}{{ item.label }}{% endif %}{% if not loop.last %}<span class="contact-separator"> | </span>{% endif %}
+      {%- endfor %}
+    </p>
+  </header>
+
+  <div class="meta">
+    <div>{{ job_company }}</div>
+    <div>{{ labels.role }}{{ labels.separator }} {{ job_title }}</div>
+    {% if contact_email %}<div>{{ labels.contact }}{{ labels.separator }} {{ contact_email }}</div>{% endif %}
+  </div>
+
+  <section>
+    <h2 class="section-title">{{ labels.document_title }}</h2>
+    <p class="subject">{{ labels.subject }}{{ labels.separator }} {{ subject }}</p>
+    <div class="body">
+      {% for paragraph in paragraphs %}
+      <p>{{ paragraph }}</p>
+      {% endfor %}
+    </div>
+    <p class="signature">{{ profile.identity.full_name }}</p>
+  </section>
+</body>
+</html>

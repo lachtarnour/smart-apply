@@ -1,0 +1,49 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+.installed.cfg
+*.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+
+# ---- Virtualenvs ----
+.venv/
+venv/
+env/
+ENV/
+
+# ---- Secrets ----
+.env
+.env.local
+secrets/
+*.pem
+credentials.json
+token.json
+
+# ---- Data ----
+data/smartapply.db
+data/cache/
+data/output/
+data/scraped/
+
+# ---- Editors ----
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# ---- Streamlit ----
+.streamlit/secrets.toml
+/data/

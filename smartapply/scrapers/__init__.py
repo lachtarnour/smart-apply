@@ -1,0 +1,37 @@
+"""Scrapers — collect jobs from multiple sources via a common interface."""
+
+from smartapply.scrapers.base import (
+    RawJob,
+    Scraper,
+    ScraperConfigError,
+    ScraperError,
+    make_external_id,
+)
+from smartapply.scrapers.francetravail import FranceTravailScraper
+from smartapply.scrapers.manual import ManualScraper
+from smartapply.scrapers.registry import (
+    available_scrapers,
+    get_active_scrapers,
+    get_scraper,
+)
+from smartapply.scrapers.serpapi import (
+    SERPAPI_DATE_POSTED_LABELS,
+    SERPAPI_DATE_POSTED_OPTIONS,
+    SerpApiGoogleJobsScraper,
+)
+
+__all__ = [
+    "FranceTravailScraper",
+    "ManualScraper",
+    "RawJob",
+    "Scraper",
+    "ScraperConfigError",
+    "ScraperError",
+    "SERPAPI_DATE_POSTED_LABELS",
+    "SERPAPI_DATE_POSTED_OPTIONS",
+    "SerpApiGoogleJobsScraper",
+    "available_scrapers",
+    "get_active_scrapers",
+    "get_scraper",
+    "make_external_id",
+]

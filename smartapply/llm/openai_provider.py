@@ -1,0 +1,201 @@
+"""OpenAI implementation of LLMProvider with structured outputs and cache."""
+
+from __future__ import annotations
+
+import json
+from typing import TypeVar
+
+from openai import APIConnectionError, APITimeoutError, RateLimitError
+from pydantic import BaseModel, ValidationError
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+
+from smartapply.config import get_settings
+from smartapply.database import session_scope
+from smartapply.database.repository import cache_get, cache_set, record_usage
+from smartapply.llm.cache import make_cache_key
+from smartapply.llm.provider import LLMError, LLMProvider, LLMValidationError
+from smartapply.llm.usage import estimate_cost_usd
+from smartapply.logging_setup import get_logger
+
+logger = get_logger(__name__)
+
+# Only these exception types should trigger a retry. Anything else (auth
+# failures, validation errors, bad-request) must fail fast so the caller can
+# fix the input or escalate.
+_RETRYABLE_ERRORS = (APIConnectionError, APITimeoutError, RateLimitError)
+
+T = TypeVar("T", bound=BaseModel)
+
+
+def _to_strict_schema(model_cls: type[BaseModel]) -> dict:
+    """Convert a Pydantic schema to OpenAI strict json_schema format.
+
+    OpenAI's strict mode requires:
+    - additionalProperties: false on every object
+    - every property listed in `required`
+    - no `$ref` to definitions at the root (we inline them when possible)
+    """
+    schema = model_cls.model_json_schema()
+
+    def _walk(node: dict) -> None:
+        if not isinstance(node, dict):
+            return
+        if node.get("type") == "object" or "properties" in node:
+            node["additionalProperties"] = False
+            props = node.get("properties", {})
+            node["required"] = list(props.keys())
+            for v in props.values():
+                _walk(v)
+        if "items" in node:
+            _walk(node["items"])
+        for defs_key in ("$defs", "definitions"):
+            if defs_key in node:
+                for v in node[defs_key].values():
+                    _walk(v)
+
+    _walk(schema)
+    return schema
+
+
+class OpenAIProvider(LLMProvider):
+    name = "openai"
+
+    def __init__(self):
+        self._settings = get_settings()
+        self._client = None  # lazy
+
+    @property
+    def smart_model(self) -> str:
+        return self._settings.openai_model_smart
+
+    @property
+    def cheap_model(self) -> str:
+        return self._settings.openai_model_cheap
+
+    def _client_lazy(self):
+        if self._client is None:
+            from openai import OpenAI
+
+            api_key = self._settings.openai_api_key
+            if not api_key:
+                raise LLMError("OPENAI_API_KEY is not set")
+            self._client = OpenAI(api_key=api_key)
+        return self._client
+
+    @retry(
+        # Only retry transient infrastructure errors. Validation failures and
+        # 4xx (bad request / quota exceeded) should fail fast.
+        retry=retry_if_exception_type(_RETRYABLE_ERRORS),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        reraise=True,
+    )
+    def _call_openai(self, **kwargs):
+        return self._client_lazy().chat.completions.create(**kwargs)
+
+    def complete_json(
+        self,
+        *,
+        system: str,
+        user: str,
+        schema: type[T],
+        model: str | None = None,
+        temperature: float = 0.2,
+        purpose: str = "generic",
+        job_id: int | None = None,
+        use_cache: bool = True,
+    ) -> T:
+        model_name = model or self.cheap_model
+        cache_key = make_cache_key(
+            model=model_name,
+            system=system,
+            user=user,
+            schema_name=schema.__name__,
+            extra={"temperature": temperature},
+        )
+
+        # --- Cache lookup ---
+        if use_cache:
+            try:
+                with session_scope() as s:
+                    cached = cache_get(s, cache_key)
+                    if cached is not None:
+                        logger.info("LLM cache hit: %s [%s]", purpose, model_name)
+                        record_usage(
+                            s,
+                            purpose=purpose,
+                            model=model_name,
+                            prompt_tokens=cached.prompt_tokens,
+                            completion_tokens=cached.completion_tokens,
+                            cost_usd=0.0,
+                            cached=True,
+                            job_id=job_id,
+                        )
+                        return self._validate(cached.response, schema)
+            except Exception as e:
+                logger.warning("Cache lookup failed (continuing): %s", e)
+
+        # --- API call ---
+        json_schema = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": schema.__name__,
+                "strict": True,
+                "schema": _to_strict_schema(schema),
+            },
+        }
+        try:
+            response = self._call_openai(
+                model=model_name,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                response_format=json_schema,
+                temperature=temperature,
+            )
+        except Exception as e:
+            raise LLMError(f"OpenAI call failed: {e}") from e
+
+        content = response.choices[0].message.content or ""
+        usage = response.usage
+        prompt_tokens = getattr(usage, "prompt_tokens", 0) or 0
+        completion_tokens = getattr(usage, "completion_tokens", 0) or 0
+        cost = estimate_cost_usd(model_name, prompt_tokens, completion_tokens)
+
+        # --- Cache + usage ---
+        if use_cache:
+            try:
+                with session_scope() as s:
+                    cache_set(
+                        s,
+                        cache_key=cache_key,
+                        model=model_name,
+                        response=content,
+                        prompt_tokens=prompt_tokens,
+                        completion_tokens=completion_tokens,
+                        purpose=purpose,
+                    )
+                    record_usage(
+                        s,
+                        purpose=purpose,
+                        model=model_name,
+                        prompt_tokens=prompt_tokens,
+                        completion_tokens=completion_tokens,
+                        cost_usd=cost,
+                        cached=False,
+                        job_id=job_id,
+                    )
+            except Exception as e:
+                logger.warning("Cache write failed (continuing): %s", e)
+
+        return self._validate(content, schema)
+
+    # -------------------- helpers --------------------
+
+    @staticmethod
+    def _validate(raw: str, schema: type[T]) -> T:
+        try:
+            return schema.model_validate(json.loads(raw))
+        except (json.JSONDecodeError, ValidationError) as e:
+            raise LLMValidationError(f"Invalid LLM output for {schema.__name__}: {e}") from e

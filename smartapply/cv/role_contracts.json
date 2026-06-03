@@ -1,0 +1,362 @@
+{
+  "data_scientist": {
+    "profile_id": "mixed",
+    "allowed_categories": [
+      "ml_ai",
+      "data_analysis",
+      "data_infra",
+      "stats_signal"
+    ],
+    "must_show": {
+      "ml_ai": [
+        "PyTorch",
+        "Scikit-learn"
+      ],
+      "data_analysis": [
+        "Python",
+        "SQL",
+        "R",
+        "Pandas",
+        "NumPy"
+      ]
+    },
+    "forbidden": [
+      "FAISS",
+      "Vector search",
+      "OpenAI Gym",
+      "Markov chains",
+      "Whisper",
+      "Pyannote",
+      "OpenSMILE"
+    ]
+  },
+  "ml_engineer": {
+    "profile_id": "machine_learning",
+    "allowed_categories": [
+      "ml_ai",
+      "data_analysis",
+      "data_infra"
+    ],
+    "must_show": {
+      "ml_ai": [
+        "PyTorch",
+        "Scikit-learn"
+      ],
+      "data_infra": [
+        "FastAPI",
+        "REST APIs",
+        "Data pipelines",
+        "Docker",
+        "Git",
+        "Spark"
+      ]
+    },
+    "forbidden": [
+      "FAISS",
+      "Vector search",
+      "OpenAI Gym",
+      "Markov chains",
+      "Whisper",
+      "Pyannote",
+      "OpenSMILE"
+    ]
+  },
+  "llm_engineer": {
+    "profile_id": "llm",
+    "allowed_categories": [
+      "ml_ai",
+      "rag_retrieval",
+      "data_analysis",
+      "data_infra"
+    ],
+    "must_show": {
+      "ml_ai": [
+        "NLP",
+        "LLMs",
+        "Transformers",
+        "Hugging Face"
+      ],
+      "rag_retrieval": [
+        "RAG",
+        "Vector search",
+        "FAISS"
+      ],
+      "data_infra": [
+        "FastAPI",
+        "REST APIs"
+      ]
+    },
+    "forbidden": [
+      "OpenAI Gym",
+      "Markov chains",
+      "ARIMA/SARIMA",
+      "Whisper",
+      "Pyannote",
+      "OpenSMILE"
+    ]
+  },
+  "data_analyst": {
+    "profile_id": "data_analyst",
+    "allowed_categories": [
+      "data_analysis",
+      "data_infra",
+      "stats_signal"
+    ],
+    "must_show": {
+      "data_analysis": [
+        "SQL",
+        "Python",
+        "R",
+        "Pandas",
+        "Data visualization"
+      ]
+    },
+    "forbidden": [
+      "FAISS",
+      "RAG",
+      "Vector search",
+      "LLMs",
+      "Transformers",
+      "Hugging Face",
+      "OpenAI Gym",
+      "Markov chains",
+      "Whisper",
+      "Pyannote",
+      "OpenSMILE",
+      "FastAPI",
+      "Flask",
+      "ARIMA/SARIMA",
+      "ONNX",
+      "Model quantization",
+      "Model monitoring"
+    ]
+  },
+  "analytics_engineer": {
+    "profile_id": "data_analyst",
+    "allowed_categories": [
+      "ml_ai",
+      "data_analysis",
+      "data_infra"
+    ],
+    "must_show": {
+      "ml_ai": [
+        "PyTorch",
+        "Scikit-learn"
+      ],
+      "data_analysis": [
+        "SQL",
+        "Python",
+        "R",
+        "Pandas",
+        "Data visualization"
+      ],
+      "data_infra": [
+        "Data pipelines",
+        "Git",
+        "Spark"
+      ]
+    },
+    "forbidden": [
+      "FAISS",
+      "RAG",
+      "Vector search",
+      "NLP",
+      "LLMs",
+      "Transformers",
+      "Hugging Face",
+      "OpenAI Gym",
+      "Markov chains",
+      "Anomaly detection",
+      "Time-series modeling",
+      "FastAPI",
+      "Flask",
+      "ONNX",
+      "Model quantization",
+      "Model monitoring"
+    ]
+  },
+  "mlops": {
+    "profile_id": "machine_learning",
+    "allowed_categories": [
+      "data_analysis",
+      "data_infra",
+      "ml_ai"
+    ],
+    "must_show": {
+      "data_infra": [
+        "Docker",
+        "AWS",
+        "CI/CD",
+        "Data pipelines",
+        "Spark",
+        "Model monitoring"
+      ],
+      "data_analysis": [
+        "Python",
+        "SQL"
+      ]
+    },
+    "forbidden": [
+      "FAISS",
+      "RAG",
+      "Vector search",
+      "OpenAI Gym",
+      "Markov chains",
+      "Whisper",
+      "Pyannote",
+      "OpenSMILE"
+    ]
+  },
+  "software_engineer": {
+    "profile_id": "machine_learning",
+    "allowed_categories": [
+      "data_analysis",
+      "data_infra"
+    ],
+    "must_show": {
+      "data_analysis": [
+        "Python"
+      ],
+      "data_infra": [
+        "Git",
+        "Docker",
+        "CI/CD"
+      ]
+    },
+    "forbidden": [
+      "FAISS",
+      "RAG",
+      "Vector search",
+      "NLP",
+      "LLMs",
+      "Transformers",
+      "Hugging Face",
+      "OpenAI Gym",
+      "Markov chains",
+      "ARIMA/SARIMA",
+      "Whisper",
+      "Pyannote",
+      "OpenSMILE",
+      "ONNX",
+      "Model quantization",
+      "Model monitoring"
+    ]
+  },
+  "computer_vision": {
+    "profile_id": "computer_vision",
+    "allowed_categories": [
+      "computer_vision",
+      "ml_ai",
+      "data_analysis",
+      "data_infra"
+    ],
+    "must_show": {
+      "computer_vision": [
+        "CNNs",
+        "OpenCV",
+        "Image processing"
+      ],
+      "ml_ai": [
+        "PyTorch"
+      ],
+      "data_analysis": [
+        "Python"
+      ]
+    },
+    "forbidden": [
+      "FAISS",
+      "RAG",
+      "Vector search",
+      "OpenAI Gym",
+      "Markov chains",
+      "Whisper",
+      "Pyannote",
+      "OpenSMILE"
+    ]
+  },
+  "speech_audio": {
+    "profile_id": "speech_audio",
+    "allowed_categories": [
+      "speech_audio",
+      "ml_ai",
+      "data_analysis",
+      "data_infra"
+    ],
+    "must_show": {
+      "speech_audio": [
+        "Speech processing",
+        "Audio processing",
+        "Whisper"
+      ],
+      "ml_ai": [
+        "PyTorch"
+      ],
+      "data_analysis": [
+        "Python"
+      ]
+    },
+    "forbidden": [
+      "FAISS",
+      "RAG",
+      "Vector search",
+      "OpenAI Gym",
+      "Markov chains"
+    ]
+  },
+  "medical_ai": {
+    "profile_id": "medical_ai",
+    "allowed_categories": [
+      "ml_ai",
+      "speech_audio",
+      "computer_vision",
+      "data_analysis",
+      "data_infra",
+      "stats_signal"
+    ],
+    "must_show": {
+      "ml_ai": [
+        "PyTorch",
+        "Scikit-learn"
+      ],
+      "data_analysis": [
+        "Python",
+        "SQL",
+        "R"
+      ]
+    },
+    "forbidden": [
+      "OpenAI Gym",
+      "Markov chains"
+    ]
+  },
+  "reinforcement_learning": {
+    "profile_id": "reinforcement_learning",
+    "allowed_categories": [
+      "rl",
+      "ml_ai",
+      "data_analysis",
+      "stats_signal"
+    ],
+    "must_show": {
+      "rl": [
+        "OpenAI Gym"
+      ],
+      "ml_ai": [
+        "PyTorch",
+        "Scikit-learn"
+      ],
+      "data_analysis": [
+        "Python",
+        "NumPy"
+      ]
+    },
+    "forbidden": [
+      "FAISS",
+      "RAG",
+      "Vector search",
+      "Whisper",
+      "Pyannote",
+      "OpenSMILE"
+    ]
+  }
+}

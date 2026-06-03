@@ -1,0 +1,250 @@
+"""Anti-hallucination validator for adapted CVs.
+
+Hard rules (errors → reject / auto-fix):
+- Every experience source_id must exist in the profile.
+- Every bullet source_id must exist in the profile (experiences OR projects).
+- Every bullet must belong to the experience it's nested under.
+- Every selected project id must exist in the profile.
+- Skill category ids in ``skills_order`` must exist.
+- ``skills_profile_id`` should be one of the profile skill presets when provided.
+- ``selected_skills`` may only contain known category ids and whitelisted skills.
+
+Soft rules (warnings → keep but flag):
+- Numbers in output bullets must appear in source bullet (years excluded).
+- Output bullet should preserve some content from source (rapidfuzz >= 35).
+- Output bullet should map to the source's ``allowed_claims`` (fuzzy match
+  >= 40 against at least one allowed claim).
+- For non-verified evidence (``self_reported``, ``inferred``), require a
+  stricter overlap to avoid over-claiming.
+- Bullet length capped at style_guide.max_bullet_length.
+- Summary length capped at style_guide.max_summary_length.
+- Summary line count capped at style_guide.max_summary_lines.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+
+from rapidfuzz import fuzz
+
+from smartapply.llm import AdaptedCV, SkillSelectionBlock
+from smartapply.profile import Bullet, Profile
+
+
+_NUMBER_RE = re.compile(r"\d+(?:[.,]\d+)?")
+
+
+@dataclass
+class ValidationResult:
+    ok: bool
+    errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+
+    def __bool__(self) -> bool:
+        return self.ok
+
+
+def _extract_numbers(text: str) -> set[str]:
+    return {m.group(0).replace(",", ".") for m in _NUMBER_RE.finditer(text)}
+
+
+def _is_year_like(token: str) -> bool:
+    try:
+        n = float(token)
+    except ValueError:
+        return False
+    return 1900 <= n <= 2099
+
+
+def _best_claim_score(text: str, claims: list[str]) -> int:
+    """Best fuzzy match between ``text`` and any allowed claim."""
+    if not claims:
+        return 100
+    return max(fuzz.token_set_ratio(text.lower(), c.lower()) for c in claims)
+
+
+class CvValidator:
+    def __init__(
+        self,
+        profile: Profile,
+        min_text_overlap: int = 35,
+        min_claim_overlap: int = 40,
+        min_claim_overlap_inferred: int = 60,
+    ):
+        self.profile = profile
+        self.bullet_index = profile.bullet_index()
+        self.exp_index = {e.id: e for e in profile.experiences}
+        self.project_ids = {p.id for p in profile.projects}
+        self.skill_category_ids = {c.id for c in profile.skills.categories}
+        self.skill_profile_ids = profile.skills.profile_ids
+        self.allowed_skills_lower = {s.lower() for s in profile.skills.allowed_skills}
+        self.allowed_skills_by_lower = {s.lower(): s for s in profile.skills.allowed_skills}
+        self.min_text_overlap = min_text_overlap
+        self.min_claim_overlap = min_claim_overlap
+        self.min_claim_overlap_inferred = min_claim_overlap_inferred
+        self.max_bullet_len = profile.style_guide.max_bullet_length
+        self.max_summary_len = profile.style_guide.max_summary_length
+        self.max_summary_lines = profile.style_guide.max_summary_lines
+
+    def validate(self, cv: AdaptedCV) -> ValidationResult:
+        errors: list[str] = []
+        warnings: list[str] = []
+
+        # ---- Experiences and bullets ----
+        for exp in cv.selected_experiences:
+            if exp.source_id not in self.exp_index:
+                errors.append(f"unknown_experience_id:{exp.source_id}")
+                continue
+            for blt in exp.bullets:
+                src_bullet = self.bullet_index.get(blt.source_id)
+                if src_bullet is None:
+                    errors.append(f"unknown_bullet_id:{blt.source_id}")
+                    continue
+                src_exp = self.profile.experience_for_bullet(blt.source_id)
+                if src_exp is not None and src_exp.id != exp.source_id:
+                    errors.append(
+                        f"bullet_wrong_parent:{blt.source_id} expected {src_exp.id} got {exp.source_id}"
+                    )
+
+                # Numbers preservation
+                out_numbers = _extract_numbers(blt.text)
+                src_numbers = _extract_numbers(src_bullet.text) | set(src_bullet.numbers)
+                hallucinated = {
+                    n for n in out_numbers if n not in src_numbers and not _is_year_like(n)
+                }
+                for n in hallucinated:
+                    warnings.append(f"hallucinated_number:{n} in {blt.source_id}")
+
+                # Text overlap with source
+                overlap = fuzz.token_set_ratio(blt.text.lower(), src_bullet.text.lower())
+                if overlap < self.min_text_overlap:
+                    warnings.append(
+                        f"low_text_overlap:{blt.source_id} score={overlap}"
+                    )
+
+                # Allowed-claims overlap (the soft anti-hallucination check)
+                claim_score = _best_claim_score(
+                    blt.text, src_bullet.effective_allowed_claims
+                )
+                threshold = (
+                    self.min_claim_overlap
+                    if src_bullet.evidence_level == "verified"
+                    else self.min_claim_overlap_inferred
+                )
+                if claim_score < threshold:
+                    warnings.append(
+                        f"off_allowed_claims:{blt.source_id} score={claim_score} "
+                        f"(evidence={src_bullet.evidence_level})"
+                    )
+
+                # Bullet length
+                if len(blt.text) > self.max_bullet_len:
+                    warnings.append(
+                        f"bullet_too_long:{blt.source_id} len={len(blt.text)}"
+                    )
+
+        # ---- Projects ----
+        for pid in cv.selected_project_ids:
+            if pid not in self.project_ids:
+                errors.append(f"unknown_project_id:{pid}")
+
+        # ---- Skill categories ----
+        if (
+            cv.skills_profile_id
+            and self.skill_profile_ids
+            and cv.skills_profile_id not in self.skill_profile_ids
+        ):
+            warnings.append(f"unknown_skill_profile:{cv.skills_profile_id}")
+        for cid in cv.skills_order:
+            if cid not in self.skill_category_ids:
+                warnings.append(f"unknown_skill_category:{cid}")
+        for block in cv.selected_skills:
+            cid = block.category_id
+            skills = block.skills
+            if cid not in self.skill_category_ids:
+                warnings.append(f"unknown_selected_skill_category:{cid}")
+                continue
+            for skill in skills:
+                if skill.lower() not in self.allowed_skills_lower:
+                    warnings.append(f"unknown_selected_skill:{skill}")
+
+        # ---- Summary length ----
+        if len(cv.professional_summary) > self.max_summary_len:
+            warnings.append(f"summary_too_long:len={len(cv.professional_summary)}")
+        summary_lines = [
+            line for line in cv.professional_summary.splitlines() if line.strip()
+        ]
+        if len(summary_lines) > self.max_summary_lines:
+            warnings.append(f"summary_too_many_lines:lines={len(summary_lines)}")
+
+        return ValidationResult(ok=len(errors) == 0, errors=errors, warnings=warnings)
+
+    def auto_fix(self, cv: AdaptedCV) -> tuple[AdaptedCV, list[str]]:
+        """Best-effort fix that strips invalid items so the CV remains usable."""
+        removed: list[str] = []
+        cleaned_experiences = []
+        for exp in cv.selected_experiences:
+            if exp.source_id not in self.exp_index:
+                removed.append(f"experience:{exp.source_id}")
+                continue
+            valid_bullets = []
+            for blt in exp.bullets:
+                if blt.source_id not in self.bullet_index:
+                    removed.append(f"bullet:{blt.source_id}")
+                    continue
+                src_exp = self.profile.experience_for_bullet(blt.source_id)
+                if src_exp is not None and src_exp.id != exp.source_id:
+                    removed.append(f"misplaced_bullet:{blt.source_id}")
+                    continue
+                valid_bullets.append(blt)
+            if valid_bullets:
+                cleaned_experiences.append(
+                    exp.model_copy(update={"bullets": valid_bullets})
+                )
+            else:
+                removed.append(f"empty_experience:{exp.source_id}")
+
+        valid_projects = [pid for pid in cv.selected_project_ids if pid in self.project_ids]
+        for pid in cv.selected_project_ids:
+            if pid not in self.project_ids:
+                removed.append(f"project:{pid}")
+
+        valid_skills = [cid for cid in cv.skills_order if cid in self.skill_category_ids]
+        valid_selected_skills = []
+        for block in cv.selected_skills:
+            cid = block.category_id
+            skills = block.skills
+            if cid not in self.skill_category_ids:
+                removed.append(f"selected_skill_category:{cid}")
+                continue
+            cleaned_skills: list[str] = []
+            seen: set[str] = set()
+            for skill in skills:
+                canonical = self.allowed_skills_by_lower.get(skill.lower())
+                if not canonical:
+                    removed.append(f"selected_skill:{skill}")
+                    continue
+                if canonical not in seen:
+                    cleaned_skills.append(canonical)
+                    seen.add(canonical)
+            if cleaned_skills:
+                valid_selected_skills.append(
+                    SkillSelectionBlock(category_id=cid, skills=cleaned_skills)
+                )
+        skill_profile_id = (
+            cv.skills_profile_id
+            if not self.skill_profile_ids or cv.skills_profile_id in self.skill_profile_ids
+            else "mixed"
+        )
+
+        cleaned = cv.model_copy(
+            update={
+                "selected_experiences": cleaned_experiences,
+                "selected_project_ids": valid_projects,
+                "skills_profile_id": skill_profile_id,
+                "selected_skills": valid_selected_skills,
+                "skills_order": valid_skills,
+            }
+        )
+        return cleaned, removed
