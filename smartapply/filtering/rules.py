@@ -46,6 +46,9 @@ DEFAULT_NEGATIVE_TITLE_KEYWORDS = (
 )
 
 DEFAULT_TITLE_HARD_REJECT_KEYWORDS = (
+    ".net",
+    "architect",
+    "architecte",
     "enseignant",
     "teacher",
     "technicien",
@@ -56,8 +59,26 @@ DEFAULT_TITLE_HARD_REJECT_KEYWORDS = (
     "trainer",
     "instructor",
     "audit devops",
+    "dataiku",
     "devops audit",
+    "devops",
+    "expert ",
+    "full stack",
+    "full-stack",
+    "fullstack",
+    "mep ",
+    " mep",
+    "ide ",
+    " ide",
+    "infirmier",
+    "infirmière",
+    "java",
+    "manager",
+    "nurse",
+    "product owner",
+    "responsable développement",
     "senior responsable",
+    "sre",
 )
 
 # Hard reject when these appear in the offer TITLE — the candidate is junior
@@ -97,6 +118,9 @@ DEFAULT_BLOCKED_CONTRACT_TYPES = (
     "internship",
     "alternance",
     "apprenti",  # covers apprenti, apprentissage, apprenticeship
+    "freelance",
+    "independant",
+    "indépendant",
 )
 
 
@@ -124,7 +148,7 @@ class RuleSet:
     max_required_years: int = 5
     """Hard reject if the offer asks for >= this many years of experience.
 
-    Default 5 — the candidate has ~2 years, so anything asking for 5+ ans /
-    5+ years is out of scope. Lowering this value tightens the funnel,
-    raising it relaxes it.
+    Default 5 — user policy is to keep 3-4 years requirements reachable,
+    while rejecting explicit 5+ ans / 5+ years requirements. Lowering this
+    value tightens the funnel, raising it relaxes it.
     """

@@ -50,8 +50,11 @@ def test_sales_role_rejected_by_negative_title() -> None:
     )
     res = f.evaluate(job)
     assert not res.kept
-    # Either matches a deal_breaker or a negative_title keyword
-    assert any(("deal_breaker" in r or "negative_title" in r) for r in res.reasons)
+    # Either matches a deal_breaker, a negative keyword, or a hard off-target family.
+    assert any(
+        ("deal_breaker" in r or "negative_title" in r or "title_hard_reject" in r)
+        for r in res.reasons
+    )
 
 
 def test_internship_rejected_by_deal_breaker() -> None:
@@ -154,6 +157,116 @@ def test_filter_keeps_3_ans_required() -> None:
         contract_type="CDI",
     )
     assert f.evaluate(job).kept
+
+
+def test_filter_rejects_freelance_visible_in_title_without_contract_field() -> None:
+    f = JobFilter(_real_rules())
+    job = FakeJob(
+        title="Analytics Engineer - Freelance H/F",
+        company="Acme",
+        description="Build dashboards and data models.",
+        location="Paris",
+        contract_type=None,
+    )
+    res = f.evaluate(job)
+    assert not res.kept
+    assert any("blocked_contract_visible_text:freelance" in r for r in res.reasons)
+
+
+def test_filter_rejects_reporting_bi_without_analytical_ownership() -> None:
+    f = JobFilter(_real_rules())
+    job = FakeJob(
+        title="Data Automation & Reporting Analyst",
+        company="Acme",
+        description="Power BI, Power Query, dashboards, KPI reporting and documentation.",
+        location="Paris",
+        contract_type="CDI",
+    )
+    res = f.evaluate(job)
+    assert not res.kept
+    assert "reporting_bi_without_analytical_ownership" in res.reasons
+
+
+def test_filter_rejects_finance_reporting_bi_without_core_data_tech() -> None:
+    f = JobFilter(_real_rules())
+    job = FakeJob(
+        title="Data Automation & Reporting Analyst",
+        company="Acme",
+        description=(
+            "Rattaché à la direction administrative et financière. "
+            "Concevoir des tableaux de bord Power BI, automatiser les reportings "
+            "Power Query, documenter les règles de gestion et le contrôle de gestion."
+        ),
+        location="Paris",
+        contract_type="CDI",
+    )
+    res = f.evaluate(job)
+    assert not res.kept
+    assert "finance_reporting_bi_without_core_data_tech" in res.reasons
+
+
+def test_filter_keeps_data_analyst_bi_with_python_or_sql_ownership() -> None:
+    f = JobFilter(_real_rules())
+    job = FakeJob(
+        title="Data Analyst BI",
+        company="Acme",
+        description="Power BI dashboards with SQL, Python, statistical analysis and forecasting.",
+        location="Paris",
+        contract_type="CDI",
+    )
+    res = f.evaluate(job)
+    assert res.kept
+
+
+def test_filter_rejects_web_analytics_tracking_focus() -> None:
+    f = JobFilter(_real_rules())
+    job = FakeJob(
+        title="Digital Analytics Engineer",
+        company="Acme",
+        description="Own GA4, GTM, data layer, tagging plan and tracking implementation.",
+        location="Paris",
+        contract_type="CDI",
+    )
+    res = f.evaluate(job)
+    assert not res.kept
+    assert "web_analytics_tracking_focus" in res.reasons
+
+
+def test_filter_rejects_mep_data_center_roles() -> None:
+    f = JobFilter(_real_rules())
+    job = FakeJob(
+        title="Ingénieur MEP Data Center",
+        company="Acme",
+        description="Coordination lots MEP, HVAC, electrical and plumbing for data centers.",
+        location="Paris",
+        contract_type="CDI",
+    )
+    res = f.evaluate(job)
+    assert not res.kept
+
+
+def test_filter_rejects_hidden_senior_or_director_role_in_description() -> None:
+    f = JobFilter(_real_rules())
+    jobs = [
+        FakeJob(
+            title="Analyste développeur Big Data",
+            company="Acme",
+            description="Nous recherchons un Senior Analytics Engineer pour LookML.",
+            location="Paris",
+            contract_type="CDI",
+        ),
+        FakeJob(
+            title="Analyste développeur Big Data",
+            company="Acme",
+            description="Director Automation & Data Engineering. Vous pilotez une équipe data.",
+            location="Paris",
+            contract_type="CDI",
+        ),
+    ]
+    for job in jobs:
+        res = f.evaluate(job)
+        assert not res.kept
+        assert "seniority_or_leadership_in_description" in res.reasons
 
 
 def test_filter_rejects_english_internship_in_title() -> None:
@@ -262,6 +375,14 @@ def test_filter_hard_rejects_off_target_title_families() -> None:
         "Formateur Python IA",
         "Audit DevOps Engineer",
         "Senior Responsable Data",
+        "Product Owner IA",
+        "Architecte Solution Java",
+        "DevOps Engineer AWS Terraform",
+        "Manager Data & AI",
+        "IDE infirmier en clinique",
+        "Full Stack Java Angular",
+        "Expert IA Cybersécurité",
+        "Consultant Dataiku DSS",
     ]
     for title in blocked_titles:
         job = FakeJob(

@@ -60,13 +60,10 @@ def ingest_command(
 ) -> None:
     """Scrape one source and persist new jobs."""
     from smartapply.pipeline import Pipeline
+    from smartapply.pipeline.pipeline import freshness_kwargs
 
     p = Pipeline()
-    kwargs = (
-        {"date_posted": date_posted, "hl": serpapi_hl}
-        if source == "serpapi"
-        else {}
-    )
+    kwargs = freshness_kwargs(source, date_posted=date_posted, serpapi_hl=serpapi_hl)
     report = p.ingest(source, query, location, max_results=max_results, **kwargs)
     click.echo(json.dumps(report.__dict__, indent=2, default=str))
 
@@ -120,14 +117,21 @@ def process_command(top_k: int | None) -> None:
 @cli.command("apply")
 @click.option("--job-id", type=int, required=True)
 @click.option("--gmail-draft", is_flag=True)
-@click.option("--no-contact", is_flag=True)
-def apply_command(job_id: int, gmail_draft: bool, no_contact: bool) -> None:
-    """Generate CV + email + contact for a single analyzed job."""
+@click.option("--contact-email", default=None, help="Manual recruiter/contact email.")
+@click.option("--contact-form-url", default=None, help="Manual ATS/form URL if known.")
+def apply_command(
+    job_id: int,
+    gmail_draft: bool,
+    contact_email: str | None,
+    contact_form_url: str | None,
+) -> None:
+    """Generate CV + letter + sending email for a single analyzed job."""
     from smartapply.pipeline import Pipeline
 
     report = Pipeline().apply_to(
         job_id,
-        find_contact=not no_contact,
+        contact_email=contact_email,
+        contact_form_url=contact_form_url,
         create_gmail_draft=gmail_draft,
     )
     click.echo(json.dumps(report.__dict__, indent=2, default=str))

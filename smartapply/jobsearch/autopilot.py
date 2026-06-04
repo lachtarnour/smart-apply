@@ -12,6 +12,7 @@ from smartapply.database import session_scope
 from smartapply.database.models import Job, JobScore, JobStatus
 from smartapply.logging_setup import get_logger
 from smartapply.pipeline import ApplyReport, IngestReport, Pipeline, ProcessReport
+from smartapply.pipeline.pipeline import freshness_kwargs
 
 logger = get_logger(__name__)
 
@@ -84,17 +85,12 @@ class AutopilotRunner:
             if source == "manual":
                 continue
             try:
-                kwargs = (
-                    {"date_posted": date_posted, "hl": serpapi_hl}
-                    if source == "serpapi"
-                    else {}
-                )
                 ingest = self.pipeline.ingest(
                     source,
                     query,
                     location,
                     max_results=max_results,
-                    **kwargs,
+                    **freshness_kwargs(source, date_posted=date_posted, serpapi_hl=serpapi_hl),
                 )
                 report.ingest.append(ingest.__dict__)
             except Exception as e:

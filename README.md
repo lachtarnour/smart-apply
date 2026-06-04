@@ -76,7 +76,7 @@ Chaque flèche est un module indépendant et testable, branché via une interfac
 | `smartapply.ranking` | Embeddings + scoring composite | `embeddings.py`, `scorer.py` |
 | `smartapply.llm` | Provider LLM modulable + cache + usage | `provider.py`, `openai_provider.py`, `mock_provider.py`, `schemas.py`, `prompts/` |
 | `smartapply.cv` | Sélection blocs → adaptation → validation → DOCX/PDF | `selector.py`, `adapter.py`, `validator.py`, `docx_generator.py` |
-| `smartapply.email_agent` | Email + contact RH + .eml + Gmail draft | `writer.py`, `contact_finder.py`, `eml_export.py`, `gmail_draft.py` |
+| `smartapply.email_agent` | Contact enrichi Snov + email template + .eml + Gmail draft | `template.py`, `contact_providers.py`, `eml_export.py`, `gmail_draft.py` |
 | `smartapply.database` | Persistance SQLAlchemy | `models.py`, `session.py`, `repository.py` |
 | `smartapply.pipeline` | Orchestrateur end-to-end | `pipeline.py` |
 | `smartapply.app` | Dashboard Streamlit (5 pages) | `main.py`, `pages/` |
@@ -191,7 +191,11 @@ from smartapply.pipeline import Pipeline
 p = Pipeline()
 p.ingest("serpapi", "Data Scientist", "Paris, France", max_results=30)
 p.process_pending(top_k_analyze=20)
-report = p.apply_to(job_id=42, create_gmail_draft=False)
+report = p.apply_to(
+    job_id=42,
+    contact_email="recrutement@example.com",  # optionnel
+    create_gmail_draft=False,
+)
 print(report.docx_path, report.eml_path)
 ```
 
@@ -215,6 +219,7 @@ Comportement :
 - candidatures trop faibles → statut `quality_rejected` avec audit.
 
 Contacts :
+- en mode manuel, aucun contact n'est cherché automatiquement : fournis `contact_email` si tu as déjà l'email recruteur/RH ;
 - Snov.io cherche les contacts professionnels à coût maîtrisé ;
 - SerpApi sert à trouver des offres Google Jobs, pas à découvrir des contacts ;
 - le LLM ne cherche pas les contacts par défaut : il reste utilisé pour analyse offre, adaptation CV, email et quality gate ;
@@ -328,7 +333,7 @@ Avec cache activé (`use_cache=True` par défaut), les ré-exécutions sont grat
 **Limites assumées :**
 - SerpApi est un service payant (gratuit jusqu'à 250 recherches/mois).
 - France Travail nécessite la création d'une app sur https://francetravail.io.
-- Le contact finder ne trouve que des emails publiquement listés sur les pages `/contact`, `/careers`, etc.
+- Le mode manuel ne cherche pas d'email automatiquement : renseigne `contact_email` ou soumets via formulaire. L'autopilot utilise Snov.io + cache si configuré.
 - Le générateur PDF utilise LibreOffice (`soffice --headless`) — pas embarqué. Le DOCX reste l'output primaire.
 - Le validateur anti-hallucination ne couvre que les bullets : il fait confiance au prompt système pour le titre et le résumé. Les warnings restent visibles.
 

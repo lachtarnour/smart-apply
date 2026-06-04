@@ -21,6 +21,8 @@ _FRENCH_MARKERS = (
     "requis",
     "anglais courant",
     "cdi",
+    "télétravail",
+    "teletravail",
     "île-de-france",
 )
 _ENGLISH_MARKERS = (
@@ -31,7 +33,6 @@ _ENGLISH_MARKERS = (
     "candidate",
     "experience required",
     "english",
-    "remote",
 )
 
 

@@ -17,7 +17,6 @@ from urllib.parse import urlparse
 import requests
 
 from smartapply.config import get_settings
-from smartapply.email_agent.contact_finder import score_email
 from smartapply.logging_setup import get_logger
 
 logger = get_logger(__name__)
@@ -47,6 +46,34 @@ NON_COMPANY_CONTACT_DOMAINS = {
     "workdayjobs.com",
 }
 
+# Higher score = more likely to be a real recruitment contact.
+PREFIX_SCORES: list[tuple[str, float]] = [
+    ("recrutement", 0.95),
+    ("recruit", 0.95),
+    ("jobs", 0.9),
+    ("careers", 0.9),
+    ("carrieres", 0.9),
+    ("talent", 0.85),
+    ("hiring", 0.85),
+    ("hr", 0.75),
+    ("rh", 0.75),
+    ("contact", 0.6),
+    ("hello", 0.5),
+    ("info", 0.4),
+    ("support", 0.2),
+    ("press", 0.1),
+]
+
+BLOCKED_PREFIXES = {
+    "noreply",
+    "no-reply",
+    "donotreply",
+    "postmaster",
+    "abuse",
+    "mailer-daemon",
+    "webmaster",
+}
+
 
 @dataclass(frozen=True)
 class ContactCandidate:
@@ -57,6 +84,17 @@ class ContactCandidate:
     verified: bool = False
     kind: str = "snov"
     form_url: str | None = None
+
+
+def score_email(email: str) -> float:
+    prefix = email.split("@", 1)[0].lower()
+    if prefix in BLOCKED_PREFIXES:
+        return 0.0
+    for keyword, score in PREFIX_SCORES:
+        if prefix.startswith(keyword) or keyword in prefix:
+            return score
+    # Generic person-like prefix (firstname.lastname@) — neutral.
+    return 0.5
 
 
 def domain_from_url(url: str | None) -> str | None:

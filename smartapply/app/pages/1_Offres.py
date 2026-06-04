@@ -184,10 +184,19 @@ with left:
     )
     if detail["url"]:
         st.link_button("Ouvrir l'offre", detail["url"])
+    manual_contact = st.text_input(
+        "Contact manuel",
+        placeholder="recrutement@entreprise.com",
+        help="Optionnel. Aucun contact n'est cherché automatiquement en mode manuel.",
+        key=f"offer_manual_contact_{selected_job_id}",
+    )
     if st.button("Générer une candidature pour cette offre", type="primary"):
-        with st.spinner("Génération CV + lettre + email + contact..."):
+        with st.spinner("Génération CV + lettre + email..."):
             try:
-                report = pipeline_singleton().apply_to(int(selected_job_id))
+                report = pipeline_singleton().apply_to(
+                    int(selected_job_id),
+                    contact_email=manual_contact,
+                )
                 st.success(f"Candidature #{report.application_id} créée.")
                 st.json(report.__dict__)
             except Exception as e:

@@ -14,7 +14,11 @@ from smartapply.cv import (
     CvValidator,
 )
 from smartapply.cv.html_renderer import pdf_page_count
-from smartapply.cv.motivation_validator import MotivationLetterValidator
+from smartapply.cv.motivation_validator import (
+    MotivationLetterValidator,
+    mentioned_project_ids,
+    normalize_french_elisions,
+)
 from smartapply.llm import (
     AdaptedBullet,
     AdaptedCV,
@@ -148,6 +152,63 @@ def test_adapter_can_produce_cv_and_email_in_one_call() -> None:
     assert len(selection.experiences) >= 1
 
 
+def test_adapter_restores_complete_experience_block() -> None:
+    MockLLMProvider.clear()
+    cv = _valid_adapted_cv()
+    MockLLMProvider.register(
+        "application_draft",
+        ApplicationDraft(
+            cv_title=cv.cv_title,
+            professional_summary=cv.professional_summary,
+            selected_experiences=[
+                AdaptedExperience(
+                    source_id="exp_emobot_ds_2024",
+                    bullets=[
+                        AdaptedBullet(
+                            source_id="blt_emobot_ds_multimodal",
+                            text=(
+                                "Built multimodal digital biomarker pipelines reaching "
+                                "0.67 correlation with validated clinical scores."
+                            ),
+                        )
+                    ],
+                )
+            ],
+            selected_project_ids=cv.selected_project_ids,
+            selected_skills=cv.selected_skills,
+            skills_order=cv.skills_order,
+            warnings=[],
+            motivation_letter_subject="Application: Data Scientist NLP",
+            motivation_letter_body="Hello,\n\nI am writing about this role." + " word" * 180,
+        ),
+    )
+    profile = get_profile()
+    adapter = CvAdapter(profile, embeddings=MockEmbeddingsProvider())
+    adapted, _letter, _selection = adapter.adapt_application(
+        _sample_analysis(), job_title="Data Scientist NLP", job_company="Acme"
+    )
+
+    assert [exp.source_id for exp in adapted.selected_experiences] == [
+        exp.id for exp in profile.experiences
+    ]
+    rendered_bullets = {
+        bullet.source_id
+        for exp in adapted.selected_experiences
+        for bullet in exp.bullets
+    }
+    expected_bullets = {
+        bullet.id for exp in profile.experiences for bullet in exp.bullets
+    }
+    assert expected_bullets.issubset(rendered_bullets)
+    assert adapted.selected_experiences[0].bullets[0].text.startswith(
+        "Built multimodal digital biomarker pipelines"
+    )
+    assert any(
+        w.startswith("experience_bullets_restored:")
+        for w in adapted.warnings
+    )
+
+
 def test_adapter_adds_supported_required_skills_to_llm_selection() -> None:
     MockLLMProvider.clear()
     cv = _valid_adapted_cv().model_copy(
@@ -190,6 +251,48 @@ def test_adapter_adds_supported_required_skills_to_llm_selection() -> None:
     assert {"Docker", "Python", "PyTorch", "CI/CD"}.issubset(selected)
     assert "Kubernetes" not in selected
     assert "GCP" not in selected
+
+
+def test_adapter_adds_summary_mentioned_allowed_skill_to_skills() -> None:
+    MockLLMProvider.clear()
+    cv = _valid_adapted_cv().model_copy(
+        update={
+            "professional_summary": (
+                "Data Scientist for production-flavored ML using monitoring and FAISS."
+            ),
+            "selected_skills": [
+                SkillSelectionBlock(category_id="ml_ai", skills=["PyTorch"])
+            ],
+            "skills_order": ["ml_ai"],
+        }
+    )
+    MockLLMProvider.register(
+        "application_draft",
+        ApplicationDraft(
+            cv_title=cv.cv_title,
+            professional_summary=cv.professional_summary,
+            selected_experiences=cv.selected_experiences,
+            selected_project_ids=cv.selected_project_ids,
+            selected_skills=cv.selected_skills,
+            skills_order=cv.skills_order,
+            warnings=cv.warnings,
+            motivation_letter_subject="Application: AI Engineer",
+            motivation_letter_body="Hello,\n\nI am writing about this role." + " word" * 180,
+        ),
+    )
+    analysis = _sample_analysis().model_copy(
+        update={"required_skills": [], "cv_keywords_to_include": []}
+    )
+    adapter = CvAdapter(get_profile(), embeddings=MockEmbeddingsProvider())
+    adapted, _letter, _selection = adapter.adapt_application(
+        analysis, job_title="Data Scientist NLP", job_company="Acme"
+    )
+    selected = {
+        skill
+        for block in adapted.selected_skills
+        for skill in block.skills
+    }
+    assert "FAISS" in selected
 
 
 # ---------------- Validator ----------------
@@ -344,6 +447,128 @@ def test_motivation_letter_validator_flags_short_and_unsupported_terms() -> None
     assert "unsupported_term_in_letter:Kubernetes" in result.warnings
 
 
+def test_normalize_french_elisions_repairs_missing_apostrophes() -> None:
+    text = "J ai travaillé sur l IA générative, d AI à la production, jusqu à l usage."
+    fixed = normalize_french_elisions(text, language="fr")
+    assert "J'ai" in fixed
+    assert "l'IA" in fixed
+    assert "d'AI" in fixed
+    assert "jusqu'à" in fixed
+    assert "J ai" not in fixed
+
+
+def test_motivation_letter_validator_flags_missing_french_apostrophes() -> None:
+    letter = MotivationLetter(
+        subject="Candidature - AI Engineer",
+        body=(
+            "J ai développé des pipelines NLP chez Emobot et travaillé sur l IA. "
+            "SciFact RAG Verifier illustre ma pratique du retrieval."
+        ),
+    )
+    result = MotivationLetterValidator(get_profile()).validate(
+        letter,
+        cv=_valid_adapted_cv(),
+        analysis=_sample_analysis(),
+    )
+    assert "french_elision_missing_apostrophe" in result.warnings
+
+
+def test_project_mentions_are_detected_from_aliases() -> None:
+    mentioned = mentioned_project_ids(
+        "Le projet SciFact RAG Verifier et AAL Stock Forecasting sont pertinents.",
+        get_profile(),
+    )
+    assert "proj_scifact_rag" in mentioned
+    assert "proj_aal_stock_forecasting" in mentioned
+
+
+def test_adapter_aligns_letter_project_mentions_with_cv_selection() -> None:
+    MockLLMProvider.clear()
+    MockLLMProvider.register(
+        "application_draft",
+        ApplicationDraft(
+            cv_title="AI Engineer – RAG",
+            professional_summary=(
+                "Data Scientist with RAG and Python pipelines for applied AI roles. "
+                "Strong NLP and model monitoring experience beyond the limit."
+            ),
+            selected_experiences=[
+                AdaptedExperience(
+                    source_id="exp_emobot_ds_2024",
+                    bullets=[
+                        AdaptedBullet(
+                            source_id="blt_emobot_ds_multimodal",
+                            text="Built multimodal digital biomarker pipelines from facial, mobility and smartphone data.",
+                        )
+                    ],
+                )
+            ],
+            selected_project_ids=["proj_bot_traffic_anomaly"],
+            skills_profile_id="mixed",
+            selected_skills=[
+                SkillSelectionBlock(category_id="ml_ai", skills=["PyTorch"]),
+            ],
+            skills_order=["ml_ai"],
+            warnings=[],
+            motivation_letter_subject="Candidature - AI Engineer",
+            motivation_letter_body=(
+                "J ai développé des pipelines NLP chez Emobot. "
+                "Le projet SciFact RAG Verifier illustre mon approche du retrieval "
+                "avec BM25 et FAISS pour des réponses ancrées."
+            ),
+        ),
+    )
+    adapter = CvAdapter(
+        get_profile(),
+        llm=MockLLMProvider(),
+        embeddings=MockEmbeddingsProvider(),
+    )
+    cv, letter, _selection = adapter.adapt_application(
+        _sample_analysis(),
+        job_title="AI Engineer RAG",
+        job_company="Acme",
+        language="fr",
+    )
+    assert "proj_scifact_rag" in cv.selected_project_ids
+    assert "J'ai" in letter.body
+    assert len(cv.professional_summary) <= get_profile().style_guide.max_summary_length
+
+
+def test_motivation_letter_validator_flags_defensive_and_unsupported_tech() -> None:
+    letter = MotivationLetter(
+        subject="Candidature - AI Engineer",
+        body=(
+            "Bien que je n'aie pas encore d'expérience directe avec GCP, "
+            "mon expérience Emobot et SciFact RAG Verifier restent pertinentes."
+        ),
+    )
+    result = MotivationLetterValidator(get_profile()).validate(
+        letter,
+        cv=_valid_adapted_cv(),
+        analysis=_sample_analysis(),
+    )
+    assert any(w.startswith("letter_self_deprecation:") for w in result.warnings)
+    assert "unsupported_tech_in_letter:gcp" in result.warnings
+
+
+def test_motivation_letter_validator_rejects_foreign_script_leaks() -> None:
+    letter = MotivationLetter(
+        subject="Candidature - Data Scientist",
+        body=(
+            "Madame, Monsieur, mon expérience Emobot permet de mesurer leur أداء "
+            "et de contribuer à des նախաձեռնatives data concrètes."
+        ),
+    )
+    result = MotivationLetterValidator(get_profile()).validate(
+        letter,
+        cv=_valid_adapted_cv(),
+        analysis=_sample_analysis(),
+    )
+    assert not result.ok
+    assert "foreign_script_in_letter:arabic" in result.errors
+    assert "foreign_script_in_letter:armenian" in result.errors
+
+
 # ---------------- DOCX renderer ----------------
 
 
@@ -399,12 +624,26 @@ def test_html_renderer_uses_clickable_profile_links() -> None:
     assert 'aria-label="Degree page"' in html
 
 
-def test_html_renderer_always_renders_at_least_three_projects() -> None:
+def test_html_renderer_always_renders_at_least_two_projects() -> None:
     cv = _valid_adapted_cv().model_copy(update={"selected_project_ids": ["proj_scifact_rag"]})
     html = HtmlApplicationRenderer(get_profile()).render_cv_html(cv)
     project_rows = html.count('class="project-row"')
-    assert project_rows >= 3
+    assert project_rows >= 2
     assert "SciFact RAG Verifier" in html
+
+
+def test_letter_renderer_strips_llm_signature_and_appends_canonical_signoff() -> None:
+    html = HtmlApplicationRenderer(get_profile()).render_letter_html(
+        email_draft=EmailDraft(
+            subject="Candidature",
+            body="Madame, Monsieur,\n\nTexte de motivation.\n\nCordialement,\nLachtar Nour",
+        ),
+        job_title="Data Scientist",
+        job_company="Acme",
+        language="fr",
+    )
+    assert html.count("Cordialement") == 1
+    assert "Cordialement,<br>Lachtar Nour" in html
 
 
 @pytest.mark.real_pdf

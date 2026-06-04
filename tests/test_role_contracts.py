@@ -13,9 +13,9 @@ from __future__ import annotations
 
 import pytest
 
-from smartapply.cv.role_contracts import apply_contract
-from smartapply.cv.role_family import classify, has_data_scientist_ia_signal
-from smartapply.llm import AdaptedCV, JobAnalysis, SkillSelectionBlock
+from smartapply.cv.role_contracts import apply_contract, load_contracts
+from smartapply.cv.role_family import KNOWN_ROLE_FAMILIES, classify, has_data_scientist_ia_signal
+from smartapply.llm import AdaptedBullet, AdaptedCV, AdaptedExperience, JobAnalysis, SkillSelectionBlock
 from smartapply.profile import get_profile
 
 
@@ -170,6 +170,20 @@ def test_mlops_requires_match_in_title_or_role_type():
     assert classify(mlops, title="MLOps Engineer") == "mlops"
 
 
+def test_medical_ai_does_not_trigger_on_clinical_care_role():
+    analysis = _analysis(
+        role_type="IDE",
+        domain="Santé clinique",
+        main_tasks=["Prise en charge des patients en clinique"],
+    )
+    assert classify(analysis, title="IDE infirmier en clinique") == "other"
+
+
+def test_contract_file_covers_all_classifier_families():
+    contracts = load_contracts()
+    assert KNOWN_ROLE_FAMILIES.issubset(set(contracts))
+
+
 def test_title_family_wins_over_noisy_offer_body():
     """Regression benchmark: explicit titles should not be rerouted by skills."""
     product_analyst = _analysis(
@@ -313,7 +327,7 @@ def test_analytics_engineer_strips_fastapi_and_nlp_keeps_global_baseline():
     assert "Transformers" not in selected["ml_ai"]
 
 
-def test_data_engineer_keeps_global_ml_and_pipeline_stack():
+def test_data_engineer_keeps_pipeline_stack_without_noisy_ml():
     cv = _cv(
         {
             "ml_ai": ["PyTorch", "Scikit-learn", "NLP"],
@@ -329,11 +343,55 @@ def test_data_engineer_keeps_global_ml_and_pipeline_stack():
     adapted, family = _apply(cv, analysis, "Cloud Data Engineer")
     assert family == "data_engineer"
     selected = _selected_map(adapted)
-    assert {"PyTorch", "TensorFlow", "Scikit-learn"}.issubset(set(selected["ml_ai"]))
+    assert "ml_ai" not in selected
     assert "Python" in selected["data_analysis"]
     assert {"Data pipelines", "Spark", "Docker", "Git", "CI/CD"}.issubset(
         set(selected["data_infra"])
     )
+
+
+def test_contract_dedupes_skills_across_categories():
+    cv = _cv(
+        {
+            "ml_ai": ["PyTorch", "Scikit-learn"],
+            "computer_vision": ["PyTorch", "OpenCV", "CNNs"],
+        }
+    )
+    analysis = _analysis(role_type="Computer Vision Engineer")
+    adapted, _ = _apply(cv, analysis, "Computer Vision Engineer")
+    selected = _selected_map(adapted)
+    all_skills = [skill for skills in selected.values() for skill in skills]
+    assert all_skills.count("PyTorch") == 1
+    assert "PyTorch" in selected["computer_vision"]
+
+
+def test_contract_preserves_experience_bullets_but_strips_forbidden_projects():
+    cv = AdaptedCV(
+        cv_title="Software Engineer",
+        professional_summary="Build software systems.",
+        selected_experiences=[
+            AdaptedExperience(
+                source_id="exp_vds_intern_2022",
+                bullets=[
+                    AdaptedBullet(
+                        source_id="blt_vds_fx_prediction",
+                        text="Developed EUR/USD exchange rate prediction models using BiLSTM architectures and Markov chains.",
+                    )
+                ],
+            )
+        ],
+        selected_project_ids=["proj_scifact_rag", "proj_ner_camembert"],
+        selected_skills=[
+            SkillSelectionBlock(category_id="data_analysis", skills=["Python"])
+        ],
+        skills_order=["data_analysis"],
+        warnings=[],
+    )
+    analysis = _analysis(role_type="Software Engineer")
+    adapted, _ = _apply(cv, analysis, "Software Engineer")
+    assert adapted.selected_experiences == cv.selected_experiences
+    assert "proj_scifact_rag" not in adapted.selected_project_ids
+    assert "proj_ner_camembert" in adapted.selected_project_ids
 
 
 def test_llm_engineer_anchors_rag_block():
@@ -402,15 +460,16 @@ def test_other_family_uses_minimal_contract():
     adapted, family = _apply(cv, analysis, "Marketing Manager")
     assert family == "other"
     selected = _selected_map(adapted)
-    assert {"PyTorch", "TensorFlow", "Scikit-learn"}.issubset(set(selected["ml_ai"]))
     assert {"Python", "SQL", "Pandas", "NumPy"}.issubset(
         set(selected["data_analysis"])
     )
-    assert {"Git", "Docker", "AWS", "CI/CD"}.issubset(
+    assert {"Git", "Docker", "CI/CD"}.issubset(
         set(selected["data_infra"])
     )
+    assert "ml_ai" not in selected
+    assert "AWS" not in selected["data_infra"]
     assert "REST APIs" not in selected["data_infra"]
-    assert sum(len(skills) for skills in selected.values()) >= 8
+    assert sum(len(skills) for skills in selected.values()) >= 7
 
 
 def test_data_scientist_anchors_r_in_data_analysis():
@@ -464,11 +523,7 @@ def test_data_analyst_keeps_r_and_global_baseline():
     selected = _selected_map(adapted)
     assert "R" in selected["data_analysis"]
     assert {"PyTorch", "TensorFlow", "Scikit-learn"}.issubset(set(selected["ml_ai"]))
-    assert {"Docker", "Git", "AWS"}.issubset(
-        set(selected["data_infra"])
-    )
-    assert "Spark" not in selected["data_infra"]
-    assert "Flask" not in selected["data_infra"]
+    assert "data_infra" not in selected
 
 
 def test_analytics_engineer_forces_r_and_spark():

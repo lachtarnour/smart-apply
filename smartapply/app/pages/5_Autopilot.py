@@ -46,11 +46,11 @@ with col2:
         else "week"
     )
     date_posted = st.selectbox(
-        "Fraîcheur SerpApi",
+        "Fraîcheur des offres",
         options=date_options,
         index=date_options.index(default_date),
         format_func=lambda value: SERPAPI_DATE_POSTED_LABELS[value],
-        help="Appliqué uniquement à Google Jobs / SerpApi.",
+        help="Appliqué à Google Jobs (chip date_posted) et à France Travail (minCreationDate).",
     )
     language_label = st.selectbox(
         "Langue Google Jobs",

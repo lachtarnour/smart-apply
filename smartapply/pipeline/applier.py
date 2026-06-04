@@ -1,14 +1,14 @@
 """Phase 3 — generate one application (CV + email + contact + drafts).
 
 A single ``apply`` path driven by an ``ApplySpec`` preset. The two presets
-``MANUAL`` and ``AUTOPILOT`` configure which LLM strategy, contact provider,
-quality gate and audit behavior to use. They preserve the historical
-semantics of the legacy ``apply_to`` and ``apply_to_autopilot``.
+``MANUAL`` and ``AUTOPILOT`` configure contact provider, quality gate and
+audit behavior. Both use the modern combined ``ApplicationDraft`` call so CV
+and motivation letter are generated together.
 
 The differences between presets:
 
-- ``MANUAL``    : two LLM calls (CV smart + letter/email legacy), no quality gate,
-                  ContactFinder regex on the application URL, no audit blob.
+- ``MANUAL``    : one combined LLM call (CV + motivation letter), no quality gate,
+                  optional user-provided contact, no audit blob.
 - ``AUTOPILOT`` : one combined LLM call (CV + motivation letter), quality gate,
                   ContactProviderChain (Snov.io + persistent cache), audit
                   blob persisted as a generated_document.
@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import re
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
@@ -34,8 +35,6 @@ from smartapply.database.repository import (
 )
 from smartapply.email_agent import (
     ContactCandidate,
-    ContactFinder,
-    EmailWriter,
     build_application_email,
     export_eml,
 )
@@ -58,15 +57,116 @@ from smartapply.profile import Profile
 logger = get_logger(__name__)
 
 
+_ANCHOR_STOPWORDS = {
+    "and",
+    "avec",
+    "chez",
+    "data",
+    "donnée",
+    "données",
+    "donnee",
+    "donnees",
+    "engineer",
+    "engineering",
+    "for",
+    "from",
+    "h/f",
+    "ingénieur",
+    "ingenieur",
+    "junior",
+    "mid",
+    "pour",
+    "role",
+    "scientist",
+    "the",
+    "with",
+}
+
+_ROLE_PHRASES = (
+    "ai engineer",
+    "analytics engineer",
+    "business analyst",
+    "computer vision",
+    "data analyst",
+    "data engineer",
+    "data scientist",
+    "deep learning",
+    "devops",
+    "full stack",
+    "fullstack",
+    "generative ai",
+    "ingénieur data",
+    "machine learning",
+    "ml engineer",
+    "mlops",
+    "nlp",
+    "product analyst",
+    "product data analyst",
+    "rag",
+    "software engineer",
+    "speech",
+    "time series",
+)
+
+_ANONYMOUS_COMPANY_MARKERS = (
+    "confidentiel",
+    "non communiqu",
+    "anonyme",
+)
+
+
+def _norm(text: str | None) -> str:
+    return " ".join((text or "").lower().replace("’", "'").split())
+
+
+def _is_anonymous_company(name: str | None) -> bool:
+    lowered = _norm(name)
+    return not lowered or any(marker in lowered for marker in _ANONYMOUS_COMPANY_MARKERS)
+
+
+def _document_company_label(company: str | None, language: str) -> str:
+    if not _is_anonymous_company(company):
+        return (company or "").strip()
+    return "l'entreprise recruteuse" if language == "fr" else "the hiring company"
+
+
+def _word_anchors(text: str) -> set[str]:
+    words = {
+        word
+        for word in re.findall(r"[a-zA-ZÀ-ÿ0-9+#.]{3,}", _norm(text))
+        if word not in _ANCHOR_STOPWORDS
+    }
+    return words
+
+
+def _offer_anchors(analysis: JobAnalysis, job_title: str) -> set[str]:
+    role_text = " ".join(
+        [
+            job_title or "",
+            analysis.role_type or "",
+            " ".join(analysis.main_tasks[:4]),
+            " ".join(analysis.required_skills),
+            " ".join(analysis.cv_keywords_to_include),
+        ]
+    )
+    haystack = _norm(role_text)
+    anchors = _word_anchors(role_text)
+    for phrase in _ROLE_PHRASES:
+        if phrase in haystack:
+            anchors.add(phrase)
+    return {anchor for anchor in anchors if len(anchor) >= 3}
+
+
 ApplyMode = Literal["manual", "autopilot"]
-ContactProviderKind = Literal["finder", "chain", "none"]
+ContactProviderKind = Literal["chain", "none"]
+
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 @dataclass(frozen=True)
 class ApplySpec:
     """The knobs that distinguish manual from autopilot apply."""
 
-    combined_call: bool
     quality_gate: bool
     contact_provider: ContactProviderKind
     build_audit: bool
@@ -75,14 +175,12 @@ class ApplySpec:
 
 _PRESETS: dict[ApplyMode, ApplySpec] = {
     "manual": ApplySpec(
-        combined_call=False,
         quality_gate=False,
-        contact_provider="finder",
+        contact_provider="none",
         build_audit=False,
         default_gmail_draft=False,
     ),
     "autopilot": ApplySpec(
-        combined_call=True,
         quality_gate=True,
         contact_provider="chain",
         build_audit=True,
@@ -124,19 +222,15 @@ class Applier:
         llm: LLMProvider,
         adapter: CvAdapter,
         validator: CvValidator,
-        email_writer: EmailWriter,
         renderer: ApplicationDocumentRenderer,
         contact_service: ContactService,
-        contact_finder: ContactFinder,
     ):
         self.profile = profile
         self.llm = llm
         self.adapter = adapter
         self.validator = validator
-        self.email_writer = email_writer
         self.renderer = renderer
         self.contact_service = contact_service
-        self.contact_finder = contact_finder
         self.letter_validator = MotivationLetterValidator(profile)
         self.settings = get_settings()
 
@@ -149,18 +243,20 @@ class Applier:
         job_id: int,
         *,
         mode: ApplyMode = "manual",
-        find_contact: bool = True,
         create_gmail_draft: bool | None = None,
         require_quality_gate: bool | None = None,
+        contact_email: str | None = None,
+        contact_form_url: str | None = None,
     ) -> ApplyReport:
         """Generate one application using the preset for ``mode``.
 
         Per-call overrides:
-        - ``find_contact=False`` forces ``contact_provider="none"``.
         - ``create_gmail_draft`` overrides the preset's default.
         - ``require_quality_gate`` overrides the preset's quality_gate flag
           (autopilot reads ``settings.autopilot_require_quality_gate`` when
           left as ``None``).
+        - ``contact_email`` manually sets the recipient and bypasses provider
+          lookup for that application.
         """
         spec = _PRESETS[mode]
         if create_gmail_draft is None:
@@ -169,12 +265,12 @@ class Applier:
             require_quality_gate = self.settings.autopilot_require_quality_gate
         if require_quality_gate is not None:
             spec = dataclasses.replace(spec, quality_gate=require_quality_gate)
-        if not find_contact:
-            spec = dataclasses.replace(spec, contact_provider="none")
         return self._do_apply(
             job_id,
             spec=spec,
             create_gmail_draft=create_gmail_draft,
+            contact_email=contact_email,
+            contact_form_url=contact_form_url,
         )
 
     # ============================================================
@@ -187,19 +283,25 @@ class Applier:
         *,
         spec: ApplySpec,
         create_gmail_draft: bool,
+        contact_email: str | None = None,
+        contact_form_url: str | None = None,
     ) -> ApplyReport:
         report = ApplyReport(job_id=job_id, application_id=None)
         job, analysis = self._load_job_analysis(job_id)
         offer_language = analysis.offer_language or "fr"
+        document_company = _document_company_label(job.company, offer_language)
+        manual_contact_email = self._normalize_manual_contact_email(contact_email)
+        manual_contact_form_url = (contact_form_url or "").strip() or None
 
         adapted, letter_draft, email_draft = self._generate_draft(
-            spec=spec,
             job=job,
             analysis=analysis,
             offer_language=offer_language,
+            document_company=document_company,
         )
         adapted = self._validate_with_auto_fix(adapted, report)
         self._validate_letter(letter_draft, adapted, analysis, report)
+        self._validate_cv_offer_alignment(adapted, analysis, job.title, report)
 
         score_components = job.score.components if job.score else None
         quality, approved = self._maybe_quality_gate(
@@ -214,7 +316,11 @@ class Applier:
         )
 
         contact: ContactCandidate | None = None
-        if approved:
+        if approved and manual_contact_email:
+            report.contact_email = manual_contact_email
+            report.contact_source = "manual"
+            report.contact_form_url = manual_contact_form_url
+        elif approved:
             contact_email, contact = self._find_contact(
                 spec.contact_provider,
                 job=job,
@@ -226,6 +332,8 @@ class Applier:
                 report.contact_form_url = contact.form_url
             elif contact_email:
                 report.contact_email = contact_email
+        if approved and manual_contact_form_url and not report.contact_form_url:
+            report.contact_form_url = manual_contact_form_url
 
         report.company_size = analysis.company_size
         report.application_strategy = decide_strategy(
@@ -239,7 +347,7 @@ class Applier:
             adapted=adapted,
             letter_draft=letter_draft,
             job_title=job.title,
-            job_company=job.company,
+            job_company=document_company,
             contact_email=report.contact_email,
             language=offer_language,
         )
@@ -298,48 +406,23 @@ class Applier:
     def _generate_draft(
         self,
         *,
-        spec: ApplySpec,
         job: Job,
         analysis: JobAnalysis,
         offer_language: str,
+        document_company: str,
     ) -> tuple[Any, MotivationLetter, EmailDraft]:
-        """Run either the combined ApplicationDraft call or the two-call legacy path."""
-        if spec.combined_call:
-            adapted, letter_draft, _selection = self.adapter.adapt_application(
-                analysis,
-                job_title=job.title,
-                job_company=job.company,
-                language=offer_language,
-                job_id=job.id,
-            )
-            email_draft = build_application_email(
-                candidate_name=self.profile.identity.full_name,
-                job_title=job.title,
-                job_company=job.company,
-                language=offer_language,
-            )
-            return adapted, letter_draft, email_draft
-        adapted, _selection = self.adapter.adapt(
+        """Generate CV + motivation letter, then build the sending email."""
+        adapted, letter_draft, _selection = self.adapter.adapt_application(
             analysis,
             job_title=job.title,
-            job_company=job.company,
-            job_id=job.id,
-        )
-        email_draft = self.email_writer.write(
-            analysis=analysis,
-            job_title=job.title,
-            job_company=job.company,
+            job_company=document_company,
             language=offer_language,
             job_id=job.id,
-        )
-        letter_draft = MotivationLetter(
-            subject=email_draft.subject,
-            body=email_draft.body,
         )
         email_draft = build_application_email(
             candidate_name=self.profile.identity.full_name,
             job_title=job.title,
-            job_company=job.company,
+            job_company=document_company,
             language=offer_language,
         )
         return adapted, letter_draft, email_draft
@@ -358,7 +441,7 @@ class Applier:
     ) -> tuple[ApplicationQualityReview | None, bool]:
         """When the gate is off, skip the LLM call entirely and approve."""
         if not spec.quality_gate:
-            return None, True
+            return None, not report.validation_errors
         quality = self._review_quality(
             job=job,
             analysis=analysis,
@@ -382,11 +465,6 @@ class Applier:
         """Resolve a contact email using the configured provider."""
         if provider == "none":
             return None, None
-        if provider == "finder":
-            if not job.application_url:
-                return None, None
-            best = self.contact_finder.best(job.application_url)
-            return (best.email if best else None), None
         candidate = self.contact_service.find(
             company=job.company,
             application_url=job.application_url,
@@ -394,6 +472,15 @@ class Applier:
             contact_domain_kind=analysis.contact_domain_kind,
         )
         return (candidate.email if candidate else None), candidate
+
+    @staticmethod
+    def _normalize_manual_contact_email(email: str | None) -> str | None:
+        value = (email or "").strip().lower()
+        if not value:
+            return None
+        if not _EMAIL_RE.match(value):
+            raise ValueError(f"Invalid contact email: {email}")
+        return value
 
     def _derive_status(self, *, approved: bool, report: ApplyReport) -> str:
         """Unified status logic.
@@ -440,6 +527,23 @@ class Applier:
         )
         report.validation_warnings.extend(result.warnings)
         report.validation_errors.extend(result.errors)
+
+    def _validate_cv_offer_alignment(
+        self,
+        adapted,
+        analysis: JobAnalysis,
+        job_title: str,
+        report: ApplyReport,
+    ) -> None:
+        anchors = _offer_anchors(analysis, job_title)
+        if not anchors:
+            return
+        title = _norm(adapted.cv_title)
+        summary = _norm(adapted.professional_summary)
+        if not any(anchor in title for anchor in anchors):
+            report.validation_warnings.append("cv_title_not_offer_anchored")
+        if not any(anchor in summary for anchor in anchors):
+            report.validation_warnings.append("summary_not_offer_anchored")
 
     def _load_job_analysis(self, job_id: int) -> tuple[Job, JobAnalysis]:
         with session_scope() as s:
@@ -557,7 +661,13 @@ class Applier:
             "bullet_too_long",
             "letter_too_short",
             "letter_too_long",
+            "letter_self_deprecation",
+            "french_elision_missing_apostrophe",
             "unsupported_term_in_letter",
+            "unsupported_tech_in_letter",
+            "unselected_project_in_letter",
+            "cv_title_not_offer_anchored",
+            "summary_not_offer_anchored",
         )
         severe_warnings = [
             w for w in report.validation_warnings if w.startswith(severe_prefixes)
@@ -594,6 +704,8 @@ class Applier:
             "validation_warnings": report.validation_warnings,
             "validation_errors": report.validation_errors,
             "contact": asdict(contact) if contact else None,
+            "contact_email": report.contact_email,
+            "contact_source": report.contact_source,
             "contact_form_url": report.contact_form_url,
             "contact_domain_kind": analysis.contact_domain_kind,
             "contact_domain_hint": analysis.contact_domain_hint,
@@ -633,12 +745,13 @@ class Applier:
                 )
                 app.contact_id = contact_row.id
             elif contact_email:
+                is_manual = report.contact_source == "manual"
                 contact_row = add_contact(
                     s,
                     company=job_company,
                     email=contact_email,
-                    source_url=apply_url,
-                    confidence=0.7,
+                    source_url="manual" if is_manual else apply_url,
+                    confidence=1.0 if is_manual else 0.7,
                 )
                 app.contact_id = contact_row.id
             app.cv_docx_path = report.docx_path

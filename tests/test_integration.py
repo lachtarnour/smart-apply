@@ -1,13 +1,12 @@
 """End-to-end integration test on a realistic sample of jobs.
 
-Drives the entire pipeline with mocked LLM and mocked HTTP — no API keys,
-no network. Verifies anti-hallucination, persistence, and artifact files.
+Drives the entire pipeline with mocked LLM — no API keys, no network.
+Verifies anti-hallucination, persistence, and artifact files.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -15,7 +14,7 @@ from smartapply.llm import (
     AdaptedBullet,
     AdaptedCV,
     AdaptedExperience,
-    EmailDraft,
+    ApplicationDraft,
     JobAnalysis,
     MockLLMProvider,
 )
@@ -201,22 +200,81 @@ def _register_llm_fixtures() -> None:
         ),
     )
     MockLLMProvider.register(
-        "email_writer",
-        EmailDraft(
-            subject="Candidature : Data Scientist NLP – Lachtar Nour",
-            body=(
+        "application_draft",
+        ApplicationDraft(
+            cv_title="Data Scientist – NLP & Multimodal AI",
+            professional_summary=(
+                "Data Scientist with 2 years applied R&D in NLP, multimodal AI and "
+                "clinical digital biomarkers. Built RAG pipelines, speech/NLP "
+                "stacks (Whisper, Pyannote) and multimodal models reaching 0.67 "
+                "correlation with clinical scores."
+            ),
+            selected_experiences=[
+                AdaptedExperience(
+                    source_id="exp_emobot_ds_2024",
+                    bullets=[
+                        AdaptedBullet(
+                            source_id="blt_emobot_ds_multimodal",
+                            text=(
+                                "Built multimodal digital biomarker pipelines from facial, "
+                                "mobility and smartphone data, reaching 0.67 correlation "
+                                "with validated clinical scores."
+                            ),
+                        ),
+                        AdaptedBullet(
+                            source_id="blt_emobot_ds_speech_face",
+                            text=(
+                                "Developed speech/NLP and face-recognition pipelines using "
+                                "Whisper, Pyannote, RetinaFace, FaceNet and Flask APIs."
+                            ),
+                        ),
+                        AdaptedBullet(
+                            source_id="blt_emobot_ds_patent",
+                            text=(
+                                "Contributed to a patent-pending AI monitoring system and "
+                                "clinical preprint on passive mood markers."
+                            ),
+                        ),
+                    ],
+                ),
+                AdaptedExperience(
+                    source_id="exp_emobot_intern_2023",
+                    bullets=[
+                        AdaptedBullet(
+                            source_id="blt_emobot_intern_anomaly",
+                            text=(
+                                "Built an anomaly detection pipeline for identifying "
+                                "behavioral disruptions in mood tracking data."
+                            ),
+                        ),
+                    ],
+                ),
+            ],
+            selected_project_ids=[
+                "proj_scifact_rag",
+                "proj_ner_camembert",
+                "proj_gpt2",
+            ],
+            skills_order=["ml_ai", "data_infra", "stats_signal"],
+            warnings=[],
+            motivation_letter_subject="Candidature - Data Scientist NLP - Lachtar Nour",
+            motivation_letter_body=(
                 "Bonjour,\n\n"
-                "Je me permets de vous adresser ma candidature pour le poste de "
-                "Data Scientist NLP. Mes deux années chez Emobot m'ont permis de "
-                "construire des pipelines NLP/speech (Whisper, Pyannote) et des "
-                "biomarqueurs cliniques multimodaux. Mon projet SciFact RAG "
-                "(BM25, FAISS, reranking) correspond particulièrement aux missions "
-                "que vous décrivez. Je serais ravi d'en discuter avec vous.\n\n"
-                "Bien cordialement,\nLachtar Nour"
+                "Je vous adresse ma candidature pour le poste de Data Scientist NLP. "
+                "Mes deux années chez Emobot m'ont permis de construire des pipelines "
+                "NLP et speech avec Whisper et Pyannote, ainsi que des biomarqueurs "
+                "cliniques multimodaux atteignant 0.67 de corrélation avec des scores "
+                "validés. Le projet SciFact RAG, fondé sur BM25, FAISS, reranking et "
+                "génération de réponses sourcées, rejoint directement les missions de "
+                "RAG, de fine-tuning et de déploiement que vous décrivez. Ce parcours "
+                "combine expérimentation, évaluation et intégration logicielle sur des "
+                "données complexes. Je serais ravi d'échanger sur la manière dont ce "
+                "profil peut contribuer à vos sujets NLP et IA appliquée.\n\n"
+                "Cordialement,\n"
+                "Lachtar Nour"
             ),
         ),
     )
-
 
 def test_full_pipeline_on_realistic_sample(tmp_path: Path) -> None:
     """Ingest 5 jobs → process → apply to top 2. Verify everything."""
@@ -248,8 +306,6 @@ def test_full_pipeline_on_realistic_sample(tmp_path: Path) -> None:
     assert process_report.analyzed >= 2
 
     # ---- Step 3: Apply to top-scoring jobs ----
-    p.contact_finder.find = MagicMock(return_value=[])
-
     with session_scope() as s:
         top = list(top_jobs_by_score(s, 2))
         top_ids = [j.id for j in top]

@@ -32,16 +32,17 @@ Hard rules:
 7. Density rule (very important): default to the source bullet's exact phrasing — it is already dense and intentional. Only paraphrase when you can naturally surface an offer keyword without adding fluff. If the rewrite would be longer, heavier, or less natural than the source, keep the source bullet verbatim. Surfacing keywords is OPTIONAL: skip it whenever it would weigh the bullet down.
 8. When you do rephrase, you may only recombine/paraphrase the provided allowed_claims.
 9. Keep bullets concise (<= 220 chars). Lead with action verbs.
-10. If a source bullet declares ``links``, keep each ``anchor`` token verbatim in your output bullet — the renderer wraps it as a hyperlink. Do not embed any markdown link or HTML tag yourself; just preserve the anchor word.
-11. Surface only experiences and projects relevant to the offer. Skip the rest.
-12. The professional_summary may be adapted to the offer, but must only use facts from the source profile.
-13. The professional_summary must fit in 2 lines maximum and stay within the profile style length limit.
-14. Choose exactly one skills_profile_id from the provided skill profile choices. Use matching_keywords only to understand the role family; they are NOT display skills.
-15. selected_skills is the exact Skills section to display. Build organized category blocks from allowed_skills_by_category only.
-16. Skill selection strategy: include offer-required skills that exist in allowed_skills; add core/profile skills only when they strengthen the application for this offer; omit generic or unrelated skills even if the candidate has them.
-17. Unsupported offer terms are a no-claim list: do not describe the candidate as having those skills in the summary, bullets, title, skills, email or warnings.
-18. selected_project_ids must contain 2 to 4 projects. Include at least 3 only when 3 genuinely relevant projects are available. Do not select a project only as filler.
-19. Output ONLY the JSON. No prose, no commentary.
+10. selected_experiences MUST include every provided source experience and every provided source bullet. Do not remove bullets to optimize relevance. If a bullet cannot be naturally adapted to the offer, keep the source text verbatim.
+11. If a source bullet declares ``links``, keep each ``anchor`` token verbatim in your output bullet — the renderer wraps it as a hyperlink. Do not embed any markdown link or HTML tag yourself; just preserve the anchor word.
+12. The cv_title MUST be adapted to this role and MUST contain at least one specific role anchor from the job title, role_type or main_tasks. Generic default titles are forbidden.
+13. The professional_summary MUST be adapted to this role, cite at least one concrete offer anchor, fit in 2 lines maximum, and use only facts from the source profile.
+14. Generic default summaries are forbidden. Do not reuse broad phrases such as "applied AI, NLP and multimodal learning" unless those exact areas are directly relevant to the offer.
+15. Choose exactly one skills_profile_id from the provided skill profile choices. Use matching_keywords only to understand the role family; they are NOT display skills.
+16. selected_skills is the exact Skills section to display. Build organized category blocks from allowed_skills_by_category only.
+17. Skill selection strategy: include offer-required skills that exist in allowed_skills; add core/profile skills only when they strengthen the application for this offer; omit generic or unrelated skills even if the candidate has them.
+18. Unsupported offer terms are a no-claim list: do not describe the candidate as having those skills in the summary, bullets, title, skills or warnings.
+19. selected_project_ids must contain 2 to 4 projects. Include at least 3 only when 3 genuinely relevant projects are available. Do not select a project only as filler.
+20. Output ONLY the JSON. No prose, no commentary.
 """
 
 
@@ -241,13 +242,15 @@ projects:
 Tone: {style.tone}
 Voice: {style.voice}
 CV language: English only. Keep cv_title, professional_summary and CV bullets in English.
-Professional summary: adapt it to the job, max {style.max_summary_lines} lines and max {style.max_summary_length} characters. Use only summary_source, experiences, projects and allowed_skills.
+CV title: must be role-specific and contain a concrete anchor from the job title, role_type or main_tasks. Do not reuse a generic default title.
+Professional summary: adapt it to the job, mention at least one concrete offer anchor, max {style.max_summary_lines} lines and max {style.max_summary_length} characters. Use only summary_source, experiences, projects and allowed_skills.
+Experience output: include every provided experience and every bullet id exactly once. Rephrase only when faithful; otherwise keep the source bullet.
 Do:
   - {do}
 Don't:
   - {dont}
 
-Produce a JSON conformant to the AdaptedCV schema. Choose the most relevant bullets for THIS offer. Anything you write about a bullet must be expressible by combining/paraphrasing its allowed_claims.
+Produce a JSON conformant to the AdaptedCV schema. Keep every provided experience bullet; adapt only the wording where it remains faithful and useful. Anything you write about a bullet must be expressible by combining/paraphrasing its allowed_claims.
 
 Project output rule:
 - selected_project_ids must contain 2 to 4 projects.

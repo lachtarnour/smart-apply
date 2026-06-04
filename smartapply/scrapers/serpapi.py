@@ -10,7 +10,6 @@ Do not append freshness phrases to ``q``: it hurts recall for role titles.
 
 from __future__ import annotations
 
-import math
 from collections.abc import Iterator
 from typing import Any
 
@@ -166,18 +165,18 @@ class SerpApiGoogleJobsScraper(Scraper):
         languages = split_localization_values(hl, fallback=self.hl)
         countries = split_localization_values(gl, fallback=self.gl)
         domains = split_localization_values(google_domain, fallback=self.google_domain)
-        locale_count = max(1, len(languages) * len(countries) * len(domains))
-        per_locale_max = (
-            max(1, math.ceil(max_results / locale_count))
-            if max_results and locale_count > 1
-            else max_results
-        )
-
         collected: list[RawJob] = []
         seen_external_ids: set[str] = set()
         for domain in domains:
             for country in countries:
                 for language in languages:
+                    remaining = (
+                        max_results - len(collected)
+                        if max_results is not None
+                        else None
+                    )
+                    if remaining is not None and remaining <= 0:
+                        break
                     params: dict[str, Any] = {
                         "engine": "google_jobs",
                         "q": search_query,
@@ -194,11 +193,13 @@ class SerpApiGoogleJobsScraper(Scraper):
                     if search_uds:
                         params["uds"] = search_uds
 
-                    for job in self._search_pages(params, max_results=per_locale_max):
+                    for job in self._search_pages(params, max_results=remaining):
                         if job.external_id in seen_external_ids:
                             continue
                         seen_external_ids.add(job.external_id)
                         collected.append(job)
+                        if max_results is not None and len(collected) >= max_results:
+                            break
 
         for job in collected[:max_results] if max_results else collected:
             yield job
@@ -209,7 +210,7 @@ class SerpApiGoogleJobsScraper(Scraper):
         *,
         max_results: int | None,
     ) -> Iterator[RawJob]:
-        pages_limit = max(1, math.ceil(max_results / 10)) if max_results else self.max_pages
+        pages_limit = self.max_pages
         pages_fetched = 0
         results_yielded = 0
         next_token: str | None = None
@@ -226,15 +227,20 @@ class SerpApiGoogleJobsScraper(Scraper):
 
             pages_fetched += 1
             jobs = payload.get("jobs_results") or []
+            pagination = payload.get("serpapi_pagination") or {}
+            next_token = pagination.get("next_page_token")
             if not jobs:
                 logger.info(
-                    "SerpApi pagination exhausted at page %d for hl=%s gl=%s q=%r chips=%r",
+                    "SerpApi page %d returned no jobs for hl=%s gl=%s q=%r chips=%r%s",
                     pages_fetched,
                     params.get("hl"),
                     params.get("gl"),
                     params.get("q"),
                     params.get("chips"),
+                    " but next_page_token is present" if next_token else "",
                 )
+                if next_token:
+                    continue
                 break
 
             for raw in jobs:
@@ -246,8 +252,6 @@ class SerpApiGoogleJobsScraper(Scraper):
                 if max_results and results_yielded >= max_results:
                     return
 
-            pagination = payload.get("serpapi_pagination") or {}
-            next_token = pagination.get("next_page_token")
             if not next_token:
                 break
 

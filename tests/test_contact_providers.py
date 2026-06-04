@@ -10,7 +10,24 @@ from smartapply.email_agent.contact_providers import (
     contact_lookup_key,
     default_contact_chain,
     domain_from_url,
+    score_email,
 )
+
+
+def test_score_email_orders_recruitment_above_support() -> None:
+    assert score_email("recrutement@acme.com") > score_email("contact@acme.com")
+    assert score_email("contact@acme.com") > score_email("support@acme.com")
+    assert score_email("jobs@acme.com") > score_email("hello@acme.com")
+
+
+def test_score_email_blocks_noreply() -> None:
+    assert score_email("noreply@acme.com") == 0.0
+    assert score_email("no-reply@acme.com") == 0.0
+    assert score_email("donotreply@acme.com") == 0.0
+
+
+def test_score_email_neutral_for_personal_addresses() -> None:
+    assert 0.4 <= score_email("john.doe@acme.com") <= 0.6
 
 
 def test_domain_from_url_strips_common_job_subdomain() -> None:

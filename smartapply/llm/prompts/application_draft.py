@@ -39,19 +39,38 @@ Hard rules:
 6. The CV is ALWAYS in English, even when the job offer is in French.
 7. Density rule (very important): default to the source bullet's exact phrasing — it is already dense and intentional. Only paraphrase when you can naturally surface an offer keyword without adding fluff. If the rewrite would be longer, heavier, or less natural than the source, keep the source bullet verbatim. Surfacing keywords is OPTIONAL.
 8. When you do rephrase, you may only recombine/paraphrase the provided allowed_claims.
-9. CV bullets must be concise (<= 220 chars) and relevant to this offer.
-10. If a source bullet declares ``links``, keep each ``anchor`` token verbatim in your output bullet — the renderer wraps it as a hyperlink. Do not embed any markdown link or HTML tag yourself.
-11. The professional_summary may be adapted to the offer, but must only use facts from the source profile.
-12. The professional_summary must fit in 2 lines maximum and stay within the profile style length limit.
-13. Choose exactly one skills_profile_id from the provided skill profile choices. Use matching_keywords only to understand the role family; they are NOT display skills.
-14. The motivation letter body must be 180-280 words, plain and human, with no bullet list.
-15. The motivation letter must cite one concrete project, stack or experience from the profile.
-16. The motivation letter must reuse evidence from selected_experiences or selected_project_ids.
-17. selected_skills is the exact Skills section to display. Build organized category blocks from allowed_skills_by_category only.
-18. Skill selection strategy: include offer-required skills that exist in allowed_skills; add core/profile skills only when they strengthen the application for this offer; omit generic or unrelated skills even if the candidate has them.
-19. Unsupported offer terms are a no-claim list: do not describe the candidate as having those skills in the summary, bullets, title, skills, motivation letter or warnings.
-20. selected_project_ids must contain 2 to 4 projects. Include at least 3 only when 3 genuinely relevant projects are available. Do not select a project only as filler.
-21. Output ONLY the requested JSON. No prose, no commentary.
+9. CV bullets must be concise (<= 220 chars), clear and faithful to the source.
+10. selected_experiences MUST include every provided source experience and every provided source bullet. Do not remove bullets to optimize relevance. If a bullet cannot be naturally adapted to the offer, keep the source text verbatim.
+11. If a source bullet declares ``links``, keep each ``anchor`` token verbatim in your output bullet — the renderer wraps it as a hyperlink. Do not embed any markdown link or HTML tag yourself.
+12. The cv_title MUST be adapted to this role and MUST contain at least one specific role anchor from the job title, role_type or main_tasks. Generic default titles are forbidden.
+13. The professional_summary MUST be adapted to this role, cite at least one concrete offer anchor, fit in 2 lines maximum, and use only facts from the source profile.
+14. Generic default summaries are forbidden. Do not reuse broad phrases such as "applied AI, NLP and multimodal learning" unless those exact areas are directly relevant to the offer.
+15. Choose exactly one skills_profile_id from the provided skill profile choices. Use matching_keywords only to understand the role family; they are NOT display skills.
+16. The motivation letter body must be 180-280 words, plain and human, with no bullet list.
+17. The motivation letter must cite one concrete project, stack or experience from the profile.
+18. The motivation letter must reuse evidence from selected_experiences or selected_project_ids.
+19. The motivation letter must be written only in French or English with Latin-script characters. Never output Arabic, Armenian, Cyrillic, Hebrew, CJK or mixed-script words.
+20. selected_skills is the exact Skills section to display. Build organized category blocks from allowed_skills_by_category only.
+21. Skill selection strategy: include offer-required skills that exist in allowed_skills; add core/profile skills only when they strengthen the application for this offer; omit generic or unrelated skills even if the candidate has them.
+22. Unsupported offer terms are a no-claim list: do not describe the candidate as having those skills in the summary, bullets, title, skills, motivation letter or warnings.
+23. Never mention a lack, gap, missing experience, limited knowledge, junior status, willingness to learn, or apologies. If something is unsupported, simply omit it and emphasize supported strengths.
+24. The motivation letter may reference only selected_project_ids and selected_experiences. Do not name or hint at projects that are not selected.
+25. selected_project_ids must contain 2 to 4 projects. Include at least 3 only when 3 genuinely relevant projects are available. Do not select a project only as filler.
+26. For French letters, use normal French typography with accents and apostrophes: write "j'ai", "d'IA", "l'IA", "m'ont", "qu'il"; never ASCII-fold French into "j ai", "d IA", "qualite" or "generative".
+27. Output ONLY the requested JSON. No prose, no commentary.
+
+Good motivation-letter pattern:
+- Opening: state direct fit for the role with confidence.
+- Evidence: connect one selected experience and one selected project to the role.
+- Close: short professional call to action.
+
+Forbidden motivation-letter patterns:
+- "Although / Bien que..."
+- "I do not have / Je n'ai pas..."
+- "I am aware / Je suis conscient..."
+- "I recognize / Je reconnais..."
+- "limited knowledge / connaissance limitée..."
+- "ready to learn / prêt à apprendre..."
 """
 
 
@@ -132,16 +151,22 @@ Motivation letter language: {"French" if language == "fr" else "English"}
 Project hints for the letter: {project_hint}
 Subject: concise, mentions the role and the candidate name. For French, use "Candidature - ..." rather than "Application for ...".
 Body: 180-280 words, natural, professional, no buzzwords, no bullet list.
+Use only French or English Latin script. No Arabic, Armenian, Cyrillic, Hebrew, CJK or mixed-script words.
+For French, keep normal apostrophes and accents; do not remove apostrophes after j, d, l, m, n, s, t, qu, jusqu, lorsqu or puisqu.
 The motivation letter must reuse evidence from selected_experiences or selected_project_ids.
 It must cite one concrete project, stack or experience from the profile.
 Do not claim unsupported_offer_terms_not_to_claim as candidate skills.
 If a required term is unsupported, emphasize adjacent allowed skills and concrete evidence.
+Never mention a gap, missing experience, limited knowledge, learning need, apology, or defensive caveat. Do not use "Bien que", "Je reconnais", "Je suis conscient", "je n'ai pas", "limited", "although", or "ready to learn".
+Only name projects that appear in selected_project_ids. If you name a project in the letter, that exact project id MUST be present in selected_project_ids. Do not use a real project as generic filler when it is not directly relevant.
 
 === STYLE ===
 Tone: {style.tone}
 Voice: {style.voice}
 CV language: English only. Keep cv_title, professional_summary and CV bullets in English.
-Professional summary: adapt it to the job, max {style.max_summary_lines} lines and max {style.max_summary_length} characters. Use only summary_source, experiences, projects and allowed_skills.
+CV title: must be role-specific and contain a concrete anchor from the job title, role_type or main_tasks. Do not reuse a generic default title.
+Professional summary: adapt it to the job, mention at least one concrete offer anchor, max {style.max_summary_lines} lines and max {style.max_summary_length} characters. Use only summary_source, experiences, projects and allowed_skills.
+Experience output: include every provided experience and every bullet id exactly once. Rephrase only when faithful; otherwise keep the source bullet.
 Do:
   - {do}
 Don't:

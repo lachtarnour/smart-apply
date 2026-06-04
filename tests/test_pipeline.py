@@ -1,14 +1,14 @@
 """Integration tests for the end-to-end pipeline.
 
-Every external dependency is mocked: scrapers, LLM, embeddings, contact
-finder. The pipeline is exercised against real profile data so the
+Every external dependency is mocked: scrapers, LLM and embeddings. The
+pipeline is exercised against real profile data so the
 anti-hallucination contract is validated too.
 """
 
 from __future__ import annotations
 
+from collections import Counter
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -16,7 +16,7 @@ from smartapply.llm import (
     AdaptedBullet,
     AdaptedCV,
     AdaptedExperience,
-    EmailDraft,
+    ApplicationDraft,
     JobAnalysis,
     MockLLMProvider,
 )
@@ -86,18 +86,43 @@ def _register_llm_responses() -> None:
         ),
     )
     MockLLMProvider.register(
-        "email_writer",
-        EmailDraft(
-            subject="Candidature : Data Scientist NLP – Lachtar Nour",
-            body=(
-                "Bonjour,\n\nJe me permets de candidater au poste de Data Scientist NLP. "
+        "application_draft",
+        ApplicationDraft(
+            cv_title="Data Scientist – NLP & Multimodal AI",
+            professional_summary=(
+                "Data Scientist with 2 years applied R&D in multimodal AI and "
+                "clinical digital biomarkers. Strong NLP/RAG and speech pipelines."
+            ),
+            selected_experiences=[
+                AdaptedExperience(
+                    source_id="exp_emobot_ds_2024",
+                    bullets=[
+                        AdaptedBullet(
+                            source_id="blt_emobot_ds_multimodal",
+                            text="Built multimodal pipelines reaching 0.67 correlation with clinical scores.",
+                        ),
+                        AdaptedBullet(
+                            source_id="blt_emobot_ds_speech_face",
+                            text="Developed speech/NLP and face-recognition pipelines using Whisper and Pyannote.",
+                        ),
+                    ],
+                )
+            ],
+            selected_project_ids=["proj_scifact_rag", "proj_ner_camembert"],
+            skills_order=["ml_ai", "data_infra", "stats_signal"],
+            warnings=[],
+            motivation_letter_subject="Candidature - Data Scientist NLP - Lachtar Nour",
+            motivation_letter_body=(
+                "Bonjour,\n\n"
+                "Je vous adresse ma candidature pour le poste de Data Scientist NLP. "
                 "Mon expérience chez Emobot en biomarqueurs cliniques et NLP, ainsi que mon "
                 "projet RAG SciFact, correspondent bien aux pipelines que vous décrivez. "
-                "Je serai ravi d'échanger sur la suite.\n\nCordialement,\nNour"
+                "Je serai ravi d'échanger sur la suite.\n\n"
+                "Cordialement,\n"
+                "Lachtar Nour"
             ),
         ),
     )
-
 
 def test_ingest_text_persists_job() -> None:
     from smartapply.pipeline import Pipeline
@@ -205,9 +230,28 @@ def test_ingestor_splits_or_queries_and_balances_results(monkeypatch: pytest.Mon
         "AI Engineer",
         "Ingénieur IA",
     ]
-    assert [max_results for _, max_results in calls] == [2, 2, 2, 2, 2, 2]
+    assert [max_results for _, max_results in calls] == [7, 7, 7, 7, 7, 7]
     assert report.fetched == 7
     assert report.persisted == 7
+    from smartapply.database import session_scope
+    from smartapply.database.models import Job
+
+    with session_scope() as s:
+        titles = [
+            job.title
+            for job in s.query(Job)
+            .filter(Job.id.in_(report.job_ids))
+            .order_by(Job.id.asc())
+            .all()
+        ]
+    assert Counter(titles) == {
+        "Data Scientist": 2,
+        "Scientifique des données": 1,
+        "Machine Learning Engineer": 1,
+        "Ingénieur Machine Learning": 1,
+        "AI Engineer": 1,
+        "Ingénieur IA": 1,
+    }
 
 
 def test_serpapi_cdi_uses_fulltime_chip_not_query_suffix(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -251,6 +295,54 @@ def test_serpapi_cdi_uses_fulltime_chip_not_query_suffix(monkeypatch: pytest.Mon
         "Ingénieur Machine Learning",
     ]
     assert all(chips == "employment_type:FULLTIME" for chips in chips_seen)
+
+
+def test_freshness_kwargs_propagates_date_posted_to_both_sources() -> None:
+    from smartapply.pipeline.pipeline import freshness_kwargs
+
+    assert freshness_kwargs("serpapi", date_posted="week", serpapi_hl="en,fr") == {
+        "date_posted": "week",
+        "hl": "en,fr",
+    }
+    assert freshness_kwargs("francetravail", date_posted="week", serpapi_hl="en,fr") == {
+        "date_posted": "week",
+    }
+    assert freshness_kwargs("manual", date_posted="week", serpapi_hl="en,fr") == {}
+    assert freshness_kwargs("serpapi", date_posted=None, serpapi_hl=None) == {}
+
+
+def test_pipeline_ingest_passes_date_posted_to_francetravail(monkeypatch: pytest.MonkeyPatch) -> None:
+    from smartapply.pipeline import Pipeline
+
+    seen_kwargs: list[dict] = []
+
+    class FakeScraper:
+        name = "francetravail"
+
+        def is_available(self) -> bool:
+            return True
+
+        def search(self, query, location=None, *, max_results=None, **kwargs):  # noqa: ANN001, ARG002
+            seen_kwargs.append(kwargs)
+            for i in range(max_results or 1):
+                yield RawJob(
+                    external_id=f"francetravail:{query}:{i}",
+                    title=query,
+                    company=f"Company {i}",
+                    location="Paris",
+                    description="Construire des pipelines.",
+                    source="francetravail",
+                )
+
+    monkeypatch.setattr("smartapply.pipeline.ingestor.get_scraper", lambda source: FakeScraper())
+
+    pipeline = Pipeline(embeddings=MockEmbeddingsProvider(), llm=MockLLMProvider())
+    pipeline.ingest("francetravail", "Data Scientist", max_results=2, date_posted="week")
+
+    assert seen_kwargs, "scraper.search was never called"
+    assert all(kw.get("date_posted") == "week" for kw in seen_kwargs)
+    # ``hl`` is SerpApi-only — it must NOT leak to FT
+    assert all("hl" not in kw for kw in seen_kwargs)
 
 
 def test_process_pending_can_analyze_only_selected_jobs() -> None:
@@ -385,9 +477,6 @@ def test_full_pipeline_with_mocked_dependencies() -> None:
     assert top, "Expected at least one ranked job"
     top_id = top[0].id
 
-    # Mock contact finder so we don't hit the network
-    p.contact_finder.find = MagicMock(return_value=[])
-
     report = p.apply_to(top_id, create_gmail_draft=False)
     assert report.application_id is not None
     assert report.docx_path and Path(report.docx_path).exists()
@@ -395,6 +484,39 @@ def test_full_pipeline_with_mocked_dependencies() -> None:
     assert report.letter_pdf_path and Path(report.letter_pdf_path).exists()
     assert report.eml_path and Path(report.eml_path).exists()
     assert not report.validation_errors
+
+
+def test_apply_to_uses_manual_contact_email() -> None:
+    _register_llm_responses()
+    from smartapply.database import session_scope
+    from smartapply.database.models import Application
+    from smartapply.pipeline import Pipeline
+
+    p = Pipeline(embeddings=MockEmbeddingsProvider(), llm=MockLLMProvider())
+    ingested = p.ingest_text(
+        text="Build RAG pipelines with Python.",
+        title="Data Scientist NLP",
+        company="ManualContactCo",
+        location="Paris",
+        application_url="https://manual.example/jobs/1",
+    )
+    p.process_pending(top_k_analyze=1, job_ids=ingested.job_ids)
+
+    report = p.apply_to(
+        ingested.job_ids[0],
+        contact_email="Recruitment@Manual.Example",
+        create_gmail_draft=False,
+    )
+
+    assert report.contact_email == "recruitment@manual.example"
+    assert report.contact_source == "manual"
+    assert report.status == "email_generated"
+    with session_scope() as s:
+        app = s.get(Application, report.application_id)
+        assert app is not None
+        assert app.contact is not None
+        assert app.contact.email == "recruitment@manual.example"
+        assert app.contact.source_url == "manual"
 
 
 def test_pipeline_invalid_source_raises() -> None:
@@ -409,6 +531,7 @@ def test_offer_language_detection_fr_and_en() -> None:
     from smartapply.pipeline import Pipeline
 
     assert Pipeline._detect_offer_language("Vos missions: analyser des donnees. CDI Paris.") == "fr"
+    assert Pipeline._detect_offer_language("Poste en télétravail avec CDI et profil recherché data.") == "fr"
     assert Pipeline._detect_offer_language("Responsibilities: build ML models. English required.") == "en"
 
 

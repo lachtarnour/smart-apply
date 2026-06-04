@@ -17,6 +17,32 @@ from smartapply.database.repository import (
 from smartapply.jobsearch import APPLICATION_STATUSES, next_action_for
 
 
+def _is_missing(value) -> bool:  # noqa: ANN001
+    if value is None:
+        return True
+    try:
+        return bool(pd.isna(value))
+    except (TypeError, ValueError):
+        return False
+
+
+def _text(value) -> str:  # noqa: ANN001
+    return "" if _is_missing(value) else str(value)
+
+
+def _optional_text(value) -> str | None:  # noqa: ANN001
+    text = _text(value).strip()
+    return text or None
+
+
+def _session_text_default(key: str, value) -> None:  # noqa: ANN001
+    current = st.session_state.get(key)
+    if _is_missing(current) or not isinstance(current, str):
+        st.session_state[key] = _text(value)
+    else:
+        st.session_state.setdefault(key, _text(value))
+
+
 st.set_page_config(page_title="Candidatures | SmartApply", page_icon="📝", layout="wide")
 apply_app_style()
 st.markdown(
@@ -54,18 +80,19 @@ with session_scope() as s:
                     has_contact=a.contact is not None,
                     has_gmail_draft=bool(a.gmail_draft_id),
                 ),
-                "subject": a.email_subject,
-                "body": a.email_body or "",
-                "letter_subject": letter_extra.get("subject", ""),
-                "letter_body": letter_doc.content if letter_doc else "",
-                "contact": a.contact.email if a.contact else None,
-                "strategy": a.application_strategy,
-                "form_url": a.form_submission_url,
-                "cv_path": a.cv_docx_path,
-                "cv_pdf_path": a.cv_pdf_path or (cv_pdf_doc.path if cv_pdf_doc else None),
-                "letter_pdf_path": letter_pdf_doc.path if letter_pdf_doc else None,
-                "eml_path": a.eml_path,
-                "notes": a.notes,
+                "subject": _text(a.email_subject),
+                "body": _text(a.email_body),
+                "letter_subject": _text(letter_extra.get("subject", "")),
+                "letter_body": _text(letter_doc.content if letter_doc else ""),
+                "contact": _text(a.contact.email if a.contact else ""),
+                "strategy": _text(a.application_strategy),
+                "form_url": _optional_text(a.form_submission_url),
+                "cv_path": _optional_text(a.cv_docx_path),
+                "cv_pdf_path": _optional_text(a.cv_pdf_path)
+                or _optional_text(cv_pdf_doc.path if cv_pdf_doc else None),
+                "letter_pdf_path": _optional_text(letter_pdf_doc.path if letter_pdf_doc else None),
+                "eml_path": _optional_text(a.eml_path),
+                "notes": _text(a.notes),
                 "updated_at": a.updated_at,
             }
         )
@@ -142,21 +169,24 @@ if row.empty:
     st.stop()
 
 r = row.iloc[0]
-st.write(f"**{r['title']}** — {r['company']}")
-st.write(f"Statut : **{status_label(r['status'])}**")
-st.write(f"Prochaine action : **{r['next_action']}**")
-st.write(f"Contact : `{r['contact']}`")
-st.write(f"Stratégie : `{r['strategy']}`")
-if r["form_url"]:
-    st.link_button("Ouvrir le formulaire", r["form_url"])
+st.write(f"**{_text(r['title'])}** — {_text(r['company'])}")
+st.write(f"Statut : **{status_label(_text(r['status']))}**")
+st.write(f"Prochaine action : **{_text(r['next_action'])}**")
+st.write(f"Contact : `{_text(r['contact']) or 'Aucun'}`")
+st.write(f"Stratégie : `{_text(r['strategy'])}`")
+form_url = _optional_text(r["form_url"])
+if form_url:
+    st.link_button("Ouvrir le formulaire", form_url)
 
-if r["letter_body"]:
+letter_body = _text(r["letter_body"])
+letter_subject = _text(r["letter_subject"])
+if letter_body:
     st.subheader("Lettre de motivation")
-    if r["letter_subject"]:
-        st.text_input("Sujet de la lettre", value=r["letter_subject"], disabled=True)
+    if letter_subject:
+        st.text_input("Sujet de la lettre", value=letter_subject, disabled=True)
     st.text_area(
         "Corps de la lettre",
-        value=r["letter_body"],
+        value=letter_body,
         height=220,
         disabled=True,
     )
@@ -164,8 +194,8 @@ if r["letter_body"]:
 st.subheader("Email final")
 subject_key = f"applications_subject_{int(app_id)}"
 body_key = f"applications_body_{int(app_id)}"
-st.session_state.setdefault(subject_key, r["subject"] or "")
-st.session_state.setdefault(body_key, r["body"] or "")
+_session_text_default(subject_key, r["subject"])
+_session_text_default(body_key, r["body"])
 st.text_input("Sujet", key=subject_key)
 st.text_area("Corps de l'email", key=body_key, height=220)
 if st.button("Enregistrer l'email final"):
@@ -187,7 +217,8 @@ if st.button("Enregistrer l'email final"):
     st.rerun()
 
 st.subheader("Suivi")
-current_status = r["status"] if r["status"] in APPLICATION_STATUSES else APPLICATION_STATUSES[0]
+row_status = _text(r["status"])
+current_status = row_status if row_status in APPLICATION_STATUSES else APPLICATION_STATUSES[0]
 new_status = st.selectbox(
     "Statut",
     options=APPLICATION_STATUSES,
@@ -196,7 +227,7 @@ new_status = st.selectbox(
 )
 new_notes = st.text_area(
     "Notes / prochaines actions",
-    value=r["notes"] or "",
+    value=_text(r["notes"]),
     height=120,
     placeholder="Ex: relancer le recruteur mardi, préparer 3 exemples de projets NLP, feedback reçu...",
 )
@@ -217,7 +248,7 @@ if st.button("Enregistrer le suivi", type="primary"):
 st.divider()
 st.subheader("Documents")
 cols = st.columns(4)
-cv_path = r["cv_path"]
+cv_path = _optional_text(r["cv_path"])
 if cv_path and Path(cv_path).exists():
     cols[0].download_button(
         "⬇️ Télécharger le CV (DOCX)",
@@ -226,7 +257,7 @@ if cv_path and Path(cv_path).exists():
         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     )
 
-cv_pdf_path = r["cv_pdf_path"]
+cv_pdf_path = _optional_text(r["cv_pdf_path"])
 if cv_pdf_path and Path(cv_pdf_path).exists():
     cols[1].download_button(
         "⬇️ Télécharger le CV (PDF)",
@@ -235,7 +266,7 @@ if cv_pdf_path and Path(cv_pdf_path).exists():
         mime="application/pdf",
     )
 
-letter_pdf_path = r["letter_pdf_path"]
+letter_pdf_path = _optional_text(r["letter_pdf_path"])
 if letter_pdf_path and Path(letter_pdf_path).exists():
     cols[2].download_button(
         "⬇️ Télécharger la lettre (PDF)",
@@ -244,7 +275,7 @@ if letter_pdf_path and Path(letter_pdf_path).exists():
         mime="application/pdf",
     )
 
-eml_path = r["eml_path"]
+eml_path = _optional_text(r["eml_path"])
 if eml_path and Path(eml_path).exists():
     cols[3].download_button(
         "⬇️ Télécharger l'email (.eml)",
@@ -254,12 +285,13 @@ if eml_path and Path(eml_path).exists():
     )
 
 st.divider()
-if not r["contact"]:
+contact = _optional_text(r["contact"])
+if not contact:
     st.info("Ajoute ou trouve un contact avant de créer un brouillon Gmail.")
 
 final_subject = str(st.session_state.get(subject_key, "")).strip()
 final_body = str(st.session_state.get(body_key, "")).strip()
-draft_disabled = not r["contact"] or not final_subject or not final_body
+draft_disabled = not contact or not final_subject or not final_body
 if st.button("📧 Créer un brouillon Gmail", type="primary", disabled=draft_disabled):
     try:
         from smartapply.email_agent.gmail_draft import create_draft
@@ -276,7 +308,7 @@ if st.button("📧 Créer un brouillon Gmail", type="primary", disabled=draft_di
             draft_id = create_draft(
                 subject=final_subject,
                 body=final_body,
-                recipient=r["contact"] or "",
+                recipient=contact or "",
                 sender=pipeline_singleton().profile.identity.email,
                 attachment_paths=attachment_paths,
             )

@@ -27,7 +27,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from smartapply.cv.role_family import classify, has_data_scientist_ia_signal
+from smartapply.cv.role_family import KNOWN_ROLE_FAMILIES, classify, has_data_scientist_ia_signal
 from smartapply.llm import AdaptedCV, JobAnalysis, SkillSelectionBlock
 
 
@@ -35,12 +35,26 @@ _CONTRACTS_PATH = Path(__file__).with_name("role_contracts.json")
 
 _DS_IA_EXTRA_SKILLS: tuple[str, ...] = ("NLP", "Transformers", "Hugging Face")
 
+_PROJECT_SIGNAL_TERMS: dict[str, tuple[str, ...]] = {
+    "proj_svc": ("speech", "vocoder", "hubert", "rmvpe", "hifi-gan"),
+    "proj_scifact_rag": ("rag", "faiss", "vector search", "bm25"),
+    "proj_aal_stock_forecasting": ("arima/sarima", "forecasting", "time-series analysis"),
+    "proj_rl_gym": ("openai gym", "reinforcement learning"),
+}
+
 
 @lru_cache(maxsize=1)
 def load_contracts() -> dict[str, dict[str, Any]]:
     """Read the V1 contracts JSON. Cached across calls."""
     with _CONTRACTS_PATH.open("r", encoding="utf-8") as f:
-        return json.load(f)
+        contracts = json.load(f)
+    missing = sorted(family for family in KNOWN_ROLE_FAMILIES if family not in contracts)
+    if missing:
+        raise ValueError(
+            "role_contracts.json is missing contracts for role families: "
+            + ", ".join(missing)
+        )
+    return contracts
 
 
 def _normalize(term: str) -> str:
@@ -191,6 +205,7 @@ def _apply_global_baseline(
     category_order: list[str],
     *,
     contracts: dict[str, dict[str, Any]],
+    forbidden_active: set[str],
     allowed_skills_lower: set[str],
 ) -> list[str]:
     """Always keep the candidate's core positioning visible in the CV."""
@@ -219,12 +234,88 @@ def _apply_global_baseline(
                 category_order,
                 category_id=cid,
                 skill=skill,
-                forbidden_active=set(),
+                forbidden_active=forbidden_active,
                 allowed_skills_lower=allowed_skills_lower,
             )
         if filtered.get(cid) and cid not in baseline_categories:
             baseline_categories.append(cid)
     return baseline_categories
+
+
+def _dedupe_cross_category(
+    skills_by_category: dict[str, list[str]],
+    category_order: list[str],
+) -> None:
+    """Ensure one display skill appears in only one category.
+
+    Specific categories are preferred over broad buckets such as ``ml_ai``.
+    This avoids visual padding like PyTorch appearing under both ML & CV.
+    """
+    specific_priority = (
+        "computer_vision",
+        "rag_retrieval",
+        "speech_audio",
+        "rl",
+        "stats_signal",
+        "data_analysis",
+        "data_infra",
+        "ml_ai",
+    )
+    ordered_categories = [
+        cid for cid in specific_priority if cid in skills_by_category
+    ] + [
+        cid
+        for cid in category_order
+        if cid in skills_by_category and cid not in specific_priority
+    ]
+
+    seen: set[str] = set()
+    for cid in ordered_categories:
+        unique: list[str] = []
+        for skill in skills_by_category.get(cid, []):
+            norm = _normalize(skill)
+            if norm in seen:
+                continue
+            seen.add(norm)
+            unique.append(skill)
+        skills_by_category[cid] = unique
+
+    for cid in list(skills_by_category):
+        if not skills_by_category[cid]:
+            skills_by_category.pop(cid, None)
+
+
+def _strip_forbidden_cv_content(
+    adapted: AdaptedCV,
+    *,
+    forbidden_active: set[str],
+    offer_terms: set[str],
+) -> AdaptedCV:
+    if not forbidden_active:
+        return adapted
+
+    cleaned_project_ids = []
+    for project_id in adapted.selected_project_ids:
+        signals = _PROJECT_SIGNAL_TERMS.get(project_id, ())
+        signal_norms = {_normalize(signal) for signal in signals}
+        has_forbidden_signal = bool(signal_norms & forbidden_active)
+        has_offer_anchored_signal = any(
+            _is_explicit_offer_skill(signal, offer_terms) for signal in signal_norms
+        )
+        if signals and has_forbidden_signal and not has_offer_anchored_signal:
+            continue
+        cleaned_project_ids.append(project_id)
+
+    if cleaned_project_ids == adapted.selected_project_ids:
+        return adapted
+    warnings = list(adapted.warnings)
+    warnings.append("contract_removed_forbidden_projects")
+    return adapted.model_copy(
+        update={
+            "selected_project_ids": cleaned_project_ids,
+            "warnings": warnings,
+        }
+    )
 
 
 def apply_contract(
@@ -247,8 +338,13 @@ def apply_contract(
 
     allowed_categories = set(contract.get("allowed_categories", []))
     forbidden_active = _active_forbidden(contract, analysis)
-    must_show = _augmented_must_show(family, contract, analysis, job_title)
     offer_terms = _offer_anchored_skills(analysis)
+    adapted = _strip_forbidden_cv_content(
+        adapted,
+        forbidden_active=forbidden_active,
+        offer_terms=offer_terms,
+    )
+    must_show = _augmented_must_show(family, contract, analysis, job_title)
 
     # Build the filtered selection. Preserve LLM ordering for kept categories.
     filtered: dict[str, list[str]] = {}
@@ -302,8 +398,10 @@ def apply_contract(
         filtered,
         category_order,
         contracts=contracts,
+        forbidden_active=forbidden_active,
         allowed_skills_lower=allowed_skills_lower,
     )
+    _dedupe_cross_category(filtered, category_order)
 
     # Promote must_show categories to the top, preserve the rest of the order.
     priority_order: list[str] = []

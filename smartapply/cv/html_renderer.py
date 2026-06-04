@@ -22,7 +22,7 @@ from smartapply.profile import Profile
 
 
 TEMPLATES_DIR = Path(__file__).with_name("templates")
-MIN_PROJECTS = 3
+MIN_PROJECTS = 2
 
 _PDF_COUNT_RE = re.compile(rb"/Count\s+(\d+)")
 
@@ -218,11 +218,7 @@ class HtmlApplicationRenderer:
     ) -> str:
         template = self.env.get_template("motivation_letter.html.j2")
         labels = self._letter_labels(language)
-        paragraphs = [
-            paragraph.strip()
-            for paragraph in email_draft.body.replace("\r\n", "\n").split("\n\n")
-            if paragraph.strip()
-        ]
+        paragraphs = self._letter_paragraphs(email_draft.body)
         return template.render(
             profile=self.profile,
             subject=email_draft.subject,
@@ -350,7 +346,7 @@ class HtmlApplicationRenderer:
         project_by_id: dict[str, object],
         force_one_page: bool,
     ) -> list[object]:
-        """Always render a useful project section, with at least 3 real projects.
+        """Always render a useful project section, with at least 2 real projects.
 
         The LLM still controls priority through ``selected_project_ids``. When it
         gives too few projects, we fill from the source profile using keyword
@@ -538,6 +534,31 @@ class HtmlApplicationRenderer:
     def _display_url(url: str) -> str:
         return url.removeprefix("https://").removeprefix("http://").rstrip("/")
 
+    def _letter_paragraphs(self, body: str) -> list[str]:
+        """Strip LLM-provided signatures; template appends one canonically."""
+        candidate = re.escape(self.profile.identity.full_name.lower())
+        signoff_patterns = [
+            r"^(cordialement|bien cordialement|sincèrement|salutations|best regards|kind regards|regards|sincerely)[,.;]?\s*$",
+            rf"^{candidate}$",
+            r"^lachtar nour$",
+            r"^nour$",
+        ]
+        paragraphs: list[str] = []
+        for paragraph in body.replace("\r\n", "\n").split("\n\n"):
+            cleaned_lines: list[str] = []
+            for line in paragraph.splitlines():
+                line_clean = line.strip()
+                normalized = line_clean.lower()
+                if not line_clean:
+                    continue
+                if any(re.search(pattern, normalized) for pattern in signoff_patterns):
+                    continue
+                cleaned_lines.append(line_clean)
+            cleaned = " ".join(cleaned_lines).strip()
+            if cleaned:
+                paragraphs.append(cleaned)
+        return paragraphs
+
     @staticmethod
     def _letter_labels(language: str) -> dict[str, str]:
         if language == "en":
@@ -547,6 +568,7 @@ class HtmlApplicationRenderer:
                 "contact": "Contact",
                 "subject": "Subject",
                 "separator": ":",
+                "signoff": "Best regards,",
             }
         return {
             "document_title": "Lettre de motivation",
@@ -554,4 +576,5 @@ class HtmlApplicationRenderer:
             "contact": "Contact",
             "subject": "Objet",
             "separator": " :",
+            "signoff": "Cordialement,",
         }

@@ -21,9 +21,7 @@ from smartapply.database import session_scope
 from smartapply.database.repository import top_jobs_by_score
 from smartapply.dedup import Deduplicator
 from smartapply.email_agent import (
-    ContactFinder,
     ContactProviderChain,
-    EmailWriter,
     default_contact_chain,
 )
 from smartapply.filtering import JobFilter, ruleset_from_preferences
@@ -39,6 +37,26 @@ from smartapply.profile import get_profile
 from smartapply.ranking import JobScorer, get_embeddings_provider
 
 logger = get_logger(__name__)
+
+
+def freshness_kwargs(
+    source: str,
+    *,
+    date_posted: str | None,
+    serpapi_hl: str | None = None,
+) -> dict[str, Any]:
+    """Build per-source ingest kwargs for the freshness filter and SerpApi locale.
+
+    ``date_posted`` is meaningful for both SerpApi (Google Jobs chip) and France
+    Travail (``minCreationDate`` ISO). ``serpapi_hl`` is SerpApi-only — France
+    Travail has no UI language to switch.
+    """
+    kwargs: dict[str, Any] = {}
+    if date_posted and source in {"serpapi", "francetravail"}:
+        kwargs["date_posted"] = date_posted
+    if serpapi_hl and source == "serpapi":
+        kwargs["hl"] = serpapi_hl
+    return kwargs
 
 
 class Pipeline:
@@ -62,8 +80,6 @@ class Pipeline:
         self.scorer = JobScorer(self.profile, embeddings=self.embeddings)
         self.adapter = CvAdapter(self.profile, llm=self.llm, embeddings=self.embeddings)
         self.validator = CvValidator(self.profile)
-        self.email_writer = EmailWriter(self.profile, llm=self.llm)
-        self.contact_finder = ContactFinder()
         self.contact_chain = contact_chain or default_contact_chain()
 
         # Renderers and services
@@ -84,10 +100,8 @@ class Pipeline:
             llm=self.llm,
             adapter=self.adapter,
             validator=self.validator,
-            email_writer=self.email_writer,
             renderer=self.renderer,
             contact_service=self.contact_service,
-            contact_finder=self.contact_finder,
         )
 
     # =================================================================
@@ -177,14 +191,16 @@ class Pipeline:
         self,
         job_id: int,
         *,
-        find_contact: bool = True,
+        contact_email: str | None = None,
+        contact_form_url: str | None = None,
         create_gmail_draft: bool = False,
     ) -> ApplyReport:
-        """Legacy manual path: ContactFinder regex, no quality gate."""
+        """Manual path: combined CV + letter draft, optional manual contact."""
         return self._applier.apply(
             job_id,
             mode="manual",
-            find_contact=find_contact,
+            contact_email=contact_email,
+            contact_form_url=contact_form_url,
             create_gmail_draft=create_gmail_draft,
         )
 
@@ -231,11 +247,7 @@ class Pipeline:
                 query,
                 location,
                 max_results=max_per_source,
-                **(
-                    {"date_posted": date_posted, "hl": serpapi_hl}
-                    if name == "serpapi"
-                    else {}
-                ),
+                **freshness_kwargs(name, date_posted=date_posted, serpapi_hl=serpapi_hl),
             )
             for name, query, location in sources
         ]

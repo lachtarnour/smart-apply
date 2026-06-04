@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Iterator
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import requests
@@ -26,6 +26,44 @@ TOKEN_URL = (
     "https://entreprise.francetravail.fr/connexion/oauth2/access_token?realm=%2Fpartenaire"
 )
 SEARCH_URL = "https://api.francetravail.io/partenaire/offresdemploi/v2/offres/search"
+
+# Map the shared SerpApi-style freshness tokens (``today``/``3days``/``week``/``month``)
+# to the equivalent rolling window in days. France Travail's API uses
+# ``minCreationDate`` (ISO 8601 UTC), not chips, so we derive the threshold here.
+_DATE_POSTED_TO_DAYS = {
+    "today": 1,
+    "3days": 3,
+    "week": 7,
+    "month": 30,
+}
+
+
+def _date_posted_to_creation_window(
+    date_posted: str | None, *, now: datetime | None = None
+) -> tuple[str, str] | None:
+    """Convert a ``date_posted`` token to a ``(min, max)`` ISO creation window.
+
+    ``any`` (or unknown) returns ``None`` so no filter is appended. The FT API
+    requires ``minCreationDate`` and ``maxCreationDate`` to be sent together
+    (error 1780533709701), so the helper always returns the pair when active.
+
+    ``now`` is injectable so tests can lock the window instead of relying on
+    wall-clock. Format is the only one accepted by FT: ``YYYY-MM-DDTHH:MM:SSZ``.
+    """
+    if not date_posted:
+        return None
+    # Reuse the SerpApi normaliser so both scrapers accept the same aliases
+    # (``lastweek``, ``7days``, etc.) without redefining them.
+    from smartapply.scrapers.serpapi import normalize_date_posted
+
+    normalized = normalize_date_posted(date_posted)
+    days = _DATE_POSTED_TO_DAYS.get(normalized)
+    if days is None:
+        return None
+    reference = now or datetime.now(tz=timezone.utc)
+    threshold = reference - timedelta(days=days)
+    fmt = "%Y-%m-%dT%H:%M:%SZ"
+    return threshold.strftime(fmt), reference.strftime(fmt)
 
 
 class FranceTravailScraper(Scraper):
@@ -99,10 +137,12 @@ class FranceTravailScraper(Scraper):
         commune: str | None = None,
         departement: str | None = None,
         type_contrat: str | None = None,
+        date_posted: str | None = None,
         **kwargs: Any,
     ) -> Iterator[RawJob]:
         token = self._get_token()
         headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+        creation_window = _date_posted_to_creation_window(date_posted)
 
         # France Travail paginates by `range=start-end`, max 150 per request.
         page_size = 50
@@ -121,6 +161,8 @@ class FranceTravailScraper(Scraper):
                 params["departement"] = departement
             if type_contrat:
                 params["typeContrat"] = type_contrat
+            if creation_window:
+                params["minCreationDate"], params["maxCreationDate"] = creation_window
             if location and not commune and not departement:
                 params["motsCles"] = f"{query} {location}".strip()
 

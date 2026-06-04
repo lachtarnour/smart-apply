@@ -2,10 +2,18 @@
 
 from __future__ import annotations
 
+import re
+
+from smartapply.cv.motivation_validator import (
+    mentioned_project_ids,
+    normalize_french_elisions,
+)
 from smartapply.cv.role_contracts import apply_contract
 from smartapply.cv.selector import CvBlockSelector, SelectionResult
 from smartapply.llm import (
+    AdaptedBullet,
     AdaptedCV,
+    AdaptedExperience,
     ApplicationDraft,
     JobAnalysis,
     LLMProvider,
@@ -61,6 +69,9 @@ class CvAdapter:
         )
         adapted = self._ensure_supported_offer_skills(adapted, analysis)
         adapted = self._apply_role_family_contract(adapted, analysis, job_title)
+        adapted = self._enforce_complete_experiences(adapted)
+        adapted = self._ensure_summary_skills_visible(adapted)
+        adapted = self._enforce_summary_length(adapted)
         return adapted, selection
 
     def adapt_application(
@@ -93,7 +104,179 @@ class CvAdapter:
         )
         adapted = self._ensure_supported_offer_skills(draft.to_cv(), analysis)
         adapted = self._apply_role_family_contract(adapted, analysis, job_title)
-        return adapted, draft.to_motivation_letter(), selection
+        adapted = self._enforce_complete_experiences(adapted)
+        adapted = self._ensure_summary_skills_visible(adapted)
+        adapted = self._enforce_summary_length(adapted)
+        letter = draft.to_motivation_letter()
+        letter = letter.model_copy(
+            update={
+                "subject": normalize_french_elisions(letter.subject, language=language),
+                "body": normalize_french_elisions(letter.body, language=language),
+            }
+        )
+        adapted = self._ensure_letter_projects_visible(adapted, letter)
+        return adapted, letter, selection
+
+    def _ensure_letter_projects_visible(
+        self,
+        adapted: AdaptedCV,
+        letter: MotivationLetter,
+        *,
+        max_projects: int = 4,
+    ) -> AdaptedCV:
+        """Keep the CV project list consistent with projects named in the letter."""
+        mentioned = mentioned_project_ids(letter.body, self.profile)
+        if not mentioned:
+            return adapted
+
+        selected = list(adapted.selected_project_ids)
+        priority: list[str] = []
+        for project_id in mentioned + selected:
+            if project_id not in priority:
+                priority.append(project_id)
+
+        aligned = priority[:max_projects]
+        if aligned == selected:
+            return adapted
+        return adapted.model_copy(update={"selected_project_ids": aligned})
+
+    def _enforce_summary_length(self, adapted: AdaptedCV) -> AdaptedCV:
+        """Trim overlong summaries deterministically at a word boundary."""
+        limit = self.profile.style_guide.max_summary_length
+        summary = (adapted.professional_summary or "").strip()
+        if len(summary) <= limit:
+            return adapted
+
+        truncated = summary[:limit].rstrip()
+        for separator in (". ", "; ", ", "):
+            idx = truncated.rfind(separator)
+            if idx >= max(60, int(limit * 0.55)):
+                truncated = truncated[: idx + 1].rstrip()
+                break
+        else:
+            idx = truncated.rfind(" ")
+            if idx > 0:
+                truncated = truncated[:idx].rstrip()
+
+        if not truncated.endswith((".", "!", "?")):
+            truncated = truncated.rstrip(" ,;:") + "."
+        warnings = [
+            warning
+            for warning in adapted.warnings
+            if not warning.startswith("summary_too_long")
+        ]
+        warnings.append(f"summary_trimmed:len={len(summary)}")
+        return adapted.model_copy(
+            update={
+                "professional_summary": truncated,
+                "warnings": warnings,
+            }
+        )
+
+    def _enforce_complete_experiences(self, adapted: AdaptedCV) -> AdaptedCV:
+        """Keep the professional experience block complete and source-grounded.
+
+        The LLM may rewrite a bullet, but it must not decide that the main
+        experience suddenly has one bullet. Missing bullets are restored from
+        the source profile, in profile order.
+        """
+        existing_by_exp = {exp.source_id: exp for exp in adapted.selected_experiences}
+        restored_experiences = 0
+        restored_bullets = 0
+        complete_experiences: list[AdaptedExperience] = []
+
+        for source_exp in self.profile.experiences:
+            existing_exp = existing_by_exp.get(source_exp.id)
+            existing_bullets = {
+                bullet.source_id: bullet
+                for bullet in (existing_exp.bullets if existing_exp else [])
+            }
+            if existing_exp is None:
+                restored_experiences += 1
+
+            bullets: list[AdaptedBullet] = []
+            for source_bullet in source_exp.bullets:
+                bullet = existing_bullets.get(source_bullet.id)
+                if bullet is None:
+                    restored_bullets += 1
+                    bullet = AdaptedBullet(
+                        source_id=source_bullet.id,
+                        text=source_bullet.text,
+                    )
+                bullets.append(bullet)
+
+            complete_experiences.append(
+                AdaptedExperience(source_id=source_exp.id, bullets=bullets)
+            )
+
+        warnings = list(adapted.warnings)
+        if restored_experiences:
+            warnings.append(f"experience_sections_restored:{restored_experiences}")
+        if restored_bullets:
+            warnings.append(f"experience_bullets_restored:{restored_bullets}")
+
+        return adapted.model_copy(
+            update={
+                "selected_experiences": complete_experiences,
+                "warnings": warnings,
+            }
+        )
+
+    def _ensure_summary_skills_visible(self, adapted: AdaptedCV) -> AdaptedCV:
+        """If a whitelisted skill is named in the summary, show it in Skills too."""
+        summary = adapted.professional_summary or ""
+        if not summary.strip():
+            return adapted
+
+        category_by_skill: dict[str, str] = {}
+        canonical_by_skill: dict[str, str] = {}
+        for category in self.profile.skills.categories:
+            for skill in category.skills:
+                key = skill.lower()
+                category_by_skill.setdefault(key, category.id)
+                canonical_by_skill.setdefault(key, skill)
+
+        selected_by_category: dict[str, list[str]] = {
+            block.category_id: list(block.skills) for block in adapted.selected_skills
+        }
+        category_order = [block.category_id for block in adapted.selected_skills]
+        already_selected = {
+            skill.lower()
+            for skills in selected_by_category.values()
+            for skill in skills
+        }
+
+        for skill_key in sorted(canonical_by_skill, key=len, reverse=True):
+            if skill_key in already_selected:
+                continue
+            canonical = canonical_by_skill[skill_key]
+            if not self._summary_mentions_skill(summary, canonical):
+                continue
+            category_id = category_by_skill[skill_key]
+            if category_id not in selected_by_category:
+                selected_by_category[category_id] = []
+                category_order.append(category_id)
+            selected_by_category[category_id].append(canonical)
+            already_selected.add(skill_key)
+
+        if not selected_by_category:
+            return adapted
+
+        skills_order = list(adapted.skills_order)
+        for category_id in category_order:
+            if category_id not in skills_order:
+                skills_order.append(category_id)
+
+        return adapted.model_copy(
+            update={
+                "selected_skills": [
+                    SkillSelectionBlock(category_id=category_id, skills=skills)
+                    for category_id in category_order
+                    if (skills := selected_by_category.get(category_id))
+                ],
+                "skills_order": skills_order,
+            }
+        )
 
     def _ensure_supported_offer_skills(
         self,
@@ -166,6 +349,21 @@ class CvAdapter:
             allowed_skills_lower=allowed_skills_lower,
         )
         return adapted
+
+    @staticmethod
+    def _summary_mentions_skill(summary: str, skill: str) -> bool:
+        normalized_summary = " ".join((summary or "").lower().split())
+        normalized_skill = " ".join((skill or "").lower().split())
+        if not normalized_summary or not normalized_skill:
+            return False
+        if len(normalized_skill) <= 2:
+            return normalized_skill in re.findall(r"[a-z0-9+#.]+", normalized_summary)
+        return bool(
+            re.search(
+                rf"(?<![a-z0-9+#]){re.escape(normalized_skill)}(?![a-z0-9+#])",
+                normalized_summary,
+            )
+        )
 
     @staticmethod
     def _matched_allowed_skill_keys(

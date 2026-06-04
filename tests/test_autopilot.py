@@ -14,7 +14,6 @@ from smartapply.llm import (
     AdaptedExperience,
     ApplicationDraft,
     ApplicationQualityReview,
-    EmailDraft,
     JobAnalysis,
     MockLLMProvider,
 )
@@ -162,18 +161,6 @@ def _register_llm(approved: bool = True) -> None:
             warnings=[],
             motivation_letter_subject="Candidature - Data Scientist NLP - Lachtar Nour",
             motivation_letter_body=motivation_body,
-        ),
-    )
-    MockLLMProvider.register(
-        "email_writer",
-        EmailDraft(
-            subject="Candidature : Data Scientist NLP - Lachtar Nour",
-            body=(
-                "Bonjour,\n\nJe candidate au poste de Data Scientist NLP. "
-                "Mon experience en pipelines NLP/RAG et multimodal AI chez Emobot "
-                "correspond aux missions de modelisation et d'industrialisation que "
-                "vous decrivez. Je serais ravi d'echanger avec vous.\n\nCordialement,\nNour"
-            ),
         ),
     )
     MockLLMProvider.register(

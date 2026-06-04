@@ -1,10 +1,5 @@
-"""Email agent: write, find contact, export .eml or Gmail draft."""
+"""Email agent: contact discovery, deterministic email template, .eml and Gmail draft."""
 
-from smartapply.email_agent.contact_finder import (
-    ContactFinder,
-    FoundContact,
-    score_email,
-)
 from smartapply.email_agent.contact_providers import (
     ContactCandidate,
     ContactProvider,
@@ -17,15 +12,11 @@ from smartapply.email_agent.contact_providers import (
 from smartapply.email_agent.eml_export import export_eml
 from smartapply.email_agent.gmail_draft import GmailDraftError, create_draft
 from smartapply.email_agent.template import build_application_email
-from smartapply.email_agent.writer import EmailWriter
 
 __all__ = [
-    "ContactFinder",
     "ContactCandidate",
     "ContactProvider",
     "ContactProviderChain",
-    "EmailWriter",
-    "FoundContact",
     "GmailDraftError",
     "SnovContactProvider",
     "build_application_email",
@@ -34,5 +25,4 @@ __all__ = [
     "default_contact_chain",
     "domain_from_url",
     "export_eml",
-    "score_email",
 ]

@@ -24,6 +24,7 @@ from smartapply.database.repository import (
     update_application_tracking,
 )
 from smartapply.jobsearch import AutopilotRunner
+from smartapply.pipeline.pipeline import freshness_kwargs
 from smartapply.scrapers import SERPAPI_DATE_POSTED_LABELS
 
 SERPAPI_LANGUAGE_OPTIONS = {
@@ -64,6 +65,7 @@ DEFAULTS = {
     "wf_filter_override_ids": [],  # Jobs manually restored after local rejection
     "wf_selected_for_analysis": [],
     "wf_selected_for_apply": [],
+    "wf_manual_contacts": {},
     "wf_generated_app_ids": [],
     "wf_running": None,
     "wf_stop_requested": False,
@@ -442,6 +444,7 @@ def _jobs_df(job_ids: list[int]) -> pd.DataFrame:
 def _analyzed_jobs_df(job_ids: list[int] | None = None) -> pd.DataFrame:
     """Jobs that already have an LLM analysis and can move to generation."""
     rows: list[dict[str, Any]] = []
+    manual_contacts = st.session_state.get("wf_manual_contacts", {})
     with session_scope() as s:
         query = s.query(Job).filter(Job.status == JobStatus.ANALYZED)
         if job_ids:
@@ -464,6 +467,7 @@ def _analyzed_jobs_df(job_ids: list[int] | None = None) -> pd.DataFrame:
                     "seniority": job.analysis.seniority or "",
                     "company_size": raw.get("company_size", "unknown"),
                     "lang": raw.get("offer_language", ""),
+                    "manual_contact": manual_contacts.get(int(job.id), ""),
                     "domain": job.analysis.domain or "",
                     "reasons": " · ".join((job.analysis.match_reasons or [])[:2]),
                     "risks": " · ".join((job.analysis.risks or [])[:2]),
@@ -473,6 +477,21 @@ def _analyzed_jobs_df(job_ids: list[int] | None = None) -> pd.DataFrame:
     if not df.empty and "score" in df.columns:
         df = df.sort_values("score", ascending=False, na_position="last")
     return df
+
+
+def _sync_manual_contacts(df: pd.DataFrame) -> None:
+    contacts = dict(st.session_state.get("wf_manual_contacts", {}))
+    if df.empty or "manual_contact" not in df.columns:
+        st.session_state["wf_manual_contacts"] = contacts
+        return
+    for _, row in df[["id", "manual_contact"]].iterrows():
+        job_id = int(row["id"])
+        value = str(row.get("manual_contact") or "").strip()
+        if value:
+            contacts[job_id] = value
+        else:
+            contacts.pop(job_id, None)
+    st.session_state["wf_manual_contacts"] = contacts
 
 
 def _generated_app_ids_for_jobs(job_ids: list[int]) -> list[int]:
@@ -669,11 +688,11 @@ def step1_fetch() -> None:
                     help="SerpApi consomme un crédit par page. France Travail est gratuit.",
                 )
                 date_posted = st.selectbox(
-                    "Fraîcheur SerpApi",
+                    "Fraîcheur des offres",
                     options=date_options,
                     index=date_options.index(default_date),
                     format_func=lambda value: SERPAPI_DATE_POSTED_LABELS[value],
-                    help="Appliqué uniquement à Google Jobs / SerpApi.",
+                    help="Appliqué à Google Jobs (chip date_posted) et à France Travail (minCreationDate).",
                 )
                 serpapi_language_label = st.selectbox(
                     "Langue Google Jobs",
@@ -709,11 +728,12 @@ def step1_fetch() -> None:
                     key="wf_auto_sources",
                 )
                 auto_date = st.selectbox(
-                    "Fraîcheur SerpApi autopilot",
+                    "Fraîcheur des offres autopilot",
                     options=date_options,
                     index=date_options.index(default_date),
                     format_func=lambda value: SERPAPI_DATE_POSTED_LABELS[value],
                     key="wf_auto_date",
+                    help="Appliqué à Google Jobs (chip date_posted) et à France Travail (minCreationDate).",
                 )
                 auto_language_label = st.selectbox(
                     "Langue Google Jobs autopilot",
@@ -790,13 +810,10 @@ def step1_fetch() -> None:
                     progress.progress((i - 1) / len(sources), text=f"Recherche sur {src}...")
                     with st.spinner(f"Recherche sur {src}..."):
                         try:
-                            kwargs = (
-                                {
-                                    "date_posted": date_posted,
-                                    "hl": SERPAPI_LANGUAGE_OPTIONS[serpapi_language_label],
-                                }
-                                if src == "serpapi"
-                                else {}
+                            kwargs = freshness_kwargs(
+                                src,
+                                date_posted=date_posted,
+                                serpapi_hl=SERPAPI_LANGUAGE_OPTIONS[serpapi_language_label],
                             )
                             report = p.ingest(
                                 src,
@@ -1129,6 +1146,11 @@ def step2_analyze() -> None:
             "seniority": st.column_config.TextColumn("Seniority", disabled=True, width="small"),
             "company_size": st.column_config.TextColumn("Taille", disabled=True, width="small"),
             "lang": st.column_config.TextColumn("Lang", disabled=True, width="small"),
+            "manual_contact": st.column_config.TextColumn(
+                "Contact manuel",
+                width="medium",
+                help="Optionnel. Email recruteur/RH à utiliser pour cette offre.",
+            ),
             "domain": st.column_config.TextColumn("Domaine", disabled=True, width="medium"),
             "reasons": st.column_config.TextColumn("Pourquoi ça match", disabled=True, width="large"),
             "risks": st.column_config.TextColumn("Risques", disabled=True, width="medium"),
@@ -1137,6 +1159,7 @@ def step2_analyze() -> None:
         width="stretch",
         key="wf_step2_editor",
     )
+    _sync_manual_contacts(edited)
     selected = edited.loc[edited["keep"], "id"].astype(int).tolist()
 
     st.write(f"→ **{len(selected)} offre(s) à transformer en candidature**")
@@ -1167,67 +1190,72 @@ def step3_generate() -> None:
         """
         <div class="sa-panel">
           <h3 style="margin:0;">Étape 3 · Génération des candidatures</h3>
-          <div class="sa-muted">Le système génère un CV PDF/DOCX, une lettre, un email et cherche un contact. Tu peux arrêter proprement entre deux offres.</div>
+          <div class="sa-muted">Le système génère un CV PDF/DOCX, une lettre et un email. Tu peux ajouter un contact manuel et arrêter proprement entre deux offres.</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
-    ids = st.session_state["wf_selected_for_apply"]
-    if not ids:
-        resume_df = _analyzed_jobs_df()
-        if resume_df.empty:
-            st.warning("Aucune offre sélectionnée et aucune offre analysée disponible pour génération.")
-            col_back, col_analyze = st.columns(2)
-            with col_back:
-                if st.button("Retourner à la recherche", key="wf_step3_empty_fetch"):
-                    st.session_state["wf_step"] = 1
-                    st.rerun()
-            with col_analyze:
-                if st.button("Voir l'analyse", key="wf_step3_empty_analyze"):
-                    st.session_state["wf_step"] = 2
-                    st.rerun()
-            return
+    seed_ids = list(st.session_state["wf_selected_for_apply"])
+    resume_df = _analyzed_jobs_df(seed_ids or None)
+    if resume_df.empty:
+        st.warning("Aucune offre sélectionnée et aucune offre analysée disponible pour génération.")
+        col_back, col_analyze = st.columns(2)
+        with col_back:
+            if st.button("Retourner à la recherche", key="wf_step3_empty_fetch"):
+                st.session_state["wf_step"] = 1
+                st.rerun()
+        with col_analyze:
+            if st.button("Voir l'analyse", key="wf_step3_empty_analyze"):
+                st.session_state["wf_step"] = 2
+                st.rerun()
+        return
 
-        st.info(
-            "Mode reprise : sélectionne directement les offres déjà analysées à transformer en CV, lettre et email."
-        )
-        resume_search = st.text_input(
-            "Rechercher dans les offres analysées",
-            placeholder="Entreprise, poste, domaine, compétence...",
-            key="wf_step3_resume_search",
-        )
-        visible_resume_df = _filter_table(
-            resume_df.rename(columns={"reasons": "preview"}),
-            resume_search,
-        )
-        if "preview" in visible_resume_df.columns:
-            visible_resume_df = visible_resume_df.rename(columns={"preview": "reasons"})
-        edited_resume = st.data_editor(
-            visible_resume_df,
-            column_config={
-                "keep": st.column_config.CheckboxColumn("Générer", default=True),
-                "id": st.column_config.NumberColumn("id", disabled=True, width="small"),
-                "title": st.column_config.TextColumn("Titre", disabled=True, width="large"),
-                "company": st.column_config.TextColumn("Entreprise", disabled=True, width="medium"),
-                "score": st.column_config.NumberColumn(
-                    "Score", disabled=True, format="%.3f", width="small"
-                ),
-                "seniority": st.column_config.TextColumn("Seniority", disabled=True, width="small"),
-                "company_size": st.column_config.TextColumn("Taille", disabled=True, width="small"),
-                "lang": st.column_config.TextColumn("Lang", disabled=True, width="small"),
-                "domain": st.column_config.TextColumn("Domaine", disabled=True, width="medium"),
-                "reasons": st.column_config.TextColumn("Pourquoi ça match", disabled=True, width="large"),
-                "risks": st.column_config.TextColumn("Risques", disabled=True, width="medium"),
-            },
-            hide_index=True,
-            width="stretch",
-            key="wf_step3_resume_editor",
-        )
-        ids = edited_resume.loc[edited_resume["keep"], "id"].astype(int).tolist()
-        st.session_state["wf_selected_for_apply"] = ids
-        if not ids:
-            st.warning("Sélectionne au moins une offre analysée pour générer une candidature.")
-            return
+    st.info(
+        "Sélectionne les offres à générer. Le contact manuel est optionnel : si tu le renseignes, l'EML/Gmail utilisera cet email."
+    )
+    resume_search = st.text_input(
+        "Rechercher dans les offres analysées",
+        placeholder="Entreprise, poste, domaine, compétence...",
+        key="wf_step3_resume_search",
+    )
+    visible_resume_df = _filter_table(
+        resume_df.rename(columns={"reasons": "preview"}),
+        resume_search,
+    )
+    if "preview" in visible_resume_df.columns:
+        visible_resume_df = visible_resume_df.rename(columns={"preview": "reasons"})
+    edited_resume = st.data_editor(
+        visible_resume_df,
+        column_config={
+            "keep": st.column_config.CheckboxColumn("Générer", default=True),
+            "id": st.column_config.NumberColumn("id", disabled=True, width="small"),
+            "title": st.column_config.TextColumn("Titre", disabled=True, width="large"),
+            "company": st.column_config.TextColumn("Entreprise", disabled=True, width="medium"),
+            "score": st.column_config.NumberColumn(
+                "Score", disabled=True, format="%.3f", width="small"
+            ),
+            "seniority": st.column_config.TextColumn("Seniority", disabled=True, width="small"),
+            "company_size": st.column_config.TextColumn("Taille", disabled=True, width="small"),
+            "lang": st.column_config.TextColumn("Lang", disabled=True, width="small"),
+            "manual_contact": st.column_config.TextColumn(
+                "Contact manuel",
+                width="medium",
+                help="Optionnel. Email recruteur/RH à utiliser pour cette offre.",
+            ),
+            "domain": st.column_config.TextColumn("Domaine", disabled=True, width="medium"),
+            "reasons": st.column_config.TextColumn("Pourquoi ça match", disabled=True, width="large"),
+            "risks": st.column_config.TextColumn("Risques", disabled=True, width="medium"),
+        },
+        hide_index=True,
+        width="stretch",
+        key="wf_step3_resume_editor",
+    )
+    _sync_manual_contacts(edited_resume)
+    ids = edited_resume.loc[edited_resume["keep"], "id"].astype(int).tolist()
+    st.session_state["wf_selected_for_apply"] = ids
+    if not ids:
+        st.warning("Sélectionne au moins une offre analysée pour générer une candidature.")
+        return
 
     g1, g2, g3 = st.columns(3)
     g1.metric("À générer", len(ids))
@@ -1246,6 +1274,7 @@ def step3_generate() -> None:
         progress = st.progress(0.0, text="Démarrage...")
         generated_ids: list[int] = []
         p = pipeline_singleton()
+        manual_contacts = st.session_state.get("wf_manual_contacts", {})
         for i, job_id in enumerate(ids, start=1):
             if _stop_requested():
                 st.warning("Génération arrêtée avant la candidature suivante.")
@@ -1255,7 +1284,11 @@ def step3_generate() -> None:
                 text=f"Candidature {i}/{len(ids)} (job_id={job_id})...",
             )
             try:
-                report = p.apply_to(job_id, find_contact=True, create_gmail_draft=False)
+                report = p.apply_to(
+                    job_id,
+                    contact_email=manual_contacts.get(int(job_id)),
+                    create_gmail_draft=False,
+                )
                 if report.application_id:
                     generated_ids.append(report.application_id)
             except Exception as e:

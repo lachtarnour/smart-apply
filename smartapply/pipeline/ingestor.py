@@ -7,7 +7,6 @@ pipeline never thinks about source-specific details.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-import math
 import re
 
 from smartapply.database import session_scope
@@ -130,27 +129,66 @@ class Ingestor:
             queries,
             location,
         )
+        raw_jobs = self._collect_round_robin(
+            scraper=scraper,
+            queries=queries,
+            location=location,
+            max_results=max_results,
+            search_kwargs=search_kwargs,
+        )
+        return self._persist(source, raw_jobs)
+
+    def _collect_round_robin(
+        self,
+        *,
+        scraper,
+        queries: list[str],
+        location: str | None,
+        max_results: int | None,
+        search_kwargs: dict,
+    ) -> list[RawJob]:
+        """Collect results fairly across expanded queries.
+
+        ``max_results`` is the global target, not a per-query quota. Each
+        concrete query can yield up to that target; this avoids wasting paid
+        SerpApi pages by taking only 2-4 jobs from a 10-result page. A
+        round-robin pass prevents the first broad query from consuming the
+        whole target before the other role titles get a chance.
+        """
+        if not queries:
+            return []
         raw_jobs: list[RawJob] = []
         seen_external_ids: set[str] = set()
-        per_query_max = (
-            max(1, math.ceil(max_results / len(queries)))
-            if max_results and len(queries) > 1
-            else max_results
-        )
-        for concrete_query in queries:
-            for raw in scraper.search(
-                concrete_query,
-                location=location,
-                max_results=per_query_max,
-                **search_kwargs,
-            ):
+        iterators = [
+            iter(
+                scraper.search(
+                    concrete_query,
+                    location=location,
+                    max_results=max_results,
+                    **search_kwargs,
+                )
+            )
+            for concrete_query in queries
+        ]
+        active = [True] * len(iterators)
+        while any(active):
+            for i, iterator in enumerate(iterators):
+                if not active[i]:
+                    continue
+                if max_results is not None and len(raw_jobs) >= max_results:
+                    return raw_jobs
+                try:
+                    raw = next(iterator)
+                except StopIteration:
+                    active[i] = False
+                    continue
                 if raw.external_id in seen_external_ids:
                     continue
                 seen_external_ids.add(raw.external_id)
                 raw_jobs.append(raw)
-        if max_results:
-            raw_jobs = raw_jobs[:max_results]
-        return self._persist(source, raw_jobs)
+                if max_results is not None and len(raw_jobs) >= max_results:
+                    return raw_jobs
+        return raw_jobs
 
     def from_url(self, url: str) -> IngestReport:
         return self._persist("manual", [ManualScraper().from_url(url)])

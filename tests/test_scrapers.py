@@ -216,7 +216,7 @@ def test_serpapi_respects_max_results(mocker) -> None:
     assert len(out) == 3
 
 
-def test_serpapi_max_results_drives_page_count(mocker) -> None:
+def test_serpapi_respects_max_pages_even_with_max_results(mocker) -> None:
     def make_page(page: int, next_token: str | None):
         jobs_page = [
             {
@@ -239,8 +239,8 @@ def test_serpapi_max_results_drives_page_count(mocker) -> None:
     )
     s = SerpApiGoogleJobsScraper(api_key="fake", max_pages=1, hl="fr")
     out = list(s.search("data", max_results=25))
-    assert len(out) == 25
-    assert get_mock.call_count == 3
+    assert len(out) == 10
+    assert get_mock.call_count == 1
 
 
 def test_serpapi_defaults_to_last_week_filter(mocker) -> None:
@@ -299,6 +299,74 @@ def test_serpapi_can_search_multiple_languages(mocker) -> None:
         "Machine Learning Engineer",
         "Ingénieur Machine Learning",
     ]
+
+
+def test_serpapi_does_not_split_quota_across_languages(mocker) -> None:
+    fr_page1 = [
+        {
+            "title": f"Data Scientist {i}",
+            "company_name": "Acme",
+            "description": "Construire des modèles ML.",
+            "job_id": f"fr-{i}",
+        }
+        for i in range(10)
+    ]
+    fr_page2 = [
+        {
+            "title": f"Data Scientist extra {i}",
+            "company_name": "Beta",
+            "description": "Construire des modèles ML.",
+            "job_id": f"fr-extra-{i}",
+        }
+        for i in range(5)
+    ]
+    get_mock = mocker.patch(
+        "smartapply.scrapers.serpapi.requests.get",
+        side_effect=[
+            _mock_response(_sample_serpapi_page([], None)),  # hl=en has no results
+            _mock_response(_sample_serpapi_page(fr_page1, "fr-page-2")),
+            _mock_response(_sample_serpapi_page(fr_page2, None)),
+        ],
+    )
+
+    s = SerpApiGoogleJobsScraper(api_key="fake", max_pages=3, hl="en,fr")
+    jobs = list(s.search("Data Scientist", max_results=15, date_posted="any"))
+
+    assert len(jobs) == 15
+    assert [call.kwargs["params"]["hl"] for call in get_mock.mock_calls] == [
+        "en",
+        "fr",
+        "fr",
+    ]
+
+
+def test_serpapi_continues_empty_page_when_next_token_exists(mocker) -> None:
+    get_mock = mocker.patch(
+        "smartapply.scrapers.serpapi.requests.get",
+        side_effect=[
+            _mock_response(_sample_serpapi_page([], "tok-2")),
+            _mock_response(
+                _sample_serpapi_page(
+                    [
+                        {
+                            "title": "Data Scientist",
+                            "company_name": "Acme",
+                            "description": "Build ML.",
+                            "job_id": "job-1",
+                        }
+                    ],
+                    None,
+                )
+            ),
+        ],
+    )
+
+    s = SerpApiGoogleJobsScraper(api_key="fake", max_pages=2, hl="fr")
+    jobs = list(s.search("Data Scientist", max_results=10, date_posted="any"))
+
+    assert [job.title for job in jobs] == ["Data Scientist"]
+    assert get_mock.call_count == 2
+    assert get_mock.call_args_list[1].kwargs["params"]["next_page_token"] == "tok-2"
 
 
 def test_serpapi_date_filter_can_be_disabled_or_combined_with_uds(mocker) -> None:
@@ -415,3 +483,85 @@ def test_francetravail_token_caching(mocker) -> None:
     list(s.search("b"))
     # token endpoint should only be hit once thanks to caching
     assert post_mock.call_count == 1
+
+
+def test_francetravail_date_posted_week_sends_creation_window(mocker) -> None:
+    """FT API rejects minCreationDate alone — both bounds must be sent together."""
+    from datetime import datetime, timezone
+
+    from smartapply.scrapers.francetravail import _date_posted_to_creation_window
+
+    fixed_now = datetime(2026, 6, 4, 12, 0, 0, tzinfo=timezone.utc)
+    assert _date_posted_to_creation_window("week", now=fixed_now) == (
+        "2026-05-28T12:00:00Z",
+        "2026-06-04T12:00:00Z",
+    )
+
+    token_response = _mock_response({"access_token": "T0K3N", "expires_in": 1500})
+    empty_response = _mock_response({"resultats": []})
+    mocker.patch(
+        "smartapply.scrapers.francetravail.requests.post", return_value=token_response
+    )
+    get_mock = mocker.patch(
+        "smartapply.scrapers.francetravail.requests.get", return_value=empty_response
+    )
+    mocker.patch(
+        "smartapply.scrapers.francetravail.datetime",
+        wraps=datetime,
+        now=lambda tz=None: fixed_now,
+    )
+
+    s = FranceTravailScraper(client_id="cid", client_secret="csec")
+    list(s.search("data scientist", date_posted="week"))
+
+    params = get_mock.call_args.kwargs["params"]
+    assert params["minCreationDate"] == "2026-05-28T12:00:00Z"
+    assert params["maxCreationDate"] == "2026-06-04T12:00:00Z"
+    assert params["motsCles"] == "data scientist"
+
+
+def test_francetravail_date_posted_any_omits_creation_window(mocker) -> None:
+    token_response = _mock_response({"access_token": "T0K3N", "expires_in": 1500})
+    empty_response = _mock_response({"resultats": []})
+    mocker.patch(
+        "smartapply.scrapers.francetravail.requests.post", return_value=token_response
+    )
+    get_mock = mocker.patch(
+        "smartapply.scrapers.francetravail.requests.get", return_value=empty_response
+    )
+
+    s = FranceTravailScraper(client_id="cid", client_secret="csec")
+    list(s.search("data", date_posted="any"))
+    params = get_mock.call_args.kwargs["params"]
+    assert "minCreationDate" not in params
+    assert "maxCreationDate" not in params
+
+    list(s.search("data"))  # no date_posted passed at all
+    params = get_mock.call_args.kwargs["params"]
+    assert "minCreationDate" not in params
+    assert "maxCreationDate" not in params
+
+
+def test_francetravail_date_posted_today_uses_one_day_window(mocker) -> None:
+    from datetime import datetime, timezone
+
+    token_response = _mock_response({"access_token": "T0K3N", "expires_in": 1500})
+    empty_response = _mock_response({"resultats": []})
+    mocker.patch(
+        "smartapply.scrapers.francetravail.requests.post", return_value=token_response
+    )
+    get_mock = mocker.patch(
+        "smartapply.scrapers.francetravail.requests.get", return_value=empty_response
+    )
+    fixed_now = datetime(2026, 6, 4, 10, 30, 0, tzinfo=timezone.utc)
+    mocker.patch(
+        "smartapply.scrapers.francetravail.datetime",
+        wraps=datetime,
+        now=lambda tz=None: fixed_now,
+    )
+
+    s = FranceTravailScraper(client_id="cid", client_secret="csec")
+    list(s.search("data", date_posted="today"))
+    params = get_mock.call_args.kwargs["params"]
+    assert params["minCreationDate"] == "2026-06-03T10:30:00Z"
+    assert params["maxCreationDate"] == "2026-06-04T10:30:00Z"

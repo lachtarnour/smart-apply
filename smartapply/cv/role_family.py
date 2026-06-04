@@ -21,6 +21,22 @@ RoleFamily = str
 
 OTHER: Final[RoleFamily] = "other"
 
+KNOWN_ROLE_FAMILIES: Final[set[RoleFamily]] = {
+    "analytics_engineer",
+    "computer_vision",
+    "data_analyst",
+    "data_engineer",
+    "data_scientist",
+    "llm_engineer",
+    "medical_ai",
+    "ml_engineer",
+    "mlops",
+    OTHER,
+    "reinforcement_learning",
+    "software_engineer",
+    "speech_audio",
+}
+
 # Ordered title/role_type patterns. These are high-confidence signals: when
 # the title says "Data Scientist" or "Backend Software Engineer", the family
 # should not be overwritten by noisy skills found later in the description.
@@ -169,6 +185,10 @@ _OFF_TARGET_PRIMARY_PATTERNS: Final[list[str]] = [
     r"\bdevops\b",
     r"\biam\b",
     r"\bidentity and access\b",
+    r"\bide\b",
+    r"\binfirmier\b",
+    r"\binfirmière\b",
+    r"\bnurse\b",
     r"\bcybersecurity\b",
     r"\bcybersécurité\b",
     r"\bsécurité\b",
@@ -239,14 +259,14 @@ _SPECIALIST_EXTENDED_PATTERNS: Final[list[tuple[RoleFamily, list[str]]]] = [
     (
         "medical_ai",
         [
-            r"\bmedical ai\b",
-            r"\bdigital health\b",
+            r"\bmedical (ai|machine learning|ml|nlp|imaging|data science)\b",
+            r"\bdigital health (ai|platform|data|ml|machine learning)\b",
             r"\bhealthtech\b",
             r"\bbiomark",
             r"\bclinical ai\b",
             r"\bsanté numérique\b",
-            r"\bclinique",
-            r"\bdispositif médical\b",
+            r"\bclinical (machine learning|ml|nlp|data science|biomarker)\b",
+            r"\bdispositif médical connecté\b",
         ],
     ),
 ]
