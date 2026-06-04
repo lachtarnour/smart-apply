@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import SimpleNamespace
 
 from smartapply.profile import get_profile
 from smartapply.ranking import (
+    EmbeddingsProvider,
     JobScorer,
     MockEmbeddingsProvider,
     ScoreComponents,
@@ -13,6 +15,7 @@ from smartapply.ranking import (
     cosine_similarity,
     get_embeddings_provider,
 )
+from smartapply.ranking.embeddings import OpenAIEmbeddingsProvider
 
 
 @dataclass
@@ -53,6 +56,36 @@ def test_factory_rejects_unknown_provider() -> None:
 
     with pytest.raises(ValueError):
         get_embeddings_provider("nonsense")
+
+
+def test_openai_embeddings_retries_transient_errors() -> None:
+    import httpx
+    from openai import APITimeoutError
+    from tenacity import wait_none
+
+    calls = {"count": 0}
+
+    class FakeEmbeddings:
+        def create(self, **kwargs):  # noqa: ANN003
+            calls["count"] += 1
+            if calls["count"] == 1:
+                raise APITimeoutError(
+                    request=httpx.Request("POST", "https://api.openai.test/embed")
+                )
+            return SimpleNamespace(
+                data=[
+                    SimpleNamespace(embedding=[1.0, 0.0]),
+                    SimpleNamespace(embedding=[0.0, 1.0]),
+                ]
+            )
+
+    provider = OpenAIEmbeddingsProvider(model="test-embedding", batch_size=10)
+    provider._client = SimpleNamespace(embeddings=FakeEmbeddings())
+    retrying = provider._create_embeddings.retry_with(wait=wait_none())
+    provider._create_embeddings = retrying.__get__(provider, OpenAIEmbeddingsProvider)
+
+    assert provider.embed(["a", "b"]) == [[1.0, 0.0], [0.0, 1.0]]
+    assert calls["count"] == 2
 
 
 # ----------------- Scoring -----------------
@@ -112,6 +145,34 @@ def test_scorer_rank_orders_top_k() -> None:
     titles = [j.title for j, _ in ranked]
     assert "Data Scientist" in titles
     assert "Sales Manager" not in titles
+
+
+def test_scorer_rank_batches_job_embeddings() -> None:
+    class CountingEmbeddings(EmbeddingsProvider):
+        name = "counting"
+
+        def __init__(self):
+            self.calls: list[int] = []
+
+        @property
+        def model_name(self) -> str:
+            return "counting"
+
+        def embed(self, texts: list[str]) -> list[list[float]]:
+            self.calls.append(len(texts))
+            return [[1.0, 0.0] for _ in texts]
+
+    provider = CountingEmbeddings()
+    scorer = JobScorer(get_profile(), embeddings=provider)
+    jobs = [
+        FakeJob("Data Scientist", "Python ML", "Paris"),
+        FakeJob("ML Engineer", "PyTorch", "Lyon"),
+        FakeJob("Data Analyst", "SQL", "Paris"),
+    ]
+
+    scorer.rank(jobs)
+
+    assert provider.calls == [1, 3]
 
 
 def test_scorer_seniority_penalizes_15_years() -> None:

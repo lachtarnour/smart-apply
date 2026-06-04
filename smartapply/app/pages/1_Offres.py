@@ -14,7 +14,7 @@ from smartapply.app._helpers import (
     status_label,
 )
 from smartapply.database import session_scope
-from smartapply.database.models import Job
+from smartapply.database.models import Job, JobStatus
 from smartapply.database.repository import list_jobs
 
 
@@ -190,7 +190,17 @@ with left:
         help="Optionnel. Aucun contact n'est cherché automatiquement en mode manuel.",
         key=f"offer_manual_contact_{selected_job_id}",
     )
-    if st.button("Générer une candidature pour cette offre", type="primary"):
+    can_generate = detail["status"] == JobStatus.ANALYZED and detail["analysis"] is not None
+    if not can_generate:
+        st.info(
+            "Cette offre doit d'abord passer par l'analyse LLM dans le Workflow avant de générer "
+            "un CV, une lettre et un email adaptés."
+        )
+    if st.button(
+        "Générer une candidature pour cette offre",
+        type="primary",
+        disabled=not can_generate,
+    ):
         with st.spinner("Génération CV + lettre + email..."):
             try:
                 report = pipeline_singleton().apply_to(
@@ -198,7 +208,20 @@ with left:
                     contact_email=manual_contact,
                 )
                 st.success(f"Candidature #{report.application_id} créée.")
-                st.json(report.__dict__)
+                st.write(f"Statut : **{status_label(report.status or '')}**")
+                if report.contact_email:
+                    st.write(f"Destinataire : `{report.contact_email}`")
+                if getattr(report, "contact_cc_email", None):
+                    st.write(f"CC : `{report.contact_cc_email}`")
+                if report.validation_warnings:
+                    st.warning(
+                        "Points à vérifier : "
+                        + " · ".join(report.validation_warnings[:5])
+                    )
+                if report.cv_pdf_path:
+                    st.write(f"CV PDF : `{report.cv_pdf_path}`")
+                if report.eml_path:
+                    st.write(f"Email EML : `{report.eml_path}`")
             except Exception as e:
                 st.error(str(e))
 

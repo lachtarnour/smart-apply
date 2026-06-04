@@ -366,6 +366,20 @@ def test_filter_rejects_apprentissage_contract_type() -> None:
     assert any("apprenti" in r for r in res.reasons)
 
 
+def test_filter_rejects_alternant_visible_in_title_without_contract_field() -> None:
+    f = JobFilter(_real_rules())
+    job = FakeJob(
+        title="Alternant Analytics Engineer - Data BI & Pipelines",
+        company="Acme",
+        description="Python, SQL, data pipelines.",
+        location="Paris",
+        contract_type=None,
+    )
+    res = f.evaluate(job)
+    assert not res.kept
+    assert any("blocked_contract_visible_text:alternant" in r for r in res.reasons)
+
+
 def test_filter_hard_rejects_off_target_title_families() -> None:
     f = JobFilter(_real_rules())
     blocked_titles = [
@@ -383,6 +397,9 @@ def test_filter_hard_rejects_off_target_title_families() -> None:
         "Full Stack Java Angular",
         "Expert IA Cybersécurité",
         "Consultant Dataiku DSS",
+        "MLOps Engineer",
+        "AI Engineer / MLOps",
+        "VIE HPC - Ingénieur Développeur F/H",
     ]
     for title in blocked_titles:
         job = FakeJob(
@@ -395,6 +412,40 @@ def test_filter_hard_rejects_off_target_title_families() -> None:
         res = f.evaluate(job)
         assert not res.kept, title
         assert any(reason.startswith("title_hard_reject:") for reason in res.reasons)
+
+
+def test_filter_keeps_mlops_when_only_required_skill_not_job_title() -> None:
+    f = JobFilter(_real_rules())
+    job = FakeJob(
+        title="Machine Learning Engineer",
+        company="Acme",
+        description=(
+            "Build ML models with Python and PyTorch. Required skills include "
+            "CI/CD, Docker and MLOps practices for production collaboration."
+        ),
+        location="Paris",
+        contract_type="CDI",
+    )
+    res = f.evaluate(job)
+    assert res.kept
+    assert not any(reason.startswith("title_hard_reject:") for reason in res.reasons)
+
+
+def test_filter_keeps_devops_when_only_required_skill_not_job_title() -> None:
+    f = JobFilter(_real_rules())
+    job = FakeJob(
+        title="Data Scientist",
+        company="Acme",
+        description=(
+            "Build machine learning models with Python and PyTorch. Required "
+            "skills include Docker, CI/CD and DevOps collaboration for deployment."
+        ),
+        location="Paris",
+        contract_type="CDI",
+    )
+    res = f.evaluate(job)
+    assert res.kept
+    assert not any(reason.startswith("title_hard_reject:") for reason in res.reasons)
 
 
 def test_filter_keeps_cdi_contract_type() -> None:

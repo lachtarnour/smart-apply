@@ -75,6 +75,7 @@ def create_draft(
     subject: str,
     body: str,
     recipient: str,
+    cc_recipient: str | None = None,
     sender: str | None = None,
     cv_path: str | Path | None = None,
     attachment_paths: list[str | Path] | None = None,
@@ -89,6 +90,8 @@ def create_draft(
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["To"] = recipient
+    if cc_recipient:
+        msg["Cc"] = cc_recipient
     if sender:
         msg["From"] = sender
     msg.set_content(body)

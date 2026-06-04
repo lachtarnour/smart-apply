@@ -8,7 +8,9 @@ title/company before persisting if the heuristics aren't precise enough.
 
 from __future__ import annotations
 
+import ipaddress
 import re
+import socket
 from urllib.parse import urlparse
 
 import requests
@@ -71,6 +73,8 @@ class ManualScraper:
         parsed = urlparse(url)
         if parsed.scheme not in {"http", "https"}:
             raise ValueError(f"Unsupported URL scheme: {url!r}")
+        if _is_private_or_local_host(parsed.hostname):
+            raise ValueError(f"Refusing to fetch local/private URL: {url!r}")
         response = requests.get(url, headers=_DEFAULT_HEADERS, timeout=self.timeout)
         response.raise_for_status()
         soup = BeautifulSoup(response.text, "lxml")
@@ -119,3 +123,36 @@ class ManualScraper:
         text = soup.get_text("\n", strip=True)
         text = re.sub(r"\n{3,}", "\n\n", text)
         return text.strip()
+
+
+def _is_private_or_local_host(hostname: str | None) -> bool:
+    host = (hostname or "").strip().lower().rstrip(".")
+    if not host:
+        return True
+    if host == "localhost" or host.endswith(".localhost"):
+        return True
+
+    def blocked_ip(value: str) -> bool:
+        try:
+            ip = ipaddress.ip_address(value)
+        except ValueError:
+            return False
+        return any(
+            (
+                ip.is_loopback,
+                ip.is_private,
+                ip.is_link_local,
+                ip.is_multicast,
+                ip.is_reserved,
+                ip.is_unspecified,
+            )
+        )
+
+    if blocked_ip(host):
+        return True
+
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except OSError:
+        return False
+    return any(blocked_ip(info[4][0]) for info in infos)

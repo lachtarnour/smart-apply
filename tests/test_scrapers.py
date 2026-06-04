@@ -111,6 +111,37 @@ def test_manual_scraper_rejects_non_http_urls() -> None:
         ManualScraper().from_url("file:///etc/passwd")
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://localhost:8000/jobs",
+        "http://127.0.0.1:8000/jobs",
+        "http://10.0.0.5/jobs",
+        "http://[::1]/jobs",
+    ],
+)
+def test_manual_scraper_rejects_local_or_private_urls(url: str, mocker) -> None:  # noqa: ANN001
+    get_mock = mocker.patch("smartapply.scrapers.manual.requests.get")
+
+    with pytest.raises(ValueError):
+        ManualScraper().from_url(url)
+
+    assert get_mock.call_count == 0
+
+
+def test_manual_scraper_rejects_host_resolving_to_private_ip(mocker) -> None:  # noqa: ANN001
+    mocker.patch(
+        "smartapply.scrapers.manual.socket.getaddrinfo",
+        return_value=[(None, None, None, None, ("192.168.1.10", 0))],
+    )
+    get_mock = mocker.patch("smartapply.scrapers.manual.requests.get")
+
+    with pytest.raises(ValueError):
+        ManualScraper().from_url("https://jobs.example.test/42")
+
+    assert get_mock.call_count == 0
+
+
 # ============================ SerpApi ============================
 
 def _sample_serpapi_page(jobs: list[dict[str, Any]], next_token: str | None) -> dict[str, Any]:
@@ -252,7 +283,7 @@ def test_serpapi_defaults_to_last_week_filter(mocker) -> None:
     s = SerpApiGoogleJobsScraper(api_key="fake", hl="fr")
     list(s.search("data scientist"))
 
-    params = get_mock.call_args.kwargs["params"]
+    params = get_mock.call_args_list[0].kwargs["params"]
     assert params["q"] == "data scientist"
     assert params["chips"] == "date_posted:week"
     assert "uds" not in params
@@ -291,8 +322,15 @@ def test_serpapi_can_search_multiple_languages(mocker) -> None:
         ],
     )
 
-    s = SerpApiGoogleJobsScraper(api_key="fake", hl="en,fr")
-    jobs = list(s.search("Machine Learning Engineer", max_results=10, date_posted="any"))
+    s = SerpApiGoogleJobsScraper(api_key="fake", hl="en,fr", gl="us")
+    jobs = list(
+        s.search(
+            "Machine Learning Engineer",
+            location="New York",
+            max_results=10,
+            date_posted="any",
+        )
+    )
 
     assert [call.kwargs["params"]["hl"] for call in get_mock.mock_calls] == ["en", "fr"]
     assert [job.title for job in jobs] == [
@@ -324,20 +362,102 @@ def test_serpapi_does_not_split_quota_across_languages(mocker) -> None:
         "smartapply.scrapers.serpapi.requests.get",
         side_effect=[
             _mock_response(_sample_serpapi_page([], None)),  # hl=en has no results
+            _mock_response(_sample_serpapi_page([], None)),  # hl=en contextual fallback
             _mock_response(_sample_serpapi_page(fr_page1, "fr-page-2")),
             _mock_response(_sample_serpapi_page(fr_page2, None)),
         ],
     )
 
-    s = SerpApiGoogleJobsScraper(api_key="fake", max_pages=3, hl="en,fr")
-    jobs = list(s.search("Data Scientist", max_results=15, date_posted="any"))
+    s = SerpApiGoogleJobsScraper(api_key="fake", max_pages=3, hl="en,fr", gl="us")
+    jobs = list(
+        s.search(
+            "Data Scientist",
+            location="New York",
+            max_results=15,
+            date_posted="any",
+        )
+    )
 
     assert len(jobs) == 15
     assert [call.kwargs["params"]["hl"] for call in get_mock.mock_calls] == [
         "en",
+        "en",
         "fr",
         "fr",
     ]
+
+
+def test_serpapi_uses_french_market_language_for_france(mocker) -> None:
+    get_mock = mocker.patch(
+        "smartapply.scrapers.serpapi.requests.get",
+        return_value=_mock_response(
+            _sample_serpapi_page(
+                [
+                    {
+                        "title": "Machine Learning Engineer",
+                        "company_name": "Acme",
+                        "description": "Build ML systems.",
+                        "job_id": "fr-market-1",
+                    }
+                ],
+                None,
+            )
+        ),
+    )
+
+    s = SerpApiGoogleJobsScraper(api_key="fake", hl="en,fr", gl="fr")
+    jobs = list(
+        s.search(
+            "Machine Learning Engineer",
+            location="Paris, France",
+            max_results=10,
+            date_posted="any",
+        )
+    )
+
+    assert [job.title for job in jobs] == ["Machine Learning Engineer"]
+    assert get_mock.call_count == 1
+    assert get_mock.call_args.kwargs["params"]["hl"] == "fr"
+
+
+def test_serpapi_fallback_contextualizes_empty_location_search(mocker) -> None:
+    get_mock = mocker.patch(
+        "smartapply.scrapers.serpapi.requests.get",
+        side_effect=[
+            _mock_response(_sample_serpapi_page([], None)),
+            _mock_response(
+                _sample_serpapi_page(
+                    [
+                        {
+                            "title": "Machine Learning Engineer",
+                            "company_name": "Acme",
+                            "description": "Build ML systems.",
+                            "job_id": "fallback-1",
+                        }
+                    ],
+                    None,
+                )
+            ),
+        ],
+    )
+
+    s = SerpApiGoogleJobsScraper(api_key="fake", hl="fr", gl="fr")
+    jobs = list(
+        s.search(
+            "Machine Learning Engineer",
+            location="Paris, France",
+            max_results=10,
+            date_posted="any",
+        )
+    )
+
+    assert [job.title for job in jobs] == ["Machine Learning Engineer"]
+    first_params = get_mock.call_args_list[0].kwargs["params"]
+    fallback_params = get_mock.call_args_list[1].kwargs["params"]
+    assert first_params["q"] == "Machine Learning Engineer"
+    assert first_params["location"] == "Paris, France"
+    assert fallback_params["q"] == "Machine Learning Engineer jobs in Paris, France"
+    assert "location" not in fallback_params
 
 
 def test_serpapi_continues_empty_page_when_next_token_exists(mocker) -> None:
@@ -378,7 +498,7 @@ def test_serpapi_date_filter_can_be_disabled_or_combined_with_uds(mocker) -> Non
     s = SerpApiGoogleJobsScraper(api_key="fake", hl="fr")
     list(s.search("data scientist", date_posted="any", uds="raw-filter"))
 
-    params = get_mock.call_args.kwargs["params"]
+    params = get_mock.call_args_list[0].kwargs["params"]
     assert params["q"] == "data scientist"
     assert "chips" not in params
     assert params["uds"] == "raw-filter"
@@ -399,9 +519,47 @@ def test_serpapi_date_filter_combines_with_existing_chips(mocker) -> None:
         )
     )
 
-    params = get_mock.call_args.kwargs["params"]
+    params = get_mock.call_args_list[0].kwargs["params"]
     assert params["q"] == "data scientist"
     assert params["chips"] == "employment_type:FULLTIME,date_posted:3days"
+
+
+def test_serpapi_widens_zero_result_date_filter_before_giving_up(mocker) -> None:
+    page_jobs = [
+        {
+            "title": "Machine Learning Engineer",
+            "company_name": "Acme",
+            "location": "Paris",
+            "description": "Build ML models.",
+            "apply_options": [{"link": "https://acme.test/jobs/ml"}],
+            "detected_extensions": {"schedule_type": "Full-time"},
+        }
+    ]
+    get_mock = mocker.patch(
+        "smartapply.scrapers.serpapi.requests.get",
+        side_effect=[
+            _mock_response(_sample_serpapi_page([], None)),
+            _mock_response(_sample_serpapi_page(page_jobs, None)),
+        ],
+    )
+
+    s = SerpApiGoogleJobsScraper(api_key="fake", hl="fr")
+    jobs = list(
+        s.search(
+            "Machine Learning Engineer",
+            chips="employment_type:FULLTIME",
+            date_posted="week",
+            max_results=5,
+        )
+    )
+
+    assert [job.title for job in jobs] == ["Machine Learning Engineer"]
+    assert get_mock.call_args_list[0].kwargs["params"]["chips"] == (
+        "employment_type:FULLTIME,date_posted:week"
+    )
+    assert get_mock.call_args_list[1].kwargs["params"]["chips"] == (
+        "employment_type:FULLTIME,date_posted:month"
+    )
 
 
 def test_serpapi_stops_when_no_results(mocker) -> None:

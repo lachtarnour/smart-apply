@@ -115,6 +115,11 @@ STATUS_FLOW: list[dict[str, Any]] = [
 ]
 
 STATUS_LABEL_BY_KEY = {row["status"]: row["label"] for row in STATUS_FLOW}
+SERPAPI_LANGUAGE_OPTIONS = {
+    "Bilingue EN + FR": "en,fr",
+    "Anglais uniquement": "en",
+    "Français uniquement": "fr",
+}
 
 
 def ensure_db() -> None:

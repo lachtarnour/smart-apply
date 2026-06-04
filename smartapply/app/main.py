@@ -6,6 +6,7 @@ from typing import Any
 
 import pandas as pd
 import streamlit as st
+from sqlalchemy import select
 
 from smartapply.app._helpers import (
     apply_app_style,
@@ -31,17 +32,17 @@ apply_app_style()
 def _dashboard_snapshot() -> dict[str, Any]:
     with session_scope() as s:
         pending_jobs = list_pending_processing(s)
-        apps = s.query(Application).all()
+        apps = s.execute(select(Application)).scalars().all()
         latest_jobs = (
-            s.query(Job)
-            .order_by(Job.scraped_at.desc())
-            .limit(6)
+            s.execute(select(Job).order_by(Job.scraped_at.desc()).limit(6))
+            .scalars()
             .all()
         )
         latest_apps = (
-            s.query(Application)
-            .order_by(Application.updated_at.desc())
-            .limit(6)
+            s.execute(
+                select(Application).order_by(Application.updated_at.desc()).limit(6)
+            )
+            .scalars()
             .all()
         )
         recent_jobs = [

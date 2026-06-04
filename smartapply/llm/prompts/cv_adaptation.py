@@ -13,8 +13,10 @@ from __future__ import annotations
 
 import re
 
+from smartapply.cv.constants import NON_DISPLAY_DOMAIN_TERMS
 from smartapply.llm.schemas import JobAnalysis
 from smartapply.profile import Bullet, Experience, Profile, Project
+from smartapply.llm.prompts.skill_profiles import format_skill_profiles
 
 
 SYSTEM = """You adapt a candidate's CV to a job offer WITHOUT inventing anything.
@@ -44,25 +46,6 @@ Hard rules:
 19. selected_project_ids must contain 2 to 4 projects. Include at least 3 only when 3 genuinely relevant projects are available. Do not select a project only as filler.
 20. Output ONLY the JSON. No prose, no commentary.
 """
-
-
-_NON_DISPLAY_DOMAIN_TERMS = {
-    "machine learning",
-    "computer vision",
-    "data analysis",
-    "reporting",
-    "reinforcement learning",
-    "control task",
-    "control tasks",
-    "nlp",
-    "llm",
-    "llms",
-    "speech processing",
-    "audio processing",
-    "artificial intelligence",
-    "ai",
-    "deep learning",
-}
 
 
 def _format_bullet(bullet: Bullet) -> str:
@@ -100,18 +83,6 @@ def _format_projects(projects: list[Project]) -> str:
         for b in proj.bullets:
             out.append(_format_bullet(b))
     return "\n".join(out)
-
-
-def _format_skill_profiles(profile: Profile) -> str:
-    if not profile.skills.profiles:
-        return "- mixed: default compact skills profile"
-    lines: list[str] = []
-    for skill_profile in profile.skills.profiles:
-        effective = profile.skills.effective_category_skills(skill_profile.id)
-        blocks = [f"{cid}: {', '.join(skills)}" for cid, skills in effective.items()]
-        description = f" — {skill_profile.description}" if skill_profile.description else ""
-        lines.append(f"- {skill_profile.id}: {skill_profile.name}{description} ({'; '.join(blocks)})")
-    return "\n".join(lines)
 
 
 def _format_skill_catalog(profile: Profile) -> str:
@@ -171,7 +142,7 @@ def _format_unsupported_offer_terms(profile: Profile, analysis: JobAnalysis) -> 
         if not clean or key in seen:
             continue
         seen.add(key)
-        if key in _NON_DISPLAY_DOMAIN_TERMS:
+        if key in NON_DISPLAY_DOMAIN_TERMS:
             continue
         if _term_supported_by_allowed_skill(clean, allowed):
             continue
@@ -198,7 +169,7 @@ def build_user_prompt(
     dont = "\n  - ".join(style.dont)
     do = "\n  - ".join(style.do)
     main_tasks_block = "\n".join(f"- {t}" for t in analysis.main_tasks)
-    skill_profiles = _format_skill_profiles(profile)
+    skill_profiles = format_skill_profiles(profile)
     skill_catalog = _format_skill_catalog(profile)
     core_skills = _format_core_skills(profile)
     matching_keywords = _format_matching_keywords(profile)

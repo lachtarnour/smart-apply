@@ -11,6 +11,8 @@ import mimetypes
 from email.message import EmailMessage
 from pathlib import Path
 
+MISSING_RECIPIENT_PLACEHOLDER = "A_REMPLIR@destinataire.invalid"
+
 
 def export_eml(
     *,
@@ -18,6 +20,7 @@ def export_eml(
     body: str,
     sender: str,
     recipient: str,
+    cc_recipient: str | None = None,
     out_path: str | Path,
     cv_path: str | Path | None = None,
     attachments: list[str | Path] | None = None,
@@ -26,6 +29,8 @@ def export_eml(
     msg["Subject"] = subject
     msg["From"] = sender
     msg["To"] = recipient
+    if cc_recipient:
+        msg["Cc"] = cc_recipient
     msg.set_content(body)
 
     attachment_paths = [Path(p) for p in (attachments or [])]

@@ -249,6 +249,13 @@ class JobScorer:
         top_k: int | None = None,
     ) -> list[tuple[ScorableJob, ScoreComponents]]:
         cache: dict[int, list[float]] = {}
+        if jobs:
+            if self._profile_vector is None:
+                self._profile_vector = self.embeddings.embed_one(
+                    build_profile_text(self.profile)
+                )
+            job_vectors = self.embeddings.embed([build_job_text(job) for job in jobs])
+            cache.update({id(job): vector for job, vector in zip(jobs, job_vectors)})
         results = [(j, self.score(j, cache)) for j in jobs]
         results.sort(key=lambda r: r[1].final, reverse=True)
         if top_k is not None:

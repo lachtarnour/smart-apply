@@ -23,7 +23,13 @@ from smartapply.ranking import MockEmbeddingsProvider
 class AlternatingContactProvider(ContactProvider):
     name = "test"
 
-    def find(self, *, company: str, application_url: str | None):
+    def find(
+        self,
+        *,
+        company: str,
+        application_url: str | None,
+        job_location: str | None = None,
+    ):
         try:
             idx = int(company.rsplit(" ", 1)[-1])
         except ValueError:
@@ -47,7 +53,13 @@ class EmptyCountingContactProvider(ContactProvider):
     def __init__(self):
         self.calls = 0
 
-    def find(self, *, company: str, application_url: str | None):
+    def find(
+        self,
+        *,
+        company: str,
+        application_url: str | None,
+        job_location: str | None = None,
+    ):
         self.calls += 1
         return []
 
@@ -287,6 +299,46 @@ def test_autopilot_caches_negative_contact_lookup(monkeypatch: pytest.MonkeyPatc
 
     assert report.ready_for_form_submission == 2
     assert provider.calls == 1
+
+
+def test_autopilot_skips_jobs_with_existing_application(monkeypatch: pytest.MonkeyPatch) -> None:
+    _register_llm(approved=True)
+
+    from smartapply.database import session_scope
+    from smartapply.database.models import Application
+    from smartapply.jobsearch import AutopilotRunner
+    from smartapply.pipeline import Pipeline
+
+    pipeline = Pipeline(embeddings=MockEmbeddingsProvider(), llm=MockLLMProvider())
+    ingested = pipeline.ingest_text(
+        text="Build RAG pipelines with Python, PyTorch, FAISS and Hugging Face.",
+        title="Data Scientist NLP",
+        company="ExistingCo",
+        location="Paris, France",
+        application_url="https://existing.example/jobs/42",
+    )
+    pipeline.process_pending(top_k_analyze=1)
+    with session_scope() as s:
+        s.add(Application(job_id=ingested.job_ids[0], status="email_generated"))
+
+    called = False
+
+    def fail_if_called(*args, **kwargs):  # noqa: ANN002, ANN003
+        nonlocal called
+        called = True
+        raise AssertionError("existing application should not be regenerated")
+
+    monkeypatch.setattr(pipeline, "apply_to_autopilot", fail_if_called)
+
+    report = AutopilotRunner(pipeline=pipeline).run(
+        query="Data Scientist",
+        sources=["manual"],
+        target_drafts=1,
+    )
+
+    assert called is False
+    assert report.skipped_existing == 1
+    assert report.attempted == 0
 
 
 def test_autopilot_cli_returns_json_without_external_sources() -> None:

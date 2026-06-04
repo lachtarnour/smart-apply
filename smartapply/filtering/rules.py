@@ -24,7 +24,6 @@ DEFAULT_POSITIVE_TITLE_KEYWORDS = (
     "product data analyst",
     "analytics engineer",
     "data analytics",
-    "mlops",
     "deep learning",
     "computer vision",
 )
@@ -74,11 +73,15 @@ DEFAULT_TITLE_HARD_REJECT_KEYWORDS = (
     "infirmière",
     "java",
     "manager",
+    "mlops",
+    "ml ops",
     "nurse",
     "product owner",
     "responsable développement",
     "senior responsable",
     "sre",
+    "vie ",
+    " vie",
 )
 
 # Hard reject when these appear in the offer TITLE — the candidate is junior
@@ -117,6 +120,8 @@ DEFAULT_BLOCKED_CONTRACT_TYPES = (
     "stagiaire",
     "internship",
     "alternance",
+    "alternant",
+    "alternante",
     "apprenti",  # covers apprenti, apprentissage, apprenticeship
     "freelance",
     "independant",

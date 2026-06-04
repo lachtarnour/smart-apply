@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pandas as pd
@@ -9,12 +10,18 @@ import streamlit as st
 
 from smartapply.app._helpers import apply_app_style, pipeline_singleton, status_label
 from smartapply.database import session_scope
+from smartapply.database.models import Application, JobStatus
 from smartapply.database.repository import (
+    add_contact,
     list_applications,
     update_application_tracking,
     upsert_document,
 )
+from smartapply.email_agent.eml_export import MISSING_RECIPIENT_PLACEHOLDER, export_eml
 from smartapply.jobsearch import APPLICATION_STATUSES, next_action_for
+
+
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 def _is_missing(value) -> bool:  # noqa: ANN001
@@ -35,12 +42,88 @@ def _optional_text(value) -> str | None:  # noqa: ANN001
     return text or None
 
 
+def _email_text(value) -> str:  # noqa: ANN001
+    return _text(value).strip().lower()
+
+
+def _is_valid_email(value: str) -> bool:
+    return bool(value and EMAIL_RE.match(value))
+
+
 def _session_text_default(key: str, value) -> None:  # noqa: ANN001
     current = st.session_state.get(key)
     if _is_missing(current) or not isinstance(current, str):
         st.session_state[key] = _text(value)
     else:
         st.session_state.setdefault(key, _text(value))
+
+
+def _contact_summary(row) -> str:  # noqa: ANN001
+    parts: list[str] = []
+    full_name = _optional_text(row.get("contact_full_name"))
+    job_title = _optional_text(row.get("contact_job_title"))
+    reason = _optional_text(row.get("contact_reason"))
+    location_hint = _optional_text(row.get("contact_location_hint"))
+    confidence = row.get("contact_confidence")
+    if full_name:
+        parts.append(full_name)
+    if job_title:
+        parts.append(job_title)
+    if reason:
+        parts.append(f"raison={reason}")
+    if location_hint:
+        parts.append(f"lieu={location_hint}")
+    try:
+        if not _is_missing(confidence):
+            parts.append(f"score={float(confidence):.2f}")
+    except (TypeError, ValueError):
+        pass
+    return " · ".join(parts)
+
+
+def _attachment_paths_from_app(app: Application) -> list[str]:
+    docs = {doc.doc_type: doc for doc in app.documents}
+    cv_pdf_doc = docs.get("cv_pdf")
+    letter_pdf_doc = docs.get("motivation_letter_pdf")
+    cv_path = (
+        _optional_text(app.cv_pdf_path)
+        or _optional_text(cv_pdf_doc.path if cv_pdf_doc else None)
+        or _optional_text(app.cv_docx_path)
+    )
+    paths = [
+        cv_path,
+        _optional_text(letter_pdf_doc.path if letter_pdf_doc else None),
+    ]
+    return [path for path in paths if path and Path(path).exists()]
+
+
+def _regenerate_eml(
+    app: Application,
+    *,
+    recipient: str | None,
+    cc_recipient: str | None,
+) -> str | None:
+    subject = _text(app.email_subject).strip()
+    body = _text(app.email_body).strip()
+    if not subject or not body:
+        return None
+    output_dir = pipeline_singleton().settings.output_dir
+    eml_path = (
+        Path(app.eml_path)
+        if app.eml_path
+        else output_dir / f"job-{app.job_id}" / "draft.eml"
+    )
+    written = export_eml(
+        subject=subject,
+        body=body,
+        sender=pipeline_singleton().profile.identity.email,
+        recipient=recipient or MISSING_RECIPIENT_PLACEHOLDER,
+        cc_recipient=cc_recipient,
+        attachments=_attachment_paths_from_app(app),
+        out_path=eml_path,
+    )
+    app.eml_path = str(written)
+    return str(written)
 
 
 st.set_page_config(page_title="Candidatures | SmartApply", page_icon="📝", layout="wide")
@@ -82,9 +165,16 @@ with session_scope() as s:
                 ),
                 "subject": _text(a.email_subject),
                 "body": _text(a.email_body),
+                "email_cc": _text(a.email_cc),
                 "letter_subject": _text(letter_extra.get("subject", "")),
                 "letter_body": _text(letter_doc.content if letter_doc else ""),
                 "contact": _text(a.contact.email if a.contact else ""),
+                "contact_full_name": _text(a.contact.full_name if a.contact else ""),
+                "contact_job_title": _text(a.contact.job_title if a.contact else ""),
+                "contact_location_hint": _text(a.contact.location_hint if a.contact else ""),
+                "contact_reason": _text(a.contact.decision_reason if a.contact else ""),
+                "contact_confidence": a.contact.confidence if a.contact else None,
+                "contact_source_url": _text(a.contact.source_url if a.contact else ""),
                 "strategy": _text(a.application_strategy),
                 "form_url": _optional_text(a.form_submission_url),
                 "cv_path": _optional_text(a.cv_docx_path),
@@ -138,6 +228,13 @@ st.dataframe(
             "body",
             "letter_subject",
             "letter_body",
+            "email_cc",
+            "contact_full_name",
+            "contact_job_title",
+            "contact_location_hint",
+            "contact_reason",
+            "contact_confidence",
+            "contact_source_url",
             "cv_path",
             "cv_pdf_path",
             "letter_pdf_path",
@@ -169,14 +266,97 @@ if row.empty:
     st.stop()
 
 r = row.iloc[0]
+contact = _optional_text(r["contact"])
+email_cc = _optional_text(r["email_cc"])
+subject_key = f"applications_subject_{int(app_id)}"
+body_key = f"applications_body_{int(app_id)}"
+_session_text_default(subject_key, r["subject"])
+_session_text_default(body_key, r["body"])
 st.write(f"**{_text(r['title'])}** — {_text(r['company'])}")
 st.write(f"Statut : **{status_label(_text(r['status']))}**")
 st.write(f"Prochaine action : **{_text(r['next_action'])}**")
-st.write(f"Contact : `{_text(r['contact']) or 'Aucun'}`")
+st.write(f"Contact : `{contact or 'Aucun'}`")
+contact_summary = _contact_summary(r)
+if contact_summary:
+    st.caption(contact_summary)
+if email_cc:
+    st.write(f"CC : `{email_cc}`")
 st.write(f"Stratégie : `{_text(r['strategy'])}`")
 form_url = _optional_text(r["form_url"])
 if form_url:
     st.link_button("Ouvrir le formulaire", form_url)
+
+with st.expander("Modifier le destinataire / CC", expanded=False):
+    contact_key = f"applications_contact_{int(app_id)}"
+    cc_key = f"applications_cc_{int(app_id)}"
+    _session_text_default(contact_key, contact or "")
+    _session_text_default(cc_key, email_cc or "")
+    st.text_input(
+        "Destinataire principal",
+        key=contact_key,
+        placeholder="recrutement@entreprise.com",
+    )
+    st.text_input(
+        "CC optionnel",
+        key=cc_key,
+        placeholder="head.of.data@entreprise.com",
+        help=(
+            "À garder exceptionnel : un responsable Data/IA très fiable, "
+            "même entreprise, localisation non contradictoire."
+        ),
+    )
+    verify_col, save_col = st.columns(2)
+    primary_email = _email_text(st.session_state.get(contact_key))
+    cc_email = _email_text(st.session_state.get(cc_key))
+    with verify_col:
+        if st.button("Vérifier le destinataire", key=f"verify_contact_{int(app_id)}"):
+            if not _is_valid_email(primary_email):
+                st.error("Adresse destinataire invalide.")
+            else:
+                result = pipeline_singleton().contact_service.verify_email(primary_email)
+                if result is True:
+                    st.success("Adresse vérifiée par le fournisseur.")
+                elif result is False:
+                    st.error("Adresse refusée par la vérification.")
+                else:
+                    st.info("Aucun vérificateur disponible ou réponse non concluante.")
+    with save_col:
+        if st.button("Enregistrer contact / CC", key=f"save_contact_{int(app_id)}"):
+            if primary_email and not _is_valid_email(primary_email):
+                st.error("Adresse destinataire invalide.")
+            elif cc_email and not _is_valid_email(cc_email):
+                st.error("Adresse CC invalide.")
+            else:
+                with session_scope() as s:
+                    app = s.get(Application, int(app_id))
+                    if app is not None:
+                        if primary_email:
+                            contact_row = add_contact(
+                                s,
+                                company=app.job.company if app.job else _text(r["company"]),
+                                email=primary_email,
+                                source_url="manual",
+                                confidence=1.0,
+                                decision_reason="manual_ui",
+                            )
+                            app.contact_id = contact_row.id
+                        else:
+                            app.contact_id = None
+                        app.email_cc = cc_email or None
+                        eml_path = _regenerate_eml(
+                            app,
+                            recipient=primary_email,
+                            cc_recipient=cc_email or None,
+                        )
+                        if eml_path:
+                            upsert_document(
+                                s,
+                                int(app_id),
+                                doc_type="eml",
+                                path=eml_path,
+                            )
+                st.success("Contact mis à jour.")
+                st.rerun()
 
 letter_body = _text(r["letter_body"])
 letter_subject = _text(r["letter_subject"])
@@ -192,16 +372,10 @@ if letter_body:
     )
 
 st.subheader("Email final")
-subject_key = f"applications_subject_{int(app_id)}"
-body_key = f"applications_body_{int(app_id)}"
-_session_text_default(subject_key, r["subject"])
-_session_text_default(body_key, r["body"])
 st.text_input("Sujet", key=subject_key)
 st.text_area("Corps de l'email", key=body_key, height=220)
 if st.button("Enregistrer l'email final"):
     with session_scope() as s:
-        from smartapply.database.models import Application
-
         app = s.get(Application, int(app_id))
         if app is not None:
             app.email_subject = str(st.session_state[subject_key]).strip()
@@ -213,6 +387,13 @@ if st.button("Enregistrer l'email final"):
                 content=app.email_body,
                 extra={"subject": app.email_subject},
             )
+            eml_path = _regenerate_eml(
+                app,
+                recipient=contact,
+                cc_recipient=email_cc,
+            )
+            if eml_path:
+                upsert_document(s, int(app_id), doc_type="eml", path=eml_path)
     st.success("Email final enregistré.")
     st.rerun()
 
@@ -277,6 +458,8 @@ if letter_pdf_path and Path(letter_pdf_path).exists():
 
 eml_path = _optional_text(r["eml_path"])
 if eml_path and Path(eml_path).exists():
+    if not contact:
+        cols[3].warning("Destinataire à renseigner avant envoi.")
     cols[3].download_button(
         "⬇️ Télécharger l'email (.eml)",
         Path(eml_path).read_bytes(),
@@ -285,21 +468,21 @@ if eml_path and Path(eml_path).exists():
     )
 
 st.divider()
-contact = _optional_text(r["contact"])
 if not contact:
     st.info("Ajoute ou trouve un contact avant de créer un brouillon Gmail.")
 
 final_subject = str(st.session_state.get(subject_key, "")).strip()
 final_body = str(st.session_state.get(body_key, "")).strip()
-draft_disabled = not contact or not final_subject or not final_body
+contact_valid = _is_valid_email(contact)
+draft_disabled = not contact_valid or not final_subject or not final_body
 if st.button("📧 Créer un brouillon Gmail", type="primary", disabled=draft_disabled):
     try:
         from smartapply.email_agent.gmail_draft import create_draft
 
         with session_scope() as s:
-            from smartapply.database.models import Application
-
             app = s.get(Application, int(app_id))
+            if app is None:
+                raise RuntimeError("Candidature introuvable.")
             attachment_paths = [
                 path
                 for path in [cv_pdf_path or cv_path, letter_pdf_path]
@@ -309,11 +492,13 @@ if st.button("📧 Créer un brouillon Gmail", type="primary", disabled=draft_di
                 subject=final_subject,
                 body=final_body,
                 recipient=contact or "",
+                cc_recipient=email_cc,
                 sender=pipeline_singleton().profile.identity.email,
                 attachment_paths=attachment_paths,
             )
             app.email_subject = final_subject
             app.email_body = final_body
+            app.email_cc = email_cc
             upsert_document(
                 s,
                 int(app_id),
@@ -321,10 +506,22 @@ if st.button("📧 Créer un brouillon Gmail", type="primary", disabled=draft_di
                 content=final_body,
                 extra={"subject": final_subject},
             )
+            eml_path = _regenerate_eml(
+                app,
+                recipient=contact,
+                cc_recipient=email_cc,
+            )
+            if eml_path:
+                upsert_document(s, int(app_id), doc_type="eml", path=eml_path)
             app.gmail_draft_id = draft_id
-            app.status = "draft_created"
+            app.status = JobStatus.DRAFT_CREATED
+            if app.job is not None:
+                app.job.status = JobStatus.DRAFT_CREATED
         st.success(f"Brouillon créé : {draft_id}")
     except Exception as e:
         st.error(f"Échec : {e}")
 elif draft_disabled:
-    st.caption("Contact, sujet et corps d'email sont obligatoires pour créer un brouillon.")
+    if contact and not contact_valid:
+        st.caption("Adresse contact invalide : corrige le destinataire avant Gmail.")
+    else:
+        st.caption("Contact, sujet et corps d'email sont obligatoires pour créer un brouillon.")

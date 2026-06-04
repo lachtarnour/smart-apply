@@ -20,8 +20,14 @@ T = TypeVar("T", bound=BaseModel)
 class MockLLMProvider(LLMProvider):
     name = "mock"
 
-    # Class-level so tests can register globally without holding a reference.
-    _registry: dict[str, BaseModel] = {}
+    # Class-level defaults keep the terse test API, while each instance copies
+    # them at construction time so later test setup cannot mutate existing mocks.
+    _default_registry: dict[str, BaseModel] = {}
+
+    def __init__(self, registry: dict[str, BaseModel] | None = None):
+        self._registry = dict(
+            registry if registry is not None else self.__class__._default_registry
+        )
 
     @property
     def smart_model(self) -> str:
@@ -33,11 +39,11 @@ class MockLLMProvider(LLMProvider):
 
     @classmethod
     def register(cls, purpose: str, response: BaseModel) -> None:
-        cls._registry[purpose] = response
+        cls._default_registry[purpose] = response
 
     @classmethod
     def clear(cls) -> None:
-        cls._registry.clear()
+        cls._default_registry.clear()
 
     def complete_json(
         self,

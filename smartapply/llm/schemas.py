@@ -76,6 +76,35 @@ class JobAnalysis(BaseModel):
             "extracted — never invent."
         ),
     )
+    extracted_location: str = Field(
+        default="",
+        description=(
+            "Most specific job location explicitly visible in the offer text, "
+            "for example 'Paris', 'Massy', 'Remote (France)' or "
+            "'Paris / Lyon'. Return an empty string when the offer gives no "
+            "reliable location beyond the structured location field. Never "
+            "infer or use external knowledge."
+        ),
+    )
+    company_context: str = Field(
+        default="",
+        description=(
+            "One concise, offer-grounded sentence about the company, product, "
+            "sector, clients, team, culture or business context. Use only facts "
+            "visible in the job offer. Empty string when the offer gives no "
+            "reliable company/about-us context."
+        ),
+    )
+    offer_interest_points: list[str] = Field(
+        default_factory=list,
+        description=(
+            "2-5 concrete reasons a candidate could be interested in this "
+            "specific offer, extracted only from the offer text: company/about-us "
+            "facts, product, mission, sector, context, stakes, team, clients, "
+            "culture or responsibilities. Do not include candidate claims. Empty "
+            "list when only generic information is available."
+        ),
+    )
 
 
 class AdaptedBullet(BaseModel):

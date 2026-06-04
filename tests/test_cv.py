@@ -436,7 +436,7 @@ def test_motivation_letter_validator_flags_short_and_unsupported_terms() -> None
     )
     letter = MotivationLetter(
         subject="Application: Data Scientist",
-        body="Emobot experience with Kubernetes.",
+        body="My experience includes Kubernetes.",
     )
     result = MotivationLetterValidator(get_profile()).validate(
         letter,
@@ -445,6 +445,56 @@ def test_motivation_letter_validator_flags_short_and_unsupported_terms() -> None
     )
     assert "letter_too_short:4" in result.warnings
     assert "unsupported_term_in_letter:Kubernetes" in result.warnings
+
+
+def test_motivation_letter_validator_allows_unsupported_terms_as_offer_context() -> None:
+    analysis = _sample_analysis().model_copy(
+        update={
+            "required_skills": ["BigQuery", "GCP"],
+            "cv_keywords_to_include": ["Retail", "E-commerce"],
+            "offer_language": "en",
+        }
+    )
+    letter = MotivationLetter(
+        subject="Application: Analytics Engineer",
+        body=(
+            "Your retail and e-commerce context, with a modern stack including "
+            "BigQuery and GCP, makes the role interesting. My experience focuses "
+            "on Python, SQL and applied data pipelines, with Emobot projects "
+            "grounding that work in measurable data quality."
+        ),
+    )
+    result = MotivationLetterValidator(get_profile(), min_words=1).validate(
+        letter,
+        cv=_valid_adapted_cv(),
+        analysis=analysis,
+    )
+    assert "unsupported_term_in_letter:Retail" not in result.warnings
+    assert "unsupported_term_in_letter:E-commerce" not in result.warnings
+    assert "unsupported_tech_in_letter:bigquery" not in result.warnings
+    assert "unsupported_tech_in_letter:gcp" not in result.warnings
+
+
+def test_motivation_letter_validator_flags_unsupported_terms_as_candidate_claim() -> None:
+    analysis = _sample_analysis().model_copy(
+        update={
+            "required_skills": ["BigQuery"],
+            "cv_keywords_to_include": ["Retail"],
+            "offer_language": "en",
+        }
+    )
+    letter = MotivationLetter(
+        subject="Application: Analytics Engineer",
+        body="My experience includes Retail analytics with BigQuery.",
+    )
+    result = MotivationLetterValidator(get_profile(), min_words=1).validate(
+        letter,
+        cv=_valid_adapted_cv(),
+        analysis=analysis,
+    )
+    assert "unsupported_term_in_letter:BigQuery" in result.warnings
+    assert "unsupported_term_in_letter:Retail" in result.warnings
+    assert "unsupported_tech_in_letter:bigquery" in result.warnings
 
 
 def test_normalize_french_elisions_repairs_missing_apostrophes() -> None:
@@ -471,6 +521,20 @@ def test_motivation_letter_validator_flags_missing_french_apostrophes() -> None:
         analysis=_sample_analysis(),
     )
     assert "french_elision_missing_apostrophe" in result.warnings
+
+
+def test_motivation_letter_validator_does_not_flag_english_possessive_as_french_elision() -> None:
+    analysis = _sample_analysis().model_copy(update={"offer_language": "en"})
+    letter = MotivationLetter(
+        subject="Application - Computer Vision Engineer",
+        body="Cosmoquick's Computer Vision work in Paris matches my experience.",
+    )
+    result = MotivationLetterValidator(get_profile(), min_words=1).validate(
+        letter,
+        cv=_valid_adapted_cv(),
+        analysis=analysis,
+    )
+    assert "french_elision_missing_apostrophe" not in result.warnings
 
 
 def test_project_mentions_are_detected_from_aliases() -> None:
@@ -624,12 +688,18 @@ def test_html_renderer_uses_clickable_profile_links() -> None:
     assert 'aria-label="Degree page"' in html
 
 
-def test_html_renderer_always_renders_at_least_two_projects() -> None:
+def test_html_renderer_respects_single_selected_project() -> None:
     cv = _valid_adapted_cv().model_copy(update={"selected_project_ids": ["proj_scifact_rag"]})
     html = HtmlApplicationRenderer(get_profile()).render_cv_html(cv)
     project_rows = html.count('class="project-row"')
-    assert project_rows >= 2
+    assert project_rows == 1
     assert "SciFact RAG Verifier" in html
+
+
+def test_html_renderer_falls_back_to_projects_when_none_selected() -> None:
+    cv = _valid_adapted_cv().model_copy(update={"selected_project_ids": []})
+    html = HtmlApplicationRenderer(get_profile()).render_cv_html(cv)
+    assert html.count('class="project-row"') >= 2
 
 
 def test_letter_renderer_strips_llm_signature_and_appends_canonical_signoff() -> None:
@@ -736,6 +806,13 @@ def test_application_draft_prompt_separates_matching_keywords_from_display_skill
                 "Experience with PyTorch",
             ],
             "cv_keywords_to_include": ["PyTorch", "GCP"],
+            "company_context": (
+                "Acme Health builds patient-facing clinical AI products for care teams."
+            ),
+            "offer_interest_points": [
+                "Work on RAG pipelines for medical knowledge access",
+                "Collaborate with product and clinical teams",
+            ],
         }
     )
     prompt = application_draft.build_user_prompt(
@@ -758,11 +835,33 @@ def test_application_draft_prompt_separates_matching_keywords_from_display_skill
     assert "- GCP" in prompt
     assert "- Machine learning" not in prompt
     assert "- Computer vision" not in prompt
+    assert "Offer/company anchors for letter:" in prompt
+    assert "Acme Health builds patient-facing clinical AI products for care teams." in prompt
+    assert "Work on RAG pipelines for medical knowledge access" in prompt
+    assert "why this company/context, why this role, why this candidate" in prompt
+    assert "Connect the offer anchor to one role mission/responsibility" in prompt
     assert "=== MOTIVATION LETTER ===" in prompt
     assert "Body: 180-280 words" in prompt
     assert "selected_project_ids must contain 2 to 4 projects" in prompt
     assert "write a motivation letter" in application_draft.SYSTEM
     assert "email is NOT generated by the LLM" in application_draft.SYSTEM
+
+
+def test_application_draft_prompt_has_no_company_anchor_fallback() -> None:
+    profile = get_profile()
+    analysis = _sample_analysis()
+    prompt = application_draft.build_user_prompt(
+        profile=profile,
+        analysis=analysis,
+        job_title="Data Scientist NLP",
+        job_company="Entreprise confidentielle",
+        selected_experiences=profile.experiences[:1],
+        selected_projects=profile.projects[:2],
+        language="fr",
+    )
+    assert "No reliable company/about-us anchor extracted" in prompt
+    assert "do not invent company facts" in prompt
+    assert "ground the opening in the domain, mission, responsibilities or required skills" in prompt
 
 
 def test_letter_renderer_uses_offer_language_labels() -> None:

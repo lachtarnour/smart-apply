@@ -19,6 +19,7 @@ from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
 
 from smartapply.cv.links import split_bullet_with_links
+from smartapply.cv.skill_profile import infer_skill_profile_id
 from smartapply.llm import AdaptedCV
 from smartapply.profile import (
     Bullet,
@@ -351,23 +352,7 @@ class CvDocxRenderer:
                 for bullet in exp.bullets
             ),
         ]
-        context = " ".join(context_bits).lower()
-        for profile_id in (
-            "medical_ai",
-            "reinforcement_learning",
-            "computer_vision",
-            "speech_audio",
-            "llm",
-            "time_series",
-            "data_analyst",
-            "machine_learning",
-        ):
-            if profile_id in self.profile.skills.profile_ids and any(
-                keyword.lower() in context
-                for keyword in self.profile.skills.matching_keywords.get(profile_id, [])
-            ):
-                return profile_id
-        return None
+        return infer_skill_profile_id(self.profile, " ".join(context_bits))
 
     def _write_projects(self, doc: DocxDocument, adapted: AdaptedCV) -> None:
         by_id = {p.id: p for p in self.profile.projects}

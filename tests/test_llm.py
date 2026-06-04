@@ -17,6 +17,7 @@ from smartapply.llm import (
     get_llm_provider,
     make_cache_key,
 )
+from smartapply.llm.prompts import job_analysis
 
 
 # ---------------- Schemas ----------------
@@ -33,11 +34,36 @@ def test_job_analysis_schema_round_trip() -> None:
         match_reasons=["Strong NLP background"],
         risks=["No prod deploy experience"],
         cv_keywords_to_include=["PyTorch", "RAG"],
+        extracted_location="Paris",
+        company_context="Acme builds clinical AI products for hospital teams.",
+        offer_interest_points=[
+            "Improve medical knowledge access with RAG",
+            "Work with product and clinical stakeholders",
+        ],
     )
     raw = a.model_dump_json()
     assert "Data Scientist" in raw
+    assert "clinical AI products" in raw
+    assert "Paris" in raw
     b = JobAnalysis.model_validate_json(raw)
     assert b == a
+
+
+def test_job_analysis_prompt_includes_structured_location() -> None:
+    from smartapply.profile import get_profile
+
+    prompt = job_analysis.build_user_prompt(
+        profile=get_profile(),
+        job_title="Data Scientist",
+        job_company="Acme",
+        job_location="France",
+        application_url="https://acme.ai/jobs/42",
+        job_description="Poste base a Paris, rythme hybride.",
+    )
+
+    assert "Structured location: France" in prompt
+    assert "Poste base a Paris" in prompt
+    assert "extracted_location" in job_analysis.SYSTEM
 
 
 def test_adapted_cv_schema_requires_source_ids() -> None:
@@ -178,6 +204,22 @@ def test_mock_provider_wrong_schema_raises() -> None:
     p = MockLLMProvider()
     with pytest.raises(LLMError):
         p.complete_json(system="s", user="u", schema=JobAnalysis, purpose="bad")
+
+
+def test_mock_provider_instances_snapshot_registered_responses() -> None:
+    MockLLMProvider.clear()
+    p = MockLLMProvider()
+    MockLLMProvider.register("late", EmailDraft(subject="s", body="b"))
+
+    with pytest.raises(LLMError):
+        p.complete_json(system="s", user="u", schema=EmailDraft, purpose="late")
+
+    assert MockLLMProvider().complete_json(
+        system="s",
+        user="u",
+        schema=EmailDraft,
+        purpose="late",
+    ).subject == "s"
 
 
 # ---------------- Factory ----------------

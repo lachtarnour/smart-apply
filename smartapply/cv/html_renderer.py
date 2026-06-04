@@ -17,6 +17,7 @@ import re
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from smartapply.cv.links import render_bullet_html
+from smartapply.cv.skill_profile import infer_skill_profile_id
 from smartapply.llm import AdaptedCV, EmailDraft
 from smartapply.profile import Profile
 
@@ -346,11 +347,13 @@ class HtmlApplicationRenderer:
         project_by_id: dict[str, object],
         force_one_page: bool,
     ) -> list[object]:
-        """Always render a useful project section, with at least 2 real projects.
+        """Render projects selected by the LLM, with fallback only if empty.
 
-        The LLM still controls priority through ``selected_project_ids``. When it
-        gives too few projects, we fill from the source profile using keyword
-        overlap with the adapted CV, then the original profile order.
+        ``selected_project_ids`` is part of the CV/letter contract: the letter
+        is not allowed to cite projects outside that set. Adding extra projects
+        when the LLM selected one valid project makes the CV and letter drift.
+        We therefore only fall back to profile projects when the LLM selected
+        no valid project at all.
         """
         max_projects = self._max_projects(force_one_page=force_one_page)
         selected: list[object] = []
@@ -363,10 +366,10 @@ class HtmlApplicationRenderer:
             if len(selected) >= max_projects:
                 return selected
 
-        min_projects = min(MIN_PROJECTS, max_projects, len(project_by_id))
-        if len(selected) >= min_projects:
+        if selected:
             return selected[:max_projects]
 
+        min_projects = min(MIN_PROJECTS, max_projects, len(project_by_id))
         context = self._adapted_context(adapted)
         remaining = [
             project
@@ -395,38 +398,11 @@ class HtmlApplicationRenderer:
         return (score, len(keywords))
 
     def _infer_skill_profile_id(self, adapted: AdaptedCV) -> str:
-        context = self._adapted_context(adapted)
-        for profile_id in (
-            "medical_ai",
-            "reinforcement_learning",
-            "computer_vision",
-            "speech_audio",
-            "llm",
-            "time_series",
-            "data_analyst",
-            "machine_learning",
-        ):
-            if profile_id in self.profile.skills.profile_ids and any(
-                keyword.lower() in context
-                for keyword in self.profile.skills.matching_keywords.get(profile_id, [])
-            ):
-                return profile_id
-        # Order from most specific to most general. Niche signals dominate.
-        if any(token in context for token in ("reinforcement", "openai gym", "agent training", "control task")):
-            return "reinforcement_learning"
-        if any(token in context for token in ("clinical", "medical", "digital health", "biomarker", "healthtech", "medtech")):
-            return "medical_ai"
-        if any(token in context for token in ("computer vision", "image classification", "object detection", "segmentation", "face recognition")):
-            return "computer_vision"
-        if any(token in context for token in ("llm", "rag", "nlp", "language model", "transformer", "embedding model", "retrieval")):
-            return "llm"
-        if any(token in context for token in ("forecasting", "time series", "time-series", "anomaly detection", "arima", "kalman")):
-            return "time_series"
-        if any(token in context for token in ("data analyst", "analytics", "dashboard", "kpi", "reporting", "product analyst")):
-            return "data_analyst"
-        if any(token in context for token in ("ml engineer", "deployment", "production", "mlops", "model serving", "data pipeline")):
-            return "machine_learning"
-        return "mixed"
+        return infer_skill_profile_id(
+            self.profile,
+            self._adapted_context(adapted),
+            default="mixed",
+        ) or "mixed"
 
     def _select_display_skills(self, category, adapted: AdaptedCV) -> list[str]:
         """Surface CV-relevant skills first without applying an arbitrary cap."""

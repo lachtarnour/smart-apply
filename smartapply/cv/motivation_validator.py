@@ -4,26 +4,11 @@ from __future__ import annotations
 
 import re
 
+from smartapply.cv.constants import NON_DISPLAY_DOMAIN_TERMS
 from smartapply.cv.validator import ValidationResult
 from smartapply.llm import AdaptedCV, JobAnalysis, MotivationLetter
 from smartapply.profile import Profile
 
-
-_NON_DISPLAY_DOMAIN_TERMS = {
-    "ai",
-    "artificial intelligence",
-    "analytics",
-    "deep learning",
-    "data science",
-    "machine learning",
-    "data analysis",
-    "generative ai",
-    "genai",
-    "computer vision",
-    "nlp",
-    "llm",
-    "llms",
-}
 
 _SELF_DEPRECATION_PATTERNS = {
     "although_gap": r"\b(although|even though|while)\b[^.]{0,120}\b(i|my|this profile)\b[^.]{0,120}\b(do not|don't|does not|lack|lacks|limited|still learning|new to)\b",
@@ -141,6 +126,16 @@ _MISSING_APOSTROPHE_PATTERNS = (
     r"\b[Aa]ujourd\s+hui\b",
 )
 
+_CANDIDATE_CLAIM_PATTERNS = (
+    r"\bmy\s+(?:background|experience|expertise|skills?|work|projects?|profile)\b",
+    r"\bmon\s+(?:parcours|profil|travail|projet|expérience|experience)\b",
+    r"\bma\s+(?:pratique|contribution|maitrise|maîtrise|connaissance|compétence|competence)\b",
+    r"\bmes\s+(?:compétences|competences|projets|travaux|expériences|experiences)\b",
+    r"\b(?:i|we)\s+(?:built|build|developed|develop|designed|design|trained|train|implemented|implement|used|use|worked|work|created|create|contributed|contribute)\b",
+    r"\bj['’]ai\s+(?:conçu|concu|développé|developpe|utilisé|utilise|construit|bâti|bati|entraîné|entraine|implémenté|implemente|travaillé|travaille|contribué|contribue)\b",
+    r"\bchez\s+emobot\b",
+)
+
 
 def mentioned_project_ids(text: str, profile: Profile) -> list[str]:
     """Return profile project ids explicitly named or aliased in text."""
@@ -192,19 +187,20 @@ class MotivationLetterValidator:
             warnings.append(f"letter_too_long:{count}")
 
         for term in self._unsupported_offer_terms(analysis):
-            if _normalize(term) in body_lower:
+            if self._term_used_as_candidate_claim(letter.body, term):
                 warnings.append(f"unsupported_term_in_letter:{term}")
 
         for label, pattern in _SELF_DEPRECATION_PATTERNS.items():
             if re.search(pattern, body_lower, flags=re.IGNORECASE):
                 warnings.append(f"letter_self_deprecation:{label}")
 
-        for pattern in _MISSING_APOSTROPHE_PATTERNS:
-            if re.search(pattern, letter.body):
-                warnings.append("french_elision_missing_apostrophe")
-                break
+        if (analysis.offer_language or "fr").lower().startswith("fr"):
+            for pattern in _MISSING_APOSTROPHE_PATTERNS:
+                if re.search(pattern, letter.body):
+                    warnings.append("french_elision_missing_apostrophe")
+                    break
 
-        for term in self._unsupported_tech_terms(body_lower):
+        for term in self._unsupported_tech_terms(letter.body):
             warnings.append(f"unsupported_tech_in_letter:{term}")
 
         for project_id in self._unselected_projects_mentioned(body_lower, cv):
@@ -228,7 +224,7 @@ class MotivationLetterValidator:
         for raw in list(analysis.required_skills) + list(analysis.cv_keywords_to_include):
             term = " ".join((raw or "").split())
             key = term.lower()
-            if not term or key in seen or key in _NON_DISPLAY_DOMAIN_TERMS:
+            if not term or key in seen or key in NON_DISPLAY_DOMAIN_TERMS:
                 continue
             seen.add(key)
             if self._term_supported_by_allowed_skill(term):
@@ -281,9 +277,28 @@ class MotivationLetterValidator:
             term_norm = _normalize(term)
             if term_norm in self.allowed_terms:
                 continue
-            if re.search(rf"(?<![a-z0-9+#.]){re.escape(term_norm)}(?![a-z0-9+#.])", body_lower):
+            if self._term_used_as_candidate_claim(body_lower, term):
                 found.append(term)
         return found
+
+    def _term_used_as_candidate_claim(self, text: str, term: str) -> bool:
+        term_norm = _normalize(term)
+        if not term_norm:
+            return False
+
+        for sentence in re.split(r"(?<=[.!?])\s+|\n+", text or ""):
+            sentence_norm = _normalize(sentence)
+            if not re.search(
+                rf"(?<![a-z0-9+#]){re.escape(term_norm)}(?![a-z0-9+#])",
+                sentence_norm,
+            ):
+                continue
+            if any(
+                re.search(pattern, sentence_norm, flags=re.IGNORECASE)
+                for pattern in _CANDIDATE_CLAIM_PATTERNS
+            ):
+                return True
+        return False
 
     def _unselected_projects_mentioned(self, body_lower: str, cv: AdaptedCV) -> list[str]:
         selected = set(cv.selected_project_ids)

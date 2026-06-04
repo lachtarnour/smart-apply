@@ -11,10 +11,14 @@ import math
 import os
 from abc import ABC, abstractmethod
 
+from openai import APIConnectionError, APITimeoutError, RateLimitError
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+
 from smartapply.config import get_settings
 from smartapply.logging_setup import get_logger
 
 logger = get_logger(__name__)
+_RETRYABLE_ERRORS = (APIConnectionError, APITimeoutError, RateLimitError)
 
 
 class EmbeddingsProvider(ABC):
@@ -66,9 +70,18 @@ class OpenAIEmbeddingsProvider(EmbeddingsProvider):
         vectors: list[list[float]] = []
         for start in range(0, len(texts), self.batch_size):
             batch = texts[start : start + self.batch_size]
-            response = client.embeddings.create(model=self._model, input=batch)
+            response = self._create_embeddings(client, batch)
             vectors.extend(item.embedding for item in response.data)
         return vectors
+
+    @retry(
+        retry=retry_if_exception_type(_RETRYABLE_ERRORS),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=8),
+        reraise=True,
+    )
+    def _create_embeddings(self, client, batch: list[str]):  # noqa: ANN001
+        return client.embeddings.create(model=self._model, input=batch)
 
 
 # -------------------- Local (sentence-transformers) --------------------

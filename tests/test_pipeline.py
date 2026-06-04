@@ -55,6 +55,14 @@ def _register_llm_responses() -> None:
             match_reasons=["Strong NLP background", "Multimodal AI experience"],
             risks=["No prior healthtech experience"],
             cv_keywords_to_include=["PyTorch", "RAG", "FAISS"],
+            extracted_location="Paris",
+            company_context=(
+                "Acme AI builds HealthTech tools for clinical NLP workflows."
+            ),
+            offer_interest_points=[
+                "Build RAG pipelines for healthcare teams",
+                "Productionize ML services in a HealthTech context",
+            ],
         ),
     )
     MockLLMProvider.register(
@@ -183,6 +191,8 @@ def test_ingestor_splits_or_queries_and_balances_results(monkeypatch: pytest.Mon
     ]
     assert expand_query_for_source("serpapi", "Machine Learning Engineer CDI") == [
         "Machine Learning Engineer",
+        "Machine Learning",
+        "ML Engineer",
         "Ingénieur Machine Learning",
     ]
     assert expand_query_for_source("serpapi", "Data Analyst") == [
@@ -191,7 +201,9 @@ def test_ingestor_splits_or_queries_and_balances_results(monkeypatch: pytest.Mon
     ]
     assert expand_query_for_source("francetravail", "machine learning ing") == [
         "machine learning ing",
-        "Ingénieur Machine Learning"
+        "Machine Learning",
+        "ML Engineer",
+        "Ingénieur Machine Learning",
     ]
 
     calls: list[tuple[str, int | None]] = []
@@ -219,20 +231,25 @@ def test_ingestor_splits_or_queries_and_balances_results(monkeypatch: pytest.Mon
     report = Ingestor().from_source(
         "serpapi",
         "Data Scientist OR Machine Learning Engineer OR AI Engineer",
-        max_results=7,
+        max_results=11,
     )
 
     assert [query for query, _ in calls] == [
         "Data Scientist",
+        "Data Science",
         "Scientifique des données",
         "Machine Learning Engineer",
+        "Machine Learning",
+        "ML Engineer",
         "Ingénieur Machine Learning",
         "AI Engineer",
         "Ingénieur IA",
+        "Ingénieur Intelligence Artificielle",
+        "AI ML Engineer",
     ]
-    assert [max_results for _, max_results in calls] == [7, 7, 7, 7, 7, 7]
-    assert report.fetched == 7
-    assert report.persisted == 7
+    assert [max_results for _, max_results in calls] == [11] * 11
+    assert report.fetched == 11
+    assert report.persisted == 11
     from smartapply.database import session_scope
     from smartapply.database.models import Job
 
@@ -245,12 +262,17 @@ def test_ingestor_splits_or_queries_and_balances_results(monkeypatch: pytest.Mon
             .all()
         ]
     assert Counter(titles) == {
-        "Data Scientist": 2,
+        "Data Scientist": 1,
+        "Data Science": 1,
         "Scientifique des données": 1,
         "Machine Learning Engineer": 1,
+        "Machine Learning": 1,
+        "ML Engineer": 1,
         "Ingénieur Machine Learning": 1,
         "AI Engineer": 1,
         "Ingénieur IA": 1,
+        "Ingénieur Intelligence Artificielle": 1,
+        "AI ML Engineer": 1,
     }
 
 
@@ -290,9 +312,9 @@ def test_serpapi_cdi_uses_fulltime_chip_not_query_suffix(monkeypatch: pytest.Mon
 
     assert calls == [
         "Data Scientist",
+        "Data Science",
         "Scientifique des données",
         "Machine Learning Engineer",
-        "Ingénieur Machine Learning",
     ]
     assert all(chips == "employment_type:FULLTIME" for chips in chips_seen)
 
@@ -474,7 +496,14 @@ def test_full_pipeline_with_mocked_dependencies() -> None:
 
     with session_scope() as s:
         top = list(top_jobs_by_score(s, 1))
-    assert top, "Expected at least one ranked job"
+        assert top, "Expected at least one ranked job"
+        assert top[0].analysis is not None
+        raw = top[0].analysis.raw_response
+        assert raw["company_context"] == (
+            "Acme AI builds HealthTech tools for clinical NLP workflows."
+        )
+        assert raw["extracted_location"] == "Paris"
+        assert "Build RAG pipelines for healthcare teams" in raw["offer_interest_points"]
     top_id = top[0].id
 
     report = p.apply_to(top_id, create_gmail_draft=False)
@@ -484,6 +513,29 @@ def test_full_pipeline_with_mocked_dependencies() -> None:
     assert report.letter_pdf_path and Path(report.letter_pdf_path).exists()
     assert report.eml_path and Path(report.eml_path).exists()
     assert not report.validation_errors
+
+
+def test_process_pending_replaces_generic_location_with_extracted_location() -> None:
+    _register_llm_responses()
+    from smartapply.database import session_scope
+    from smartapply.database.models import Job
+    from smartapply.pipeline import Pipeline
+
+    p = Pipeline(embeddings=MockEmbeddingsProvider(), llm=MockLLMProvider())
+    ingested = p.ingest_text(
+        text="Build RAG pipelines with Python. Poste base a Paris.",
+        title="Data Scientist NLP",
+        company="Acme AI",
+        location="France",
+        application_url="https://acme.ai/jobs/42",
+    )
+
+    p.process_pending(job_ids=ingested.job_ids)
+
+    with session_scope() as s:
+        job = s.get(Job, ingested.job_ids[0])
+        assert job is not None
+        assert job.location == "Paris"
 
 
 def test_apply_to_uses_manual_contact_email() -> None:
@@ -517,6 +569,58 @@ def test_apply_to_uses_manual_contact_email() -> None:
         assert app.contact is not None
         assert app.contact.email == "recruitment@manual.example"
         assert app.contact.source_url == "manual"
+
+
+def test_apply_to_rejects_manual_contact_when_optional_verification_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _register_llm_responses()
+    monkeypatch.setenv("ANYMAILFINDER_VERIFY_MANUAL_CONTACTS", "true")
+    from smartapply.config import get_settings
+    get_settings.cache_clear()
+    from smartapply.email_agent.contact_providers import ContactCandidate, ContactProvider
+    from smartapply.email_agent.contact_providers import ContactProviderChain
+    from smartapply.pipeline import Pipeline
+
+    class RejectingVerifier(ContactProvider):
+        name = "rejecting_verifier"
+
+        def find(
+            self,
+            *,
+            company: str,
+            application_url: str | None,
+            job_location: str | None = None,
+        ) -> list[ContactCandidate]:
+            return []
+
+        def verify_email(self, email: str) -> bool | None:
+            return False
+
+    p = Pipeline(
+        embeddings=MockEmbeddingsProvider(),
+        llm=MockLLMProvider(),
+        contact_chain=ContactProviderChain([RejectingVerifier()]),
+    )
+    ingested = p.ingest_text(
+        text="Build RAG pipelines with Python.",
+        title="Data Scientist NLP",
+        company="Acme",
+        location="Paris",
+        application_url="https://acme.ai/jobs/42",
+    )
+    p.process_pending(job_ids=ingested.job_ids)
+
+    report = p.apply_to(
+        ingested.job_ids[0],
+        create_gmail_draft=False,
+        contact_email="manual@acme.ai",
+    )
+
+    assert report.contact_email is None
+    assert "manual_contact_email_not_verified" in report.validation_warnings
+
+    get_settings.cache_clear()
 
 
 def test_pipeline_invalid_source_raises() -> None:

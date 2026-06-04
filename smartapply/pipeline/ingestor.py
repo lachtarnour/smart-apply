@@ -20,22 +20,53 @@ from smartapply.scrapers.base import RawJob
 logger = get_logger(__name__)
 
 OR_SPLIT_RE = re.compile(r"\s+\bOR\b\s+", flags=re.IGNORECASE)
-ROLE_QUERY_ALIASES_FR = {
-    "data scientist": "Scientifique des données",
-    "data analyst": "Analyste Data",
-    "machine learning engineer": "Ingénieur Machine Learning",
-    "machine learning ing": "Ingénieur Machine Learning",
-    "ml engineer": "Ingénieur Machine Learning",
-    "ml ing": "Ingénieur Machine Learning",
-    "nlp engineer": "Ingénieur NLP",
-    "computer vision engineer": "Ingénieur Vision par ordinateur",
-    "ai engineer": "Ingénieur IA",
-    "ai ing": "Ingénieur IA",
-    "artificial intelligence engineer": "Ingénieur IA",
-    "research engineer": "Ingénieur Recherche IA",
-    "research engineer ai": "Ingénieur Recherche IA",
-    "mlops engineer": "Ingénieur MLOps",
-    "analytics engineer": "Analytics Engineer",
+ROLE_QUERY_ALIASES_FR: dict[str, tuple[str, ...]] = {
+    "data scientist": ("Data Science", "Scientifique des données"),
+    "data analyst": ("Analyste Data",),
+    "machine learning engineer": (
+        "Machine Learning",
+        "ML Engineer",
+        "Ingénieur Machine Learning",
+    ),
+    "machine learning ing": (
+        "Machine Learning",
+        "ML Engineer",
+        "Ingénieur Machine Learning",
+    ),
+    "ml engineer": (
+        "Machine Learning",
+        "ML Engineer",
+        "Ingénieur Machine Learning",
+    ),
+    "ml ing": (
+        "Machine Learning",
+        "ML Engineer",
+        "Ingénieur Machine Learning",
+    ),
+    "nlp engineer": ("NLP Engineer", "Ingénieur NLP"),
+    "computer vision engineer": (
+        "Computer Vision",
+        "Ingénieur Vision par ordinateur",
+    ),
+    "ai engineer": (
+        "Ingénieur IA",
+        "Ingénieur Intelligence Artificielle",
+        "AI ML Engineer",
+    ),
+    "ai ing": (
+        "Ingénieur IA",
+        "Ingénieur Intelligence Artificielle",
+        "AI ML Engineer",
+    ),
+    "artificial intelligence engineer": (
+        "Ingénieur IA",
+        "Ingénieur Intelligence Artificielle",
+        "AI ML Engineer",
+    ),
+    "research engineer": ("Ingénieur Recherche IA",),
+    "research engineer ai": ("Ingénieur Recherche IA",),
+    "mlops engineer": ("Ingénieur MLOps",),
+    "analytics engineer": ("Analytics Engineer",),
 }
 
 
@@ -68,9 +99,8 @@ def expand_query_for_source(source: str, query: str) -> list[str]:
             normalized = re.sub(r"\s+cdi$", "", normalized, flags=re.IGNORECASE).strip()
         else:
             suffix = " CDI"
-    alias = ROLE_QUERY_ALIASES_FR.get(key)
     variants = [normalized]
-    if alias:
+    for alias in ROLE_QUERY_ALIASES_FR.get(key, ()):
         alias_query = f"{alias}{suffix}"
         if alias_query.lower() != normalized.lower():
             variants.append(alias_query)

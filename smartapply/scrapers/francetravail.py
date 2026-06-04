@@ -236,7 +236,7 @@ class FranceTravailScraper(Scraper):
             remote_policy = "remote"
 
         published: datetime | None = None
-        if (pub := raw.get("dateCreation")) :
+        if pub := raw.get("dateCreation"):
             try:
                 published = datetime.fromisoformat(pub.replace("Z", "+00:00"))
             except ValueError:

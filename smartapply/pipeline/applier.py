@@ -10,7 +10,7 @@ The differences between presets:
 - ``MANUAL``    : one combined LLM call (CV + motivation letter), no quality gate,
                   optional user-provided contact, no audit blob.
 - ``AUTOPILOT`` : one combined LLM call (CV + motivation letter), quality gate,
-                  ContactProviderChain (Snov.io + persistent cache), audit
+                  ContactProviderChain (Anymail Finder + persistent cache), audit
                   blob persisted as a generated_document.
 """
 
@@ -38,6 +38,7 @@ from smartapply.email_agent import (
     build_application_email,
     export_eml,
 )
+from smartapply.email_agent.eml_export import MISSING_RECIPIENT_PLACEHOLDER
 from smartapply.email_agent.gmail_draft import GmailDraftError, create_draft
 from smartapply.utils.strategy import decide_strategy
 from smartapply.llm import (
@@ -200,6 +201,7 @@ class ApplyReport:
     letter_pdf_path: str | None = None
     eml_path: str | None = None
     contact_email: str | None = None
+    contact_cc_email: str | None = None
     contact_source: str | None = None
     contact_form_url: str | None = None
     gmail_draft_id: str | None = None
@@ -317,9 +319,15 @@ class Applier:
 
         contact: ContactCandidate | None = None
         if approved and manual_contact_email:
-            report.contact_email = manual_contact_email
-            report.contact_source = "manual"
-            report.contact_form_url = manual_contact_form_url
+            if self._manual_contact_passes_optional_verification(
+                manual_contact_email,
+                report,
+            ):
+                report.contact_email = manual_contact_email
+                report.contact_source = "manual"
+                report.contact_form_url = manual_contact_form_url
+            else:
+                manual_contact_email = None
         elif approved:
             contact_email, contact = self._find_contact(
                 spec.contact_provider,
@@ -355,7 +363,8 @@ class Applier:
         self._export_eml(
             report=report,
             email_draft=email_draft,
-            recipient=report.contact_email or "TODO@example.com",
+            recipient=report.contact_email or MISSING_RECIPIENT_PLACEHOLDER,
+            cc_recipient=report.contact_cc_email,
         )
 
         if approved and create_gmail_draft and report.contact_email:
@@ -363,6 +372,7 @@ class Applier:
                 report=report,
                 email_draft=email_draft,
                 recipient=report.contact_email,
+                cc_recipient=report.contact_cc_email,
             )
 
         status = self._derive_status(approved=approved, report=report)
@@ -470,6 +480,7 @@ class Applier:
             application_url=job.application_url,
             contact_domain_hint=analysis.contact_domain_hint,
             contact_domain_kind=analysis.contact_domain_kind,
+            job_location=analysis.extracted_location or job.location,
         )
         return (candidate.email if candidate else None), candidate
 
@@ -481,6 +492,21 @@ class Applier:
         if not _EMAIL_RE.match(value):
             raise ValueError(f"Invalid contact email: {email}")
         return value
+
+    def _manual_contact_passes_optional_verification(
+        self,
+        email: str,
+        report: ApplyReport,
+    ) -> bool:
+        if not self.settings.anymailfinder_verify_manual_contacts:
+            return True
+        verified = self.contact_service.verify_email(email)
+        if verified is False:
+            report.validation_warnings.append("manual_contact_email_not_verified")
+            return False
+        if verified is None:
+            report.validation_warnings.append("manual_contact_email_verification_unavailable")
+        return True
 
     def _derive_status(self, *, approved: bool, report: ApplyReport) -> str:
         """Unified status logic.
@@ -572,6 +598,10 @@ class Applier:
                 offer_language=offer_language,
                 company_size=raw.get("company_size") or "unknown",
                 company_size_reason=raw.get("company_size_reason") or "",
+                extracted_company_name=raw.get("extracted_company_name") or "",
+                extracted_location=raw.get("extracted_location") or "",
+                company_context=raw.get("company_context") or "",
+                offer_interest_points=list(raw.get("offer_interest_points") or []),
             )
             if job.score is not None:
                 _ = job.score.components
@@ -583,6 +613,7 @@ class Applier:
         report: ApplyReport,
         email_draft: EmailDraft,
         recipient: str,
+        cc_recipient: str | None = None,
     ) -> None:
         out_dir = self.settings.output_dir / f"job-{report.job_id}"
         eml_path = out_dir / "draft.eml"
@@ -591,6 +622,7 @@ class Applier:
             body=email_draft.body,
             sender=self.profile.identity.email,
             recipient=recipient,
+            cc_recipient=cc_recipient,
             attachments=self.renderer.attachment_paths(report),
             out_path=eml_path,
         )
@@ -602,12 +634,14 @@ class Applier:
         report: ApplyReport,
         email_draft: EmailDraft,
         recipient: str,
+        cc_recipient: str | None = None,
     ) -> None:
         try:
             report.gmail_draft_id = create_draft(
                 subject=email_draft.subject,
                 body=email_draft.body,
                 recipient=recipient,
+                cc_recipient=cc_recipient,
                 sender=self.profile.identity.email,
                 attachment_paths=self.renderer.attachment_paths(report),
             )
@@ -705,11 +739,14 @@ class Applier:
             "validation_errors": report.validation_errors,
             "contact": asdict(contact) if contact else None,
             "contact_email": report.contact_email,
+            "contact_cc_email": report.contact_cc_email,
             "contact_source": report.contact_source,
             "contact_form_url": report.contact_form_url,
             "contact_domain_kind": analysis.contact_domain_kind,
             "contact_domain_hint": analysis.contact_domain_hint,
             "contact_domain_reason": analysis.contact_domain_reason,
+            "job_location": job.location,
+            "extracted_location": analysis.extracted_location,
             "docx_path": report.docx_path,
             "cv_pdf_path": report.cv_pdf_path,
             "letter_pdf_path": report.letter_pdf_path,
@@ -742,6 +779,10 @@ class Applier:
                     email=contact.email,
                     source_url=contact.source_url,
                     confidence=contact.confidence,
+                    full_name=contact.full_name,
+                    job_title=contact.job_title,
+                    location_hint=contact.location_hint,
+                    decision_reason=contact.decision_reason,
                 )
                 app.contact_id = contact_row.id
             elif contact_email:
@@ -759,6 +800,7 @@ class Applier:
             app.cv_json = adapted.model_dump()
             app.email_subject = email_draft.subject
             app.email_body = email_draft.body
+            app.email_cc = report.contact_cc_email
             app.eml_path = report.eml_path
             app.gmail_draft_id = report.gmail_draft_id
             app.validation_warnings = report.validation_warnings

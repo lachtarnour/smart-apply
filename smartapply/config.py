@@ -65,17 +65,14 @@ class Settings(BaseSettings):
     francetravail_client_secret: str = Field(default="")
     francetravail_scope: str = Field(default="api_offresdemploiv2 o2dsoffre")
 
-    # Contact enrichment (Snov.io)
-    snov_client_id: str = Field(default="")
-    snov_client_secret: str = Field(default="")
-    snov_preflight_email_count: bool = Field(default=True)
-    # Resolve the company-owned domain from its name via Snov when the
-    # application URL points to an ATS / job board (Greenhouse, Lever,
-    # LinkedIn, France Travail, ...). Without this, postings on job boards
-    # would always end with "no contact" even though the company name is
-    # in the offer.
-    snov_resolve_company_domain: bool = Field(default=True)
-    snov_max_contacts: int = Field(default=5, ge=1, le=50)
+    # Contact enrichment (Anymail Finder)
+    anymailfinder_api_key: str = Field(default="")
+    anymailfinder_timeout: int = Field(default=180, ge=1, le=300)
+    anymailfinder_max_contacts: int = Field(default=5, ge=1, le=20)
+    anymailfinder_decision_maker_categories: str = Field(default="hr,engineering,it")
+    anymailfinder_company_email_type: str = Field(default="generic")
+    anymailfinder_verify_manual_contacts: bool = Field(default=False)
+    anymailfinder_verify_cached_external_contacts: bool = Field(default=False)
     contact_cache_enabled: bool = Field(default=True)
     contact_cache_ttl_days: int = Field(default=45, ge=1)
     contact_cache_negative_ttl_days: int = Field(default=14, ge=1)

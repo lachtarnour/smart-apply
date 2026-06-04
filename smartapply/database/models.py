@@ -130,6 +130,9 @@ class Contact(Base):
     company: Mapped[str] = mapped_column(String(255), index=True)
     email: Mapped[str] = mapped_column(String(255))
     full_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    job_title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    location_hint: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    decision_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
     source_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     confidence: Mapped[float] = mapped_column(Float, default=0.0)
     discovered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
@@ -171,6 +174,7 @@ class Application(Base):
     gmail_draft_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     validation_warnings: Mapped[Any | None] = mapped_column(JSON, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    email_cc: Mapped[str | None] = mapped_column(String(500), nullable=True)
     # Application strategy: 'email_only', 'email_and_form', 'form_only'.
     # Derived at apply time from JobAnalysis.company_size and the contact result.
     application_strategy: Mapped[str] = mapped_column(

@@ -9,7 +9,7 @@ from sqlalchemy import select
 
 from smartapply.config import get_settings
 from smartapply.database import session_scope
-from smartapply.database.models import Job, JobScore, JobStatus
+from smartapply.database.models import Application, Job, JobScore, JobStatus
 from smartapply.logging_setup import get_logger
 from smartapply.pipeline import ApplyReport, IngestReport, Pipeline, ProcessReport
 from smartapply.pipeline.pipeline import freshness_kwargs
@@ -30,6 +30,7 @@ class AutopilotReport:
     email_generated: int = 0
     quality_rejected: int = 0
     failed: int = 0
+    skipped_existing: int = 0
     applications: list[dict[str, Any]] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 
@@ -50,6 +51,7 @@ class AutopilotReport:
             "email_generated": self.email_generated,
             "quality_rejected": self.quality_rejected,
             "failed": self.failed,
+            "skipped_existing": self.skipped_existing,
             "productive_outputs": self.productive_outputs,
             "applications": self.applications,
             "errors": self.errors,
@@ -107,6 +109,9 @@ class AutopilotRunner:
         for job_id in candidate_ids:
             if report.productive_outputs >= target:
                 break
+            if self._application_exists(job_id):
+                report.skipped_existing += 1
+                continue
             try:
                 application = self.pipeline.apply_to_autopilot(
                     job_id,
@@ -134,6 +139,16 @@ class AutopilotRunner:
                 .limit(limit)
             )
             return [job.id for job in s.execute(stmt).scalars().all()]
+
+    @staticmethod
+    def _application_exists(job_id: int) -> bool:
+        with session_scope() as s:
+            return (
+                s.execute(
+                    select(Application.id).where(Application.job_id == job_id).limit(1)
+                ).scalar_one_or_none()
+                is not None
+            )
 
     @staticmethod
     def _record_application(report: AutopilotReport, application: ApplyReport) -> None:

@@ -29,6 +29,22 @@ def test_export_eml_creates_valid_message(tmp_path: Path) -> None:
     assert msg["To"] == "recrutement@acme.com"
 
 
+def test_export_eml_can_include_cc(tmp_path: Path) -> None:
+    out = tmp_path / "draft.eml"
+    export_eml(
+        subject="Application",
+        body="Hello",
+        sender="nour.lachtar@dauphine.eu",
+        recipient="recrutement@acme.com",
+        cc_recipient="head.data@acme.com",
+        out_path=out,
+    )
+
+    msg = message_from_bytes(out.read_bytes())
+    assert msg["To"] == "recrutement@acme.com"
+    assert msg["Cc"] == "head.data@acme.com"
+
+
 def test_export_eml_attaches_cv(tmp_path: Path) -> None:
     cv = tmp_path / "cv.docx"
     cv.write_bytes(b"PK\x03\x04 fake docx")

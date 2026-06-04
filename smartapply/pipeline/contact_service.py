@@ -1,6 +1,6 @@
 """Contact lookup with persistent cache.
 
-External contact providers (Snov, future ones) are expensive — we cache
+External contact providers (Anymail Finder, future ones) are expensive — we cache
 both hits AND misses so a follow-up run on the same company doesn't burn
 a quota. Local ``contacts`` table is checked first (manual entries from
 the user), then the cache, finally the live provider chain.
@@ -23,7 +23,10 @@ from smartapply.email_agent import (
     ContactProviderChain,
     contact_lookup_key,
     domain_from_url,
+    is_company_domain,
+    score_email,
 )
+from smartapply.utils.location import canonical_french_city, french_city_mismatch
 
 
 class ContactService:
@@ -40,6 +43,7 @@ class ContactService:
         application_url: str | None,
         contact_domain_hint: str = "",
         contact_domain_kind: str = "unknown",
+        job_location: str | None = None,
     ) -> ContactCandidate | None:
         """Find a contact once per company/domain and reuse cached outcomes."""
         provider_key = self.chain.provider_key
@@ -48,11 +52,16 @@ class ContactService:
             contact_domain_hint=contact_domain_hint,
             contact_domain_kind=contact_domain_kind,
         )
-        lookup_key = contact_lookup_key(company, contact_url)
+        lookup_key = self._location_scoped_lookup_key(
+            contact_lookup_key(company, contact_url),
+            job_location,
+        )
         domain = domain_from_url(contact_url)
 
-        stored = self._from_local_db(company)
+        stored = self._from_local_db(company, job_location=job_location)
         if stored is not None:
+            if not self._stored_contact_passes_optional_verification(stored):
+                return None
             return stored
 
         if provider_key == "none":
@@ -68,7 +77,11 @@ class ContactService:
                 if cached is not None:
                     return self._from_cache_payload(cached.contacts)
 
-        contacts = self.chain.find(company=company, application_url=contact_url)
+        contacts = self.chain.find(
+            company=company,
+            application_url=contact_url,
+            job_location=job_location,
+        )
         best = contacts[0] if contacts else None
 
         if self.settings.contact_cache_enabled:
@@ -95,6 +108,33 @@ class ContactService:
 
     # -------------------- helpers --------------------
 
+    def verify_email(self, email: str) -> bool | None:
+        """Verify an already-known address when configured.
+
+        Returns True/False when a provider can answer, or None when no verifier
+        is available. We keep this explicit because Anymail verification spends
+        credits and should never happen accidentally.
+        """
+        return self.chain.verify_email(email)
+
+    def _stored_contact_passes_optional_verification(self, contact: ContactCandidate) -> bool:
+        source = (contact.source_url or "").lower()
+        if source == "manual":
+            enabled = self.settings.anymailfinder_verify_manual_contacts
+        elif "anymailfinder:" in source:
+            return True
+        else:
+            enabled = self.settings.anymailfinder_verify_cached_external_contacts
+        if not enabled:
+            return True
+        verified = self.verify_email(contact.email)
+        return verified is not False
+
+    @staticmethod
+    def _location_scoped_lookup_key(lookup_key: str, job_location: str | None) -> str:
+        city = canonical_french_city(job_location)
+        return f"{lookup_key}|loc:{city}" if city else lookup_key
+
     @staticmethod
     def _contact_lookup_url(
         *,
@@ -105,21 +145,28 @@ class ContactService:
         """Pick the best URL to pass to the contact provider.
 
         Priority:
-        1. The LLM extracted a company-owned domain from the offer text
-           (``contact_domain_hint``) → use it, regardless of how the LLM
-           classified the application URL.
+        1. The LLM extracted a company-owned domain from the offer text and
+           classified it as such (``contact_domain_kind=company_domain``) → use it.
         2. The application URL is an ATS / job board → return ``None`` so
            the provider falls back to name-based domain resolution using
            ``Job.company``. We deliberately do NOT pass the ATS URL: it
-           would lead Snov to scrape Greenhouse / LinkedIn employees, not
-           the hiring company's.
+           would lead the provider to search Greenhouse / LinkedIn employees,
+           not the hiring company's.
         3. Otherwise → use the application URL.
         """
         hint = (contact_domain_hint or "").strip().lower()
         if hint and "://" not in hint:
             hint = f"https://{hint}"
-        if hint:
+        hint_domain = domain_from_url(hint)
+        if (
+            hint
+            and contact_domain_kind == "company_domain"
+            and is_company_domain(hint_domain)
+        ):
             return hint
+        application_domain = domain_from_url(application_url)
+        if application_domain and not is_company_domain(application_domain):
+            return None
         if contact_domain_kind == "ats_or_job_board":
             return None
         return application_url
@@ -134,6 +181,10 @@ class ContactService:
             "verified": contact.verified,
             "kind": contact.kind,
             "form_url": contact.form_url,
+            "full_name": contact.full_name,
+            "job_title": contact.job_title,
+            "location_hint": contact.location_hint,
+            "decision_reason": contact.decision_reason,
         }
 
     @staticmethod
@@ -152,6 +203,10 @@ class ContactService:
             verified=bool(first.get("verified")),
             kind=first.get("kind") or "cached",
             form_url=first.get("form_url"),
+            full_name=first.get("full_name"),
+            job_title=first.get("job_title"),
+            location_hint=first.get("location_hint"),
+            decision_reason=first.get("decision_reason"),
         )
 
     @staticmethod
@@ -163,9 +218,67 @@ class ContactService:
             provider="db_cache",
             verified=True,
             kind="cached_contact",
+            full_name=contact.full_name,
+            job_title=getattr(contact, "job_title", None),
+            location_hint=getattr(contact, "location_hint", None),
+            decision_reason=getattr(contact, "decision_reason", None),
         )
 
-    def _from_local_db(self, company: str) -> ContactCandidate | None:
+    @staticmethod
+    def _can_reuse_local_contact(contact, job_location: str | None) -> bool:
+        source = (contact.source_url or "").lower()
+        if source == "manual":
+            return True
+        if ContactService._external_contact_uses_blocked_domain(contact):
+            return False
+        if "anymailfinder:company" in source:
+            return score_email(contact.email) >= 0.6
+
+        observed = " ".join(
+            str(part)
+            for part in (
+                getattr(contact, "location_hint", None),
+                getattr(contact, "job_title", None),
+                contact.full_name,
+            )
+            if part
+        )
+        if observed and french_city_mismatch(job_location, observed):
+            return False
+        # Personal decision-maker contacts are location-sensitive. If the
+        # previous row has no reusable location context, prefer the scoped
+        # provider cache/live lookup instead of blindly reusing it.
+        if "anymailfinder:decision-maker" in source and job_location:
+            return bool(canonical_french_city(observed))
+        return True
+
+    @staticmethod
+    def _external_contact_uses_blocked_domain(contact) -> bool:
+        source = (contact.source_url or "").lower()
+        if "anymailfinder:" not in source:
+            return False
+        domains: list[str] = []
+        email = (contact.email or "").lower()
+        if "@" in email:
+            domains.append(email.rsplit("@", 1)[1])
+        source_value = source.rsplit(":", 1)[-1]
+        if "." in source_value and " " not in source_value:
+            domains.append(source_value)
+        for domain in domains:
+            normalized = domain_from_url(f"https://{domain}") or domain
+            if not is_company_domain(domain) or not is_company_domain(normalized):
+                return True
+        return False
+
+    def _from_local_db(
+        self,
+        company: str,
+        *,
+        job_location: str | None = None,
+    ) -> ContactCandidate | None:
         with session_scope() as s:
             contacts = find_contacts_for(s, company)
-            return self._row_to_candidate(contacts[0]) if contacts else None
+            for contact in contacts:
+                if self._can_reuse_local_contact(contact, job_location):
+                    return self._row_to_candidate(contact)
+            return None

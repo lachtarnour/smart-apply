@@ -5,16 +5,10 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from smartapply.app._helpers import apply_app_style
+from smartapply.app._helpers import SERPAPI_LANGUAGE_OPTIONS, apply_app_style
 from smartapply.config import get_settings
 from smartapply.jobsearch import AutopilotRunner
 from smartapply.scrapers import SERPAPI_DATE_POSTED_LABELS
-
-SERPAPI_LANGUAGE_OPTIONS = {
-    "Bilingue EN + FR": "en,fr",
-    "Anglais uniquement": "en",
-    "Français uniquement": "fr",
-}
 
 
 st.set_page_config(page_title="Autopilot | SmartApply", page_icon="🚀", layout="wide")

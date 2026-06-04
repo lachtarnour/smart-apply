@@ -16,7 +16,7 @@ from smartapply.app._helpers import (
     total_jobs,
 )
 from smartapply.database import session_scope
-from smartapply.database.models import LLMUsage
+from smartapply.database.models import JobStatus, LLMUsage
 
 
 st.set_page_config(page_title="Stats | SmartApply", page_icon="📊", layout="wide")
@@ -25,12 +25,29 @@ st.title("📊 Statistiques du pipeline")
 
 # ---- KPIs ----
 status = jobs_per_status()
-total = total_jobs() or 1
+total_count = total_jobs()
+denominator = total_count or 1
 col1, col2, col3, col4 = st.columns(4)
-col1.metric("Offres", total)
-col2.metric("Taux pertinence", f"{(status.get('shortlisted', 0) + status.get('analyzed', 0)) * 100 // total}%")
-col3.metric("Candidatures prêtes",
-            status.get("email_generated", 0) + status.get("draft_created", 0))
+col1.metric("Offres", total_count)
+relevant_statuses = {
+    JobStatus.SHORTLISTED,
+    JobStatus.ANALYZED,
+    JobStatus.CV_GENERATED,
+    JobStatus.EMAIL_GENERATED,
+    JobStatus.DRAFT_CREATED,
+    JobStatus.READY_FOR_FORM_SUBMISSION,
+    JobStatus.SENT,
+    JobStatus.INTERVIEW,
+}
+ready_statuses = {
+    JobStatus.EMAIL_GENERATED,
+    JobStatus.DRAFT_CREATED,
+    JobStatus.READY_FOR_FORM_SUBMISSION,
+}
+relevant_count = sum(status.get(value, 0) for value in relevant_statuses)
+col2.metric("Taux pertinence", f"{relevant_count * 100 // denominator}%")
+ready_count = sum(status.get(value, 0) for value in ready_statuses)
+col3.metric("Candidatures prêtes", ready_count)
 col4.metric("Coût LLM", f"${total_cost_usd():.4f}")
 
 st.divider()

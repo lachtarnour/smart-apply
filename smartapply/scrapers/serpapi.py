@@ -49,6 +49,41 @@ def split_localization_values(value: str | None, *, fallback: str) -> list[str]:
     return [part for part in parts if part] or [fallback]
 
 
+def _is_france_market(country: str | None, location: str | None) -> bool:
+    country_norm = (country or "").strip().lower()
+    location_norm = (location or "").strip().lower()
+    return country_norm == "fr" or any(
+        marker in location_norm
+        for marker in ("france", "paris", "ile-de-france", "île-de-france")
+    )
+
+
+def market_languages(
+    languages: list[str],
+    *,
+    country: str | None,
+    location: str | None,
+) -> list[str]:
+    """Return Google Jobs UI languages for the target market.
+
+    ``hl`` controls Google's interface language, not the language of the job
+    descriptions. For the French job market, Google Jobs returns both English
+    and French-titled offers much more reliably with ``hl=fr``; ``hl=en`` often
+    returns zero even for English role titles.
+    """
+    if _is_france_market(country, location):
+        return ["fr"]
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for language in languages:
+        key = language.strip().lower()
+        if not key or key in seen:
+            continue
+        deduped.append(language)
+        seen.add(key)
+    return deduped or ["en"]
+
+
 def normalize_date_posted(value: str | None) -> str:
     normalized = (value or "any").strip().lower().replace("_", "").replace("-", "")
     aliases = {
@@ -97,6 +132,77 @@ def combine_chips(*values: str | None) -> str:
             chips.append(chip)
             seen.add(key)
     return ",".join(chips)
+
+
+def _chip_parts(value: str | None) -> list[str]:
+    return [part.strip() for part in (value or "").split(",") if part.strip()]
+
+
+def _replace_date_chip(chips: str | None, replacement: str | None) -> str:
+    parts = [
+        part
+        for part in _chip_parts(chips)
+        if not part.lower().startswith("date_posted:")
+    ]
+    if replacement:
+        parts.append(replacement)
+    return ",".join(parts)
+
+
+def _remove_chip_prefix(chips: str | None, prefix: str) -> str:
+    prefix = prefix.lower()
+    return ",".join(
+        part for part in _chip_parts(chips) if not part.lower().startswith(prefix)
+    )
+
+
+def zero_result_fallback_params(params: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return progressively wider SerpApi attempts for empty Google Jobs pages.
+
+    Google Jobs can return zero for exact role titles with strict chips even
+    when nearby results exist. Widening only after a zero-result attempt keeps
+    the default search precise while avoiding false negatives at ingestion time.
+    """
+    attempts: list[dict[str, Any]] = []
+    seen: set[tuple[str, str | None]] = {
+        (params.get("q", ""), params.get("chips") or "")
+    }
+
+    def add(candidate: dict[str, Any]) -> None:
+        chips = candidate.get("chips") or ""
+        key = (candidate.get("q", ""), chips)
+        if key in seen:
+            return
+        seen.add(key)
+        if chips:
+            candidate["chips"] = chips
+        else:
+            candidate.pop("chips", None)
+        attempts.append(candidate)
+
+    chips = params.get("chips") or ""
+    has_date = any(part.lower().startswith("date_posted:") for part in _chip_parts(chips))
+    has_employment = any(
+        part.lower().startswith("employment_type:") for part in _chip_parts(chips)
+    )
+    if has_date:
+        add({**params, "chips": _replace_date_chip(chips, "date_posted:month")})
+        add({**params, "chips": _replace_date_chip(chips, None)})
+    if has_employment:
+        without_employment = _remove_chip_prefix(chips, "employment_type:")
+        add({**params, "chips": without_employment})
+        if has_date:
+            add(
+                {
+                    **params,
+                    "chips": _replace_date_chip(
+                        without_employment,
+                        "date_posted:month",
+                    ),
+                }
+            )
+            add({**params, "chips": _replace_date_chip(without_employment, None)})
+    return attempts
 
 
 class SerpApiGoogleJobsScraper(Scraper):
@@ -169,7 +275,11 @@ class SerpApiGoogleJobsScraper(Scraper):
         seen_external_ids: set[str] = set()
         for domain in domains:
             for country in countries:
-                for language in languages:
+                for language in market_languages(
+                    languages,
+                    country=country,
+                    location=location or self.default_location,
+                ):
                     remaining = (
                         max_results - len(collected)
                         if max_results is not None
@@ -193,7 +303,10 @@ class SerpApiGoogleJobsScraper(Scraper):
                     if search_uds:
                         params["uds"] = search_uds
 
-                    for job in self._search_pages(params, max_results=remaining):
+                    for job in self._search_pages_with_fallback(
+                        params,
+                        max_results=remaining,
+                    ):
                         if job.external_id in seen_external_ids:
                             continue
                         seen_external_ids.add(job.external_id)
@@ -203,6 +316,50 @@ class SerpApiGoogleJobsScraper(Scraper):
 
         for job in collected[:max_results] if max_results else collected:
             yield job
+
+    def _search_pages_with_fallback(
+        self,
+        params: dict[str, Any],
+        *,
+        max_results: int | None,
+    ) -> Iterator[RawJob]:
+        yielded = False
+        for job in self._search_pages(params, max_results=max_results):
+            yielded = True
+            yield job
+        if yielded:
+            return
+
+        for fallback_params in zero_result_fallback_params(params):
+            logger.info(
+                "SerpApi zero-result filter widening: q=%r hl=%s gl=%s chips=%r -> %r",
+                params.get("q"),
+                params.get("hl"),
+                params.get("gl"),
+                params.get("chips"),
+                fallback_params.get("chips"),
+            )
+            for job in self._search_pages(fallback_params, max_results=max_results):
+                yielded = True
+                yield job
+            if yielded:
+                return
+
+        location = (params.get("location") or "").strip()
+        query = (params.get("q") or "").strip()
+        if not location or not query:
+            return
+        fallback_params = dict(params)
+        fallback_params["q"] = f"{query} jobs in {location}"
+        fallback_params.pop("location", None)
+        logger.info(
+            "SerpApi fallback search after empty result: q=%r hl=%s gl=%s chips=%r",
+            fallback_params.get("q"),
+            fallback_params.get("hl"),
+            fallback_params.get("gl"),
+            fallback_params.get("chips"),
+        )
+        yield from self._search_pages(fallback_params, max_results=max_results)
 
     def _search_pages(
         self,

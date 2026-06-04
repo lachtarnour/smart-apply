@@ -1,6 +1,6 @@
 # SmartApply AI
 
-Pipeline d'optimisation de candidatures combinant scraping multi-sources (Google Jobs via SerpApi, France Travail, ingestion manuelle URL/texte), filtrage local, scoring sémantique, génération CV+email via LLM avec **validation anti-hallucination stricte**, recherche de contacts via Snov.io avec cache, et export d'emails prêts à envoyer (.eml ou brouillon Gmail).
+Pipeline d'optimisation de candidatures combinant scraping multi-sources (Google Jobs via SerpApi, France Travail, ingestion manuelle URL/texte), filtrage local, scoring sémantique, génération CV+email via LLM avec **validation anti-hallucination stricte**, recherche de contacts via Anymail Finder avec cache, et export d'emails prêts à envoyer (.eml ou brouillon Gmail).
 
 > Le principe central : utiliser un LLM **uniquement là où il apporte une vraie valeur** (compréhension d'offre, adaptation rédactionnelle). Tout le reste — filtrage, scoring, dédoublonnage, validation — est local, déterministe, et gratuit. Résultat : un pipeline cohérent qui scale à des centaines d'offres pour quelques centimes d'API.
 
@@ -76,7 +76,7 @@ Chaque flèche est un module indépendant et testable, branché via une interfac
 | `smartapply.ranking` | Embeddings + scoring composite | `embeddings.py`, `scorer.py` |
 | `smartapply.llm` | Provider LLM modulable + cache + usage | `provider.py`, `openai_provider.py`, `mock_provider.py`, `schemas.py`, `prompts/` |
 | `smartapply.cv` | Sélection blocs → adaptation → validation → DOCX/PDF | `selector.py`, `adapter.py`, `validator.py`, `docx_generator.py` |
-| `smartapply.email_agent` | Contact enrichi Snov + email template + .eml + Gmail draft | `template.py`, `contact_providers.py`, `eml_export.py`, `gmail_draft.py` |
+| `smartapply.email_agent` | Contact enrichi Anymail Finder + email template + .eml + Gmail draft | `template.py`, `contact_providers.py`, `eml_export.py`, `gmail_draft.py` |
 | `smartapply.database` | Persistance SQLAlchemy | `models.py`, `session.py`, `repository.py` |
 | `smartapply.pipeline` | Orchestrateur end-to-end | `pipeline.py` |
 | `smartapply.app` | Dashboard Streamlit (5 pages) | `main.py`, `pages/` |
@@ -220,13 +220,16 @@ Comportement :
 
 Contacts :
 - en mode manuel, aucun contact n'est cherché automatiquement : fournis `contact_email` si tu as déjà l'email recruteur/RH ;
-- Snov.io cherche les contacts professionnels à coût maîtrisé ;
+- Anymail Finder cherche les contacts professionnels avec `ANYMAILFINDER_API_KEY` ;
 - SerpApi sert à trouver des offres Google Jobs, pas à découvrir des contacts ;
 - le LLM ne cherche pas les contacts par défaut : il reste utilisé pour analyse offre, adaptation CV, email et quality gate ;
 - aucun email n'est généré par pattern générique : pas de `jobs@domain`, `recrutement@domain`, etc. inventés ;
-- Snov fait un preflight gratuit (`SNOV_PREFLIGHT_EMAIL_COUNT=true`) avant la recherche payante quand un domaine entreprise est connu ;
+- Anymail Finder cherche d'abord des emails d'entreprise génériques valides (`ANYMAILFINDER_COMPANY_EMAIL_TYPE=generic`) ;
+- si un email générique recrutement/RH fiable existe (`jobs@`, `careers@`, `recrutement@`, `talent@`, `hr@`...), il devient le destinataire principal et le décideur n'est pas appelé ;
+- sinon, SmartApply cherche un décideur (`ANYMAILFINDER_DECISION_MAKER_CATEGORIES=hr,engineering,it`) et garde les emails génériques faibles uniquement comme fallback ;
+- seuls les emails `valid_email` / `valid_emails` sont utilisés, jamais les emails `risky` ;
+- `ANYMAILFINDER_VERIFY_MANUAL_CONTACTS=true` peut vérifier les emails saisis manuellement via l'endpoint `verify-email` (0,2 crédit par vérification selon Anymail Finder) ;
 - un cache par entreprise/domaine évite de consommer plusieurs crédits sur la même société, y compris quand aucun contact n'a été trouvé ;
-- `SNOV_RESOLVE_COMPANY_DOMAIN=false` évite par défaut le coût supplémentaire de résolution nom d'entreprise → domaine pour les URLs ATS ;
 
 ---
 
@@ -255,7 +258,7 @@ Contacts :
 | Analyse top K | **Oui (cheap)** | JSON structuré strict |
 | CV + email | **Oui (smart)** | Un seul appel structuré par offre |
 | Quality gate | Oui (cheap) | Validation stricte avant contact/draft |
-| Contact RH | Non | Snov.io + cache, pas de LLM par défaut |
+| Contact RH | Non | Anymail Finder + cache, pas de LLM par défaut |
 | Gmail draft | Non | API Gmail |
 
 ---
@@ -333,7 +336,7 @@ Avec cache activé (`use_cache=True` par défaut), les ré-exécutions sont grat
 **Limites assumées :**
 - SerpApi est un service payant (gratuit jusqu'à 250 recherches/mois).
 - France Travail nécessite la création d'une app sur https://francetravail.io.
-- Le mode manuel ne cherche pas d'email automatiquement : renseigne `contact_email` ou soumets via formulaire. L'autopilot utilise Snov.io + cache si configuré.
+- Le mode manuel ne cherche pas d'email automatiquement : renseigne `contact_email` ou soumets via formulaire. L'autopilot utilise Anymail Finder + cache si configuré.
 - Le générateur PDF utilise LibreOffice (`soffice --headless`) — pas embarqué. Le DOCX reste l'output primaire.
 - Le validateur anti-hallucination ne couvre que les bullets : il fait confiance au prompt système pour le titre et le résumé. Les warnings restent visibles.
 

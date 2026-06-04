@@ -138,6 +138,42 @@ def test_contact_and_application_flow() -> None:
         assert tracked.notes == "Relancer dans une semaine."
 
 
+def test_contact_lookup_cache_upsert_reuses_unique_key() -> None:
+    from datetime import datetime, timezone
+
+    from smartapply.database import session_scope
+    from smartapply.database.repository import upsert_contact_lookup_cache
+
+    with session_scope() as s:
+        first = upsert_contact_lookup_cache(
+            s,
+            provider_key="anymailfinder",
+            lookup_key="company:acme|loc:paris",
+            company="Acme",
+            domain=None,
+            application_url=None,
+            status="miss",
+            contacts=[],
+            expires_at=datetime.now(timezone.utc),
+        )
+        second = upsert_contact_lookup_cache(
+            s,
+            provider_key="anymailfinder",
+            lookup_key="company:acme|loc:paris",
+            company="Acme SAS",
+            domain="acme.example",
+            application_url="https://acme.example/jobs",
+            status="hit",
+            contacts=[{"email": "jobs@acme.example"}],
+            expires_at=datetime.now(timezone.utc),
+        )
+
+        assert second.id == first.id
+        assert second.company == "Acme SAS"
+        assert second.status == "hit"
+        assert second.contacts == [{"email": "jobs@acme.example"}]
+
+
 def test_upsert_document_replaces_stale_duplicate_rows() -> None:
     from smartapply.database import session_scope
     from smartapply.database.models import GeneratedDocument

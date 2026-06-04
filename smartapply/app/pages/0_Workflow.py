@@ -14,7 +14,12 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
-from smartapply.app._helpers import apply_app_style, pipeline_singleton, status_label
+from smartapply.app._helpers import (
+    SERPAPI_LANGUAGE_OPTIONS,
+    apply_app_style,
+    pipeline_singleton,
+    status_label,
+)
 from smartapply.config import get_settings
 from smartapply.database import session_scope
 from smartapply.database.models import Application, Job, JobStatus
@@ -26,12 +31,6 @@ from smartapply.database.repository import (
 from smartapply.jobsearch import AutopilotRunner
 from smartapply.pipeline.pipeline import freshness_kwargs
 from smartapply.scrapers import SERPAPI_DATE_POSTED_LABELS
-
-SERPAPI_LANGUAGE_OPTIONS = {
-    "Bilingue EN + FR": "en,fr",
-    "Anglais uniquement": "en",
-    "Français uniquement": "fr",
-}
 
 
 # ============================================================
@@ -494,6 +493,30 @@ def _sync_manual_contacts(df: pd.DataFrame) -> None:
     st.session_state["wf_manual_contacts"] = contacts
 
 
+def _sync_keep_state(df: pd.DataFrame) -> None:
+    if df.empty or not {"id", "keep"}.issubset(df.columns):
+        return
+    keep_updates = {
+        int(row["id"]): bool(row["keep"])
+        for _, row in df[["id", "keep"]].iterrows()
+    }
+    st.session_state["wf_keep_map"] = {
+        **st.session_state.get("wf_keep_map", {}),
+        **keep_updates,
+    }
+
+
+def _kept_ids_from_full_df(df: pd.DataFrame) -> list[int]:
+    if df.empty or "id" not in df.columns:
+        return []
+    keep_map = st.session_state.get("wf_keep_map", {})
+    return [
+        int(row["id"])
+        for _, row in df.iterrows()
+        if bool(keep_map.get(int(row["id"]), bool(row.get("keep", True))))
+    ]
+
+
 def _generated_app_ids_for_jobs(job_ids: list[int]) -> list[int]:
     if not job_ids:
         return []
@@ -851,16 +874,6 @@ def step1_fetch() -> None:
             if st.session_state.get("wf_running") == "recherche":
                 _end_run()
 
-    # The old fetch block was intentionally replaced by the compact command
-    # center above.
-    if False:
-        pass
-
-    if not submitted:
-        filter_report = _filter_pending_for_step1()
-        if filter_report is not None and filter_report.total:
-            st.session_state["wf_auto_filter_report"] = filter_report.__dict__
-
     fetched_ids = st.session_state["wf_fetched_ids"]
     auto_filter_report = st.session_state.get("wf_auto_filter_report")
     if auto_filter_report:
@@ -875,6 +888,20 @@ def step1_fetch() -> None:
             f"{len(st.session_state['wf_filter_override_ids'])} offre(s) réactivée(s) "
             "manuellement seront autorisées à passer le filtre local."
         )
+    if not submitted and _scraped_job_ids_excluding(_filter_override_ids()):
+        if st.button(
+            "Appliquer le filtre local aux nouvelles offres",
+            key="wf_filter_pending_now",
+        ):
+            with st.spinner("Filtre local automatique..."):
+                filter_report = _filter_pending_for_step1()
+            if filter_report is not None:
+                st.session_state["wf_auto_filter_report"] = filter_report.__dict__
+                st.success(
+                    f"Filtre local : {filter_report.kept} gardée(s), "
+                    f"{filter_report.rejected} retirée(s)."
+                )
+            st.rerun()
     keep_map = st.session_state.get("wf_keep_map", {})
     df = _pending_jobs_df(keep_map=keep_map, recent_ids=fetched_ids)
     if df.empty:
@@ -1160,7 +1187,8 @@ def step2_analyze() -> None:
         key="wf_step2_editor",
     )
     _sync_manual_contacts(edited)
-    selected = edited.loc[edited["keep"], "id"].astype(int).tolist()
+    _sync_keep_state(edited)
+    selected = _kept_ids_from_full_df(df)
 
     st.write(f"→ **{len(selected)} offre(s) à transformer en candidature**")
 
@@ -1251,7 +1279,8 @@ def step3_generate() -> None:
         key="wf_step3_resume_editor",
     )
     _sync_manual_contacts(edited_resume)
-    ids = edited_resume.loc[edited_resume["keep"], "id"].astype(int).tolist()
+    _sync_keep_state(edited_resume)
+    ids = _kept_ids_from_full_df(resume_df)
     st.session_state["wf_selected_for_apply"] = ids
     if not ids:
         st.warning("Sélectionne au moins une offre analysée pour générer une candidature.")
@@ -1371,7 +1400,13 @@ def _render_application_detail(application_id: int) -> None:
             "status": app.status,
             "strategy": app.application_strategy,
             "contact_email": app.contact.email if app.contact else None,
+            "contact_full_name": app.contact.full_name if app.contact else None,
+            "contact_job_title": app.contact.job_title if app.contact else None,
+            "contact_location_hint": app.contact.location_hint if app.contact else None,
+            "contact_reason": app.contact.decision_reason if app.contact else None,
+            "contact_confidence": app.contact.confidence if app.contact else None,
             "form_url": app.form_submission_url,
+            "email_cc": app.email_cc,
             "email_subject": app.email_subject or "",
             "email_body": app.email_body or "",
             "motivation_letter_subject": letter_extra.get("subject", ""),
@@ -1394,6 +1429,22 @@ def _render_application_detail(application_id: int) -> None:
     st.markdown(f"**Stratégie** : {strat_label}")
     if data["contact_email"]:
         st.markdown(f"**Contact RH** : `{data['contact_email']}`")
+        contact_bits = [
+            data.get("contact_full_name"),
+            data.get("contact_job_title"),
+            f"raison={data.get('contact_reason')}" if data.get("contact_reason") else None,
+            f"lieu={data.get('contact_location_hint')}" if data.get("contact_location_hint") else None,
+            (
+                f"score={float(data['contact_confidence']):.2f}"
+                if data.get("contact_confidence") is not None
+                else None
+            ),
+        ]
+        contact_summary = " · ".join(str(bit) for bit in contact_bits if bit)
+        if contact_summary:
+            st.caption(contact_summary)
+        if data.get("email_cc"):
+            st.markdown(f"**CC** : `{data['email_cc']}`")
     else:
         st.warning("Pas de contact email trouvé.")
     if data["form_url"]:
@@ -1512,6 +1563,12 @@ def step4_send() -> None:
                     "status_label": status_label(app.status),
                     "strategy": app.application_strategy,
                     "contact": app.contact.email if app.contact else None,
+                    "contact_full_name": app.contact.full_name if app.contact else None,
+                    "contact_job_title": app.contact.job_title if app.contact else None,
+                    "contact_location_hint": app.contact.location_hint if app.contact else None,
+                    "contact_reason": app.contact.decision_reason if app.contact else None,
+                    "contact_confidence": app.contact.confidence if app.contact else None,
+                    "email_cc": app.email_cc,
                     "subject": app.email_subject or "",
                     "body": app.email_body or "",
                     "cv_pdf_path": app.cv_pdf_path,
@@ -1602,6 +1659,22 @@ def _render_send_card(row: dict[str, Any]) -> None:
                 unsafe_allow_html=True,
             )
             st.markdown(f"**Contact** : `{row['contact'] or '— aucun —'}`")
+            contact_bits = [
+                row.get("contact_full_name"),
+                row.get("contact_job_title"),
+                f"raison={row.get('contact_reason')}" if row.get("contact_reason") else None,
+                f"lieu={row.get('contact_location_hint')}" if row.get("contact_location_hint") else None,
+                (
+                    f"score={float(row['contact_confidence']):.2f}"
+                    if row.get("contact_confidence") is not None
+                    else None
+                ),
+            ]
+            contact_summary = " · ".join(str(bit) for bit in contact_bits if bit)
+            if contact_summary:
+                st.caption(contact_summary)
+            if row.get("email_cc"):
+                st.markdown(f"**CC** : `{row['email_cc']}`")
             if row["form_url"]:
                 st.link_button("Ouvrir le formulaire ATS", row["form_url"], width="stretch")
             if row["validation_warnings"]:
@@ -1729,6 +1802,7 @@ def _create_gmail_draft(row: dict[str, Any]) -> None:
     subject = str(row.get("subject") or "").strip()
     body = str(row.get("body") or "").strip()
     recipient = str(row.get("contact") or "").strip()
+    cc_recipient = str(row.get("email_cc") or "").strip() or None
     if not recipient:
         st.error("Contact email manquant.")
         return
@@ -1755,6 +1829,7 @@ def _create_gmail_draft(row: dict[str, Any]) -> None:
                 body=body,
                 sender=sender,
                 recipient=recipient,
+                cc_recipient=cc_recipient,
                 attachments=attachments,
                 out_path=eml_path,
             )
@@ -1782,6 +1857,7 @@ def _create_gmail_draft(row: dict[str, Any]) -> None:
             subject=subject,
             body=body,
             recipient=recipient,
+            cc_recipient=cc_recipient,
             sender=sender,
             attachment_paths=attachments,
         )
