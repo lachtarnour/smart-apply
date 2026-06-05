@@ -237,6 +237,7 @@ with session_scope() as s:
         st.warning("Offre introuvable.")
         st.stop()
     detail = {
+        "job_id": job.id,
         "title": job.title,
         "company": job.company,
         "status": job.status,
