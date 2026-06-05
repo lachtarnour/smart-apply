@@ -31,7 +31,12 @@ from smartapply.pipeline.application_renderer import ApplicationDocumentRenderer
 from smartapply.pipeline.applier import Applier, ApplyReport
 from smartapply.pipeline.contact_service import ContactService
 from smartapply.pipeline.ingestor import Ingestor, IngestReport
-from smartapply.pipeline.processor import Processor, ProcessReport
+from smartapply.pipeline.processor import (
+    AnalyzeReport,
+    Processor,
+    ProcessReport,
+    RankingReport,
+)
 from smartapply.profile import get_profile
 from smartapply.ranking import JobScorer, get_embeddings_provider
 from smartapply.utils.contracts import (
@@ -182,6 +187,22 @@ class Pipeline:
             job_ids=job_ids,
             local_filter_override_ids=local_filter_override_ids,
         )
+
+    def rank_pending(
+        self,
+        top_k_ranked: int | None = None,
+        *,
+        job_ids: list[int] | None = None,
+        local_filter_override_ids: list[int] | None = None,
+    ) -> RankingReport:
+        return self._processor.rank_pending(
+            top_k_ranked=top_k_ranked,
+            job_ids=job_ids,
+            local_filter_override_ids=local_filter_override_ids,
+        )
+
+    def analyze_jobs(self, job_ids: list[int]) -> AnalyzeReport:
+        return self._processor.analyze_jobs(job_ids)
 
     def filter_pending(self, *, job_ids: list[int] | None = None):
         return self._processor.filter_pending(job_ids=job_ids)

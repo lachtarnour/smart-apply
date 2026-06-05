@@ -55,6 +55,16 @@ _GENERIC_LOCATION_MARKERS = {
 }
 
 
+def _rejection_audit_components(stage: str, reasons: list[str]) -> dict[str, object]:
+    clean_reasons = [str(reason) for reason in reasons if str(reason).strip()]
+    return {
+        "reasons": clean_reasons,
+        "rejection_stage": stage,
+        "rejection_reasons": clean_reasons,
+        "rejection_summary": " · ".join(clean_reasons[:5]) or stage,
+    }
+
+
 def _is_anonymous_company(name: str | None) -> bool:
     if not name:
         return True
@@ -93,6 +103,25 @@ class LocalFilterReport:
     duplicates_removed: int
     kept_ids: list[int]
     rejected_ids: list[int]
+
+
+@dataclass
+class RankingReport:
+    total: int
+    kept_after_filter: int
+    duplicates_removed: int
+    ranked: int
+    shortlisted: int
+    ranked_ids: list[int]
+    shortlisted_ids: list[int]
+
+
+@dataclass
+class AnalyzeReport:
+    requested: int
+    already_analyzed: int
+    analyzed: int
+    skipped_missing: int
 
 
 class Processor:
@@ -193,14 +222,106 @@ class Processor:
                     logger.error("Analysis failed for job %s: %s", job.id, e)
         return analyzed
 
+    def rank_pending(
+        self,
+        top_k_ranked: int | None = None,
+        *,
+        job_ids: list[int] | None = None,
+        local_filter_override_ids: list[int] | None = None,
+    ) -> RankingReport:
+        """Run dedup, local filter and ranking without calling the LLM."""
+        with session_scope() as s:
+            pending = list(list_pending_processing(s))
+            if job_ids is not None:
+                selected_ids = set(job_ids)
+                pending = [job for job in pending if job.id in selected_ids]
+            if not pending:
+                return RankingReport(0, 0, 0, 0, 0, [], [])
+
+            override_ids = set(local_filter_override_ids or [])
+            to_dedup = [j for j in pending if j.filtered_at is None]
+            duplicate_ids = self._mark_duplicates(s, to_dedup)
+            unique_jobs = [j for j in pending if j.id not in duplicate_ids]
+
+            to_filter = [j for j in unique_jobs if j.filtered_at is None]
+            already_kept = [j for j in unique_jobs if j.filtered_at is not None]
+            newly_kept = self._apply_local_filter(
+                s,
+                to_filter,
+                override_ids=override_ids,
+            )
+            kept_jobs = already_kept + newly_kept
+
+            ranked = self.scorer.rank(kept_jobs)
+            shortlist_n = min(
+                top_k_ranked or self.settings.top_k_ranked,
+                len(ranked),
+            )
+            shortlisted_jobs = self._persist_ranking(s, ranked, shortlist_n)
+            ranked_ids = [int(job.id) for job, _ in ranked]
+            shortlisted_ids = [int(job.id) for job in shortlisted_jobs]
+
+        return RankingReport(
+            total=len(pending),
+            kept_after_filter=len(kept_jobs),
+            duplicates_removed=len(duplicate_ids),
+            ranked=len(ranked_ids),
+            shortlisted=len(shortlisted_ids),
+            ranked_ids=ranked_ids,
+            shortlisted_ids=shortlisted_ids,
+        )
+
+    def analyze_jobs(self, job_ids: list[int]) -> AnalyzeReport:
+        """Analyze exactly the selected jobs that have not already been analyzed."""
+        unique_ids = list(dict.fromkeys(int(job_id) for job_id in job_ids))
+        if not unique_ids:
+            return AnalyzeReport(0, 0, 0, 0)
+
+        with session_scope() as s:
+            jobs = (
+                s.query(Job)
+                .filter(Job.id.in_(unique_ids))
+                .filter(Job.archived_at.is_(None))
+                .all()
+            )
+            found_ids = {int(job.id) for job in jobs}
+            to_analyze = [job for job in jobs if job.analyzed_at is None]
+            already_analyzed = len(jobs) - len(to_analyze)
+
+        analyzed = self._analyze_in_parallel(to_analyze)
+        return AnalyzeReport(
+            requested=len(unique_ids),
+            already_analyzed=already_analyzed,
+            analyzed=analyzed,
+            skipped_missing=len(set(unique_ids) - found_ids),
+        )
+
     # -------------------- internals --------------------
 
     def _mark_duplicates(self, session, pending: list[Job]) -> set[int]:
         report = self.deduplicator.deduplicate(pending)
         duplicate_ids = {j.id for group in report.duplicate_groups for j in group[1:]}
-        for j in pending:
-            if j.id in duplicate_ids:
-                mark_archived(session, j.id)
+        for group in report.duplicate_groups:
+            root = group[0]
+            for duplicate in group[1:]:
+                reasons = [
+                    f"duplicate_of:{root.id}",
+                    f"duplicate_reference:{root.company} — {root.title}",
+                ]
+                previous_components = (
+                    dict(duplicate.score.components)
+                    if duplicate.score is not None and duplicate.score.components
+                    else {}
+                )
+                set_score(
+                    session,
+                    duplicate.id,
+                    components={
+                        **previous_components,
+                        **_rejection_audit_components("deduplication", reasons),
+                    },
+                )
+                mark_archived(session, duplicate.id)
         return duplicate_ids
 
     def _apply_local_filter(
@@ -218,11 +339,14 @@ class Processor:
             force_keep = job.id in override_ids
             if force_keep and not res.kept:
                 reasons.append("Manual override: kept by user in Streamlit workflow")
+            components = {"reasons": reasons}
+            if not (res.kept or force_keep):
+                components = _rejection_audit_components("local_filter", reasons)
             set_score(
                 session,
                 job.id,
                 rule_based_score=res.score,
-                components={"reasons": reasons},
+                components=components,
             )
             if res.kept or force_keep:
                 kept.append(job)
@@ -278,7 +402,7 @@ class Processor:
                 job_description=job.cleaned_description or job.description,
             )
             analysis = self.llm.complete_json(
-                system=analysis_prompts.SYSTEM,
+                system=analysis_prompts.system_for_variant(self.settings.prompt),
                 user=user_prompt,
                 schema=JobAnalysis,
                 model=self.llm.cheap_model,
@@ -332,11 +456,17 @@ class Processor:
 
             for job in unique_jobs:
                 res = self.filter.evaluate(job)
+                components = {"reasons": res.reasons}
+                if not res.kept:
+                    components = _rejection_audit_components(
+                        "local_filter",
+                        list(res.reasons),
+                    )
                 set_score(
                     s,
                     job.id,
                     rule_based_score=res.score,
-                    components={"reasons": res.reasons},
+                    components=components,
                 )
                 if res.kept:
                     kept_ids.append(job.id)
