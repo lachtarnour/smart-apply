@@ -2024,6 +2024,22 @@ def _render_send_card(row: dict[str, Any]) -> None:
                     or not final_subject
                     or not final_body
                 )
+                # Dry-run preview: shows exactly what would be passed to
+                # ``drafts().create`` if the user clicked the button. No
+                # Gmail call is made; if the MIME cannot be built we
+                # surface the validation error in the same expander so
+                # the user fixes it before clicking.
+                with st.expander(
+                    "Aperçu du brouillon avant création (dry-run)",
+                    expanded=False,
+                ):
+                    _render_gmail_dry_run_preview(
+                        {
+                            **row,
+                            "subject": final_subject,
+                            "body": final_body,
+                        }
+                    )
                 if st.button(
                     "📧 Créer le brouillon Gmail",
                     disabled=disabled,
@@ -2075,6 +2091,78 @@ def _render_send_card(row: dict[str, Any]) -> None:
                         with session_scope() as s:
                             update_application_tracking(s, app_id, form_submitted=True)
                         st.rerun()
+
+
+def _render_gmail_dry_run_preview(row: dict[str, Any]) -> None:
+    """Render a no-network preview of what the Gmail draft would contain.
+
+    Uses ``dry_run_draft`` which validates inputs and builds the MIME
+    body locally without touching Gmail. Any validation problem
+    (missing attachment, blocked extension, oversized body, …) is
+    surfaced as a Streamlit error so the user fixes it before clicking
+    the real button.
+    """
+    from smartapply.email_agent.gmail_draft import (
+        GmailDraftError,
+        dry_run_draft,
+    )
+    from smartapply.profile import get_profile
+
+    subject = str(row.get("subject") or "").strip()
+    body = str(row.get("body") or "").strip()
+    recipient = str(row.get("contact") or "").strip()
+    cc_recipient = str(row.get("email_cc") or "").strip() or None
+    attachments = [
+        p
+        for p in (
+            row.get("cv_pdf_path"),
+            row.get("cv_docx_path"),
+            row.get("letter_pdf_path"),
+        )
+        if p and Path(p).exists()
+    ]
+    sender = get_profile().identity.email if recipient else None
+
+    if not (recipient and subject and body):
+        st.info(
+            "Renseigne destinataire, sujet et corps de mail pour voir "
+            "l'aperçu du brouillon."
+        )
+        return
+
+    try:
+        preview = dry_run_draft(
+            subject=subject,
+            body=body,
+            recipient=recipient,
+            cc_recipient=cc_recipient,
+            sender=sender,
+            attachment_paths=attachments,
+        )
+    except GmailDraftError as exc:
+        st.error(f"Impossible de construire le brouillon : {exc}")
+        return
+
+    st.markdown(f"**Destinataire** : `{preview.to}`")
+    if cc_recipient:
+        st.markdown(f"**CC** : `{cc_recipient}`")
+    st.markdown(f"**Objet** : `{preview.subject}`")
+    if preview.attachment_names:
+        attachments_inline = ", ".join(f"`{name}`" for name in preview.attachment_names)
+        st.markdown(f"**Pièces jointes** : {attachments_inline}")
+    else:
+        st.caption("Aucune pièce jointe.")
+    st.caption(
+        f"Taille encodée (base64) ~ {preview.encoded_size_bytes // 1024} Ko. "
+        "Aucun appel Gmail n'a été effectué."
+    )
+    st.text_area(
+        "Aperçu du body (lecture seule)",
+        preview.body_preview,
+        height=200,
+        disabled=True,
+        label_visibility="collapsed",
+    )
 
 
 def _create_gmail_draft(row: dict[str, Any]) -> None:

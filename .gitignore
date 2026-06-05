@@ -28,9 +28,12 @@ ENV/
 .env
 .env.local
 secrets/
+data/secrets/
 *.pem
 credentials.json
 token.json
+gmail_credentials.json
+gmail_token.json
 
 # ---- Data ----
 data/smartapply.db
