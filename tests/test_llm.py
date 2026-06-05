@@ -61,7 +61,7 @@ def test_job_analysis_prompt_includes_structured_location() -> None:
         job_description="Poste base a Paris, rythme hybride.",
     )
 
-    assert "Structured location: France" in prompt
+    assert "Structured location (metadata only; do not copy into extracted_location): France" in prompt
     assert "Poste base a Paris" in prompt
     assert "extracted_location" in job_analysis.SYSTEM
 

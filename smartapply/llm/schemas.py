@@ -27,7 +27,8 @@ class JobAnalysis(BaseModel):
     required_skills: list[str] = Field(
         description=(
             "Hard skills explicitly requested or clearly listed in the offer body only. "
-            "Do not add candidate-profile skills, broad domains, or inferred keywords."
+            "Do not add candidate-profile skills, broad domains, generic soft skills, "
+            "or inferred keywords from the title."
         )
     )
     nice_to_have: list[str] = Field(description="Bonus skills appreciated but not required")
@@ -43,7 +44,8 @@ class JobAnalysis(BaseModel):
     cv_keywords_to_include: list[str] = Field(
         description=(
             "Offer-grounded CV keywords visible in or strongly supported by the offer body. "
-            "Return a short list when few reliable keywords exist; do not add candidate-only skills."
+            "Return a short list when few reliable keywords exist; do not add candidate-only "
+            "skills, generic filler, or title-only inferences."
         )
     )
     contact_domain_kind: str = Field(
@@ -57,8 +59,11 @@ class JobAnalysis(BaseModel):
     contact_domain_hint: str = Field(
         default="",
         description=(
-            "Literal company-owned domain visible in the application URL host or "
-            "offer body, without scheme. Empty when only an ATS/job board domain is visible."
+            "Literal company-owned domain visible exactly in the application URL host or "
+            "offer body, without scheme. Empty when only an ATS/job board domain, URL path, "
+            "company name, slug, or inferred brand domain is visible. For France Travail, "
+            "APEC, LinkedIn, Indeed, Welcome to the Jungle or ATS URLs, keep this empty "
+            "unless an exact company domain or company email domain appears in the offer body."
         ),
     )
     contact_domain_reason: str = Field(
