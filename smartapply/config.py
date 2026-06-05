@@ -22,9 +22,12 @@ class Settings(BaseSettings):
     # LLM
     llm_provider: str = Field(default="openai")
     openai_api_key: str = Field(default="")
-    openai_model_cheap: str = Field(default="gpt-4o-mini")
+    openai_model_cheap: str = Field(default="gpt-5.4-mini")
     openai_model_smart: str = Field(default="gpt-4o")
     openai_model_embed: str = Field(default="text-embedding-3-small")
+    # Job analysis prompt variant. Production currently supports the audited
+    # long prompt; keeping it configurable makes the active setup visible.
+    prompt: str = Field(default="long")
     anthropic_api_key: str = Field(default="")
     anthropic_model_cheap: str = Field(default="claude-haiku-4-5")
     anthropic_model_smart: str = Field(default="claude-sonnet-4-6")

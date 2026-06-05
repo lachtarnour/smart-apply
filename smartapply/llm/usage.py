@@ -9,6 +9,7 @@ from __future__ import annotations
 # (input $/M, output $/M)
 OPENAI_PRICING: dict[str, tuple[float, float]] = {
     "gpt-4o-mini": (0.15, 0.60),
+    "gpt-5.4-mini": (0.75, 4.50),
     "gpt-4o": (2.50, 10.00),
     "gpt-4o-2024-08-06": (2.50, 10.00),
     "gpt-4.1": (2.00, 8.00),
