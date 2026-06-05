@@ -1146,25 +1146,38 @@ def step2_score() -> None:
             st.session_state["wf_selected_for_scoring"] = ids_to_score
 
     if ids_to_score:
-        s1, s2, s3 = st.columns(3)
+        s1, s2 = st.columns(2)
         s1.metric("À scorer", len(ids_to_score))
-        s2.metric("Top-K défaut", settings.top_k_ranked)
-        s3.metric("Embeddings", settings.openai_model_embed)
+        s2.metric("Embeddings", settings.openai_model_embed)
         override_ids = sorted(_filter_override_ids().intersection(ids_to_score))
         if override_ids:
             st.caption(
                 f"{len(override_ids)} offre(s) réactivée(s) manuellement peuvent passer le filtre local."
             )
 
-        default_top = min(settings.top_k_ranked, len(ids_to_score))
-        top_k_ranked = st.number_input(
-            "Préselection automatique pour analyse",
-            min_value=1,
-            max_value=max(1, len(ids_to_score)),
-            value=max(1, default_top),
-            help="Après le scoring, ces top offres seront cochées par défaut. Tu peux ajuster manuellement avant l'analyse.",
-            key="wf_step2_top_k_ranked",
-        )
+        # Top-K présélection — paramétrable par run. Le défaut vient de
+        # ``settings.top_k_ranked`` (env var ``TOP_K_RANKED``) mais l'utilisateur
+        # peut le surcharger ici. Un slider est plus visible que number_input
+        # pour ce genre de réglage et permet le drag.
+        default_top = min(max(1, settings.top_k_ranked), len(ids_to_score))
+        if len(ids_to_score) > 1:
+            top_k_ranked = st.slider(
+                "Top-K présélection pour l'analyse IA",
+                min_value=1,
+                max_value=len(ids_to_score),
+                value=default_top,
+                help=(
+                    f"Après le scoring, ce nombre d'offres sera coché par défaut "
+                    f"pour l'analyse LLM. Défaut global (env TOP_K_RANKED) : "
+                    f"{settings.top_k_ranked}. Tu peux ajuster manuellement la "
+                    f"shortlist après scoring avant d'enchaîner sur l'analyse."
+                ),
+                key="wf_step2_top_k_ranked",
+            )
+        else:
+            # st.slider exige max > min : pas de slider si une seule offre.
+            top_k_ranked = 1
+            st.caption("Une seule offre à scorer — Top-K = 1.")
 
         run_col, back_col = st.columns([2, 1])
         with run_col:
