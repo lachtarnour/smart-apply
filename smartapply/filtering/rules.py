@@ -122,8 +122,12 @@ DEFAULT_BLOCKED_CONTRACT_TYPES = (
     "alternance",
     "alternant",
     "alternante",
-    "apprenti",  # covers apprenti, apprentissage, apprenticeship
+    "apprenti",
+    "apprentissage",
+    "apprentice",
+    "apprenticeship",
     "freelance",
+    "contractor",
     "independant",
     "indépendant",
 )
