@@ -431,3 +431,155 @@ def test_job_status_constants_unique() -> None:
         getattr(JobStatus, n) for n in dir(JobStatus) if n.isupper() and not n.startswith("_")
     ]
     assert len(set(statuses)) == len(statuses)
+
+
+def test_rescue_archived_job_resets_state_and_pins_max_scores() -> None:
+    """The Streamlit ``Offres`` page lets the user override a wrong filter
+    rejection by re-injecting the offer with maxed-out synthetic scores.
+    The repository helper must reset the archive markers, jump the job
+    to ``SHORTLISTED`` and persist a full ``components.manual_rescue``
+    audit block so the rescue stays traceable.
+    """
+    from datetime import datetime, timezone
+
+    from sqlalchemy import select
+
+    from smartapply.database import session_scope
+    from smartapply.database.models import Job, JobScore, JobStatus
+    from smartapply.database.repository import (
+        mark_archived,
+        rescue_archived_job,
+        set_score,
+        upsert_job,
+    )
+
+    # Arrange: an archived job carrying a rejection audit trail.
+    with session_scope() as s:
+        job = upsert_job(
+            s,
+            external_id="rescue:001",
+            title="Data Scientist H/F",
+            company="Acme",
+            description="ML, Python, deep learning.",
+            location="Paris",
+            source="francetravail",
+        )
+        set_score(
+            s,
+            job.id,
+            rule_based_score=0.0,
+            components={
+                "rejection_stage": "local_filter",
+                "rejection_reasons": [
+                    "contract_visible_text:apprentissage",
+                ],
+                "rejection_summary": "contract_visible_text:apprentissage",
+            },
+        )
+        mark_archived(s, job.id)
+        job_id = job.id
+
+    # Act: rescue with a justification.
+    with session_scope() as s:
+        rescued = rescue_archived_job(
+            s,
+            job_id,
+            justification="filtre trop strict sur 'apprentissage automatique'",
+        )
+        assert rescued is not None
+        assert rescued.id == job_id
+
+    # Assert: archive cleared, status SHORTLISTED, all numeric scores at
+    # 1.0 and the audit block preserves the previous rejection reasons.
+    with session_scope() as s:
+        job = s.get(Job, job_id)
+        assert job is not None
+        assert job.status == JobStatus.SHORTLISTED
+        assert job.archived_at is None
+        assert job.analyzed_at is None
+        assert job.filtered_at is not None
+        assert job.ranked_at is not None
+        # SQLite drops the tz on read — coerce to UTC before subtracting.
+        filtered_at = job.filtered_at
+        if filtered_at.tzinfo is None:
+            filtered_at = filtered_at.replace(tzinfo=timezone.utc)
+        delta = datetime.now(timezone.utc) - filtered_at
+        assert 0 <= delta.total_seconds() < 60
+
+        score = s.execute(
+            select(JobScore).where(JobScore.job_id == job_id)
+        ).scalar_one()
+        for component in (
+            "rule_based_score",
+            "semantic_score",
+            "skill_score",
+            "title_score",
+            "seniority_score",
+            "location_score",
+            "domain_score",
+            "final_score",
+        ):
+            assert getattr(score, component) == 1.0, component
+
+        comps = score.components
+        assert comps["manual_rescue"] is True
+        assert comps["justification"].startswith("filtre trop strict")
+        assert comps["previous_rejection"]["stage"] == "local_filter"
+        assert "contract_visible_text:apprentissage" in (
+            comps["previous_rejection"]["reasons"] or []
+        )
+
+
+def test_rescue_archived_job_is_idempotent() -> None:
+    """Calling the rescue twice on the same id keeps the latest state and
+    does not corrupt the score row (no duplicate insert)."""
+    from sqlalchemy import select
+
+    from smartapply.database import session_scope
+    from smartapply.database.models import Job, JobScore, JobStatus
+    from smartapply.database.repository import (
+        mark_archived,
+        rescue_archived_job,
+        upsert_job,
+    )
+
+    with session_scope() as s:
+        job = upsert_job(
+            s,
+            external_id="rescue:002",
+            title="ML Engineer",
+            company="Acme",
+            description="",
+            source="francetravail",
+        )
+        mark_archived(s, job.id)
+        job_id = job.id
+
+    with session_scope() as s:
+        rescue_archived_job(s, job_id, justification="first call")
+    with session_scope() as s:
+        rescued = rescue_archived_job(s, job_id, justification="second call")
+        assert rescued is not None
+
+    with session_scope() as s:
+        rows = (
+            s.execute(select(JobScore).where(JobScore.job_id == job_id))
+            .scalars()
+            .all()
+        )
+        assert len(rows) == 1, "rescue must upsert, not insert duplicates"
+        assert rows[0].final_score == 1.0
+        assert rows[0].components["justification"] == "second call"
+
+        job = s.get(Job, job_id)
+        assert job is not None
+        assert job.status == JobStatus.SHORTLISTED
+        assert job.archived_at is None
+
+
+def test_rescue_archived_job_returns_none_for_unknown_id() -> None:
+    from smartapply.database import session_scope
+    from smartapply.database.repository import rescue_archived_job
+
+    with session_scope() as s:
+        assert rescue_archived_job(s, 99_999) is None

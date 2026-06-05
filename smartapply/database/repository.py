@@ -135,6 +135,81 @@ def mark_archived(session: Session, job_id: int) -> None:
         job.status = JobStatus.ARCHIVED
 
 
+def rescue_archived_job(
+    session: Session,
+    job_id: int,
+    *,
+    justification: str | None = None,
+) -> Job | None:
+    """Re-inject a previously archived job into the workflow at top rank.
+
+    Used from the Streamlit ``Offres`` page when the user spots a
+    false-positive rejection (typically from the local filter) and wants
+    to forcefully push the offer back into the analysis pipeline. The
+    job is moved as if it had been ranked first by the scorer:
+
+    - ``archived_at`` is cleared and ``analyzed_at`` reset to ``None`` so
+      the regular analysis phase re-considers the job.
+    - ``filtered_at`` and ``ranked_at`` are set to now so the processor
+      skips local-filter and scoring phases for this job.
+    - ``status`` is bumped to ``SHORTLISTED``.
+    - ``JobScore`` is upserted with every numeric component pinned at
+      ``1.0`` and a ``components.manual_rescue`` audit block that
+      preserves the original rejection reasons for transparency.
+
+    Returns the rescued ``Job`` or ``None`` if the id is unknown.
+    Calling the helper twice on the same id is a no-op overwrite (the
+    score is replaced with the same max values and the previous
+    rejection block is kept).
+    """
+    from smartapply.database.models import JobStatus
+
+    job = session.get(Job, job_id)
+    if job is None:
+        return None
+
+    now = datetime.now(timezone.utc)
+    previous_score = session.execute(
+        select(JobScore).where(JobScore.job_id == job_id)
+    ).scalar_one_or_none()
+    previous_components: dict[str, Any] = (
+        dict(previous_score.components)
+        if previous_score is not None and previous_score.components
+        else {}
+    )
+
+    job.archived_at = None
+    job.analyzed_at = None
+    job.filtered_at = now
+    job.ranked_at = now
+    job.status = JobStatus.SHORTLISTED
+
+    audit: dict[str, Any] = {
+        "manual_rescue": True,
+        "rescued_at": now.isoformat(),
+        "justification": (justification or "").strip(),
+        "previous_rejection": {
+            "stage": previous_components.get("rejection_stage"),
+            "reasons": list(previous_components.get("rejection_reasons", []) or []),
+            "summary": previous_components.get("rejection_summary"),
+        },
+    }
+    set_score(
+        session,
+        job_id,
+        rule_based_score=1.0,
+        semantic_score=1.0,
+        skill_score=1.0,
+        title_score=1.0,
+        seniority_score=1.0,
+        location_score=1.0,
+        domain_score=1.0,
+        final_score=1.0,
+        components=audit,
+    )
+    return job
+
+
 # -------------------------- Scores --------------------------
 
 def set_score(session: Session, job_id: int, **components: Any) -> JobScore:

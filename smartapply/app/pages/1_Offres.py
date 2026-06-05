@@ -351,6 +351,52 @@ if detail["status"] == JobStatus.ARCHIVED:
     with st.expander("Détails techniques du rejet"):
         st.json(components or {"status": "archived", "rejection_reasons": []})
 
+    # ---- Manual rescue ------------------------------------------------
+    # When the local filter rejects something it should not have (e.g.
+    # an ML role flagged for "apprentissage automatique"), the user can
+    # forcefully re-inject the offer with maximum synthetic scores so it
+    # leapfrogs straight to the analysis phase. The action is reversible
+    # only by re-archiving manually — keep it explicit and require a one-
+    # line justification for the audit trail.
+    st.markdown("---")
+    st.markdown("**Récupérer cette offre manuellement**")
+    st.caption(
+        "L'offre sera réintroduite dans le workflow comme si elle avait été "
+        "scorée en tête (toutes les composantes à 1.0). Direction l'étape 3 "
+        "(Analyse IA) ensuite."
+    )
+    with st.form(f"rescue_form_{detail['job_id']}", clear_on_submit=False):
+        rescue_justification = st.text_input(
+            "Pourquoi tu veux la garder ? (optionnel mais conservé en audit)",
+            placeholder=(
+                "Ex : faux rejet du filtre — 'apprentissage automatique' "
+                "≠ contrat d'apprentissage"
+            ),
+            key=f"rescue_justification_{detail['job_id']}",
+        )
+        rescue_submitted = st.form_submit_button(
+            "Réinjecter avec score maximal",
+            type="primary",
+        )
+    if rescue_submitted:
+        from smartapply.database.repository import rescue_archived_job
+
+        with session_scope() as s:
+            rescued = rescue_archived_job(
+                s,
+                int(detail["job_id"]),
+                justification=rescue_justification,
+            )
+        if rescued is None:
+            st.error("Offre introuvable, impossible de la réinjecter.")
+        else:
+            st.success(
+                "Offre réinjectée avec un score maximal. Statut = "
+                "`shortlisted`. Va sur le Workflow → étape 3 (Analyse IA) "
+                "pour lancer l'analyse LLM dessus."
+            )
+            st.rerun()
+
 if detail["analysis"]:
     analysis = detail["analysis"]
     a1, a2 = st.columns(2)
