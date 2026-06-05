@@ -10,6 +10,7 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
+import requests
 
 from smartapply.scrapers import (
     FranceTravailScraper,
@@ -790,6 +791,84 @@ def test_francetravail_authenticates_and_maps(mocker) -> None:
     assert j.application_url and "OFR-001" in j.application_url
 
 
+def test_francetravail_maps_structured_experience() -> None:
+    job = FranceTravailScraper(client_id="", client_secret="")._to_raw_job(
+        {
+            "id": "OFR-EXP",
+            "intitule": "Rédacteur web H/F",
+            "entreprise": {"nom": "Acme SA"},
+            "lieuTravail": {"libelle": "67 - Haguenau"},
+            "description": "Communication 360.",
+            "experienceExige": "E",
+            "experienceLibelle": "2 An(s)",
+            "experienceCommentaire": "en rédaction ou communication digitale",
+            "typeContratLibelle": "CDD",
+        }
+    )
+
+    assert job is not None
+    assert job.experience == {
+        "requirement": "required",
+        "required": True,
+        "label": "2 An(s)",
+        "comment": "en rédaction ou communication digitale",
+        "amount": 2,
+        "unit": "years",
+        "min_months": 24,
+        "min_years": 2,
+    }
+    assert (
+        "Expérience demandée: 2 ans d'expérience - en rédaction ou communication digitale"
+        in job.description
+    )
+    assert job.source_data is not None
+    assert job.source_data["_smartapply_experience"] == job.experience
+
+
+def test_francetravail_experience_months_stays_filter_readable() -> None:
+    from smartapply.utils.experience import required_min_years
+
+    job = FranceTravailScraper(client_id="", client_secret="")._to_raw_job(
+        {
+            "id": "OFR-SENIOR",
+            "intitule": "Data Scientist H/F",
+            "entreprise": {"nom": "Acme SA"},
+            "description": "Construire des pipelines ML.",
+            "experienceExige": True,
+            "experienceLibelle": "60 Mois",
+            "typeContratLibelle": "CDI",
+        }
+    )
+
+    assert job is not None
+    assert job.experience is not None
+    assert job.experience["min_years"] == 5.0
+    assert "5 ans d'expérience (60 mois)" in job.description
+    assert required_min_years(job.description) == 5
+
+
+def test_francetravail_maps_beginner_accepted_experience() -> None:
+    job = FranceTravailScraper(client_id="", client_secret="")._to_raw_job(
+        {
+            "id": "OFR-JUNIOR",
+            "intitule": "Data Analyst H/F",
+            "entreprise": {"nom": "Acme SA"},
+            "description": "Tableaux de bord et analyses.",
+            "experienceExige": "D",
+            "experienceLibelle": "Débutant accepté",
+            "typeContratLibelle": "CDI",
+        }
+    )
+
+    assert job is not None
+    assert job.experience == {
+        "requirement": "beginner_accepted",
+        "required": False,
+        "label": "Débutant accepté",
+    }
+    assert "Expérience: Débutant accepté" in job.description
+
+
 def test_francetravail_token_caching(mocker) -> None:
     token_response = _mock_response({"access_token": "T0K3N", "expires_in": 1500})
     empty_response = _mock_response({"resultats": []})
@@ -887,3 +966,160 @@ def test_francetravail_date_posted_today_uses_one_day_window(mocker) -> None:
     params = get_mock.call_args.kwargs["params"]
     assert params["minCreationDate"] == "2026-06-03T10:30:00Z"
     assert params["maxCreationDate"] == "2026-06-04T10:30:00Z"
+
+
+# --- Location resolution -----------------------------------------------------
+# The FT search used to silently append the free-text location to ``motsCles``,
+# which collapsed Paris searches to ~71 offers (only those whose searchable
+# text contained "Paris" literally). The resolver below converts known
+# city/region names into structured FT params and leaves unknowns alone.
+
+
+@pytest.fixture(autouse=True)
+def _isolate_french_geo_cache(request, mocker, tmp_path):
+    """Make sure FT scraper tests never touch the real geo cache or network.
+
+    Each FT test starts with an empty in-memory cache, an isolated cache
+    directory, and ``geo.api.gouv.fr`` forced offline. Tests that want to
+    exercise the real path opt in by overriding
+    ``smartapply.utils.french_geo.requests.get`` afterwards.
+    Non-FT tests are untouched.
+    """
+    if "francetravail" not in request.node.name.lower():
+        yield
+        return
+    from smartapply.utils import french_geo as _geo
+
+    _geo.reset_cache_for_tests()
+    cache_dir = tmp_path / "geo_cache"
+    cache_dir.mkdir()
+    fake_settings = mocker.Mock()
+    fake_settings.cache_dir = cache_dir
+    mocker.patch(
+        "smartapply.utils.french_geo.get_settings",
+        return_value=fake_settings,
+        create=True,
+    )
+    mocker.patch("smartapply.config.get_settings", return_value=fake_settings)
+    mocker.patch(
+        "smartapply.utils.french_geo.requests.get",
+        side_effect=requests.ConnectionError("blocked in tests by default"),
+    )
+    yield
+    _geo.reset_cache_for_tests()
+
+
+def _ft_search_params(mocker, query: str, **search_kwargs):
+    """Run one mocked FT search and return the params sent to the API."""
+    token_response = _mock_response({"access_token": "T0K3N", "expires_in": 1500})
+    empty_response = _mock_response({"resultats": []})
+    mocker.patch(
+        "smartapply.scrapers.francetravail.requests.post", return_value=token_response
+    )
+    get_mock = mocker.patch(
+        "smartapply.scrapers.francetravail.requests.get", return_value=empty_response
+    )
+    s = FranceTravailScraper(client_id="cid", client_secret="csec")
+    list(s.search(query, **search_kwargs))
+    return get_mock.call_args.kwargs["params"]
+
+
+def test_francetravail_paris_resolves_to_departement_75(mocker) -> None:
+    """``Paris`` / ``Paris, France`` must trigger ``departement=75``, not a
+    keyword append that excludes most Paris offers."""
+    for location in ("Paris", "Paris, France", "paris", "Paris,France"):
+        params = _ft_search_params(mocker, "data scientist", location=location)
+        assert params["motsCles"] == "data scientist", (
+            f"location={location!r} leaked into motsCles: {params['motsCles']!r}"
+        )
+        assert params.get("departement") == "75", (
+            f"location={location!r} did not set departement=75: {params}"
+        )
+
+
+def test_francetravail_ile_de_france_resolves_to_region_11(mocker) -> None:
+    for location in ("Île-de-France", "Ile-de-France", "IDF", "ile-de-france"):
+        params = _ft_search_params(mocker, "ml engineer", location=location)
+        assert params["motsCles"] == "ml engineer"
+        assert params.get("region") == "11"
+        assert "departement" not in params
+
+
+def test_francetravail_france_disables_location_filter(mocker) -> None:
+    """``France`` and synonyms mean "search nationwide" — no keyword leak,
+    no structured filter."""
+    for location in ("France", "france", "", None, "Remote", "Télétravail"):
+        params = _ft_search_params(mocker, "data analyst", location=location)
+        assert params["motsCles"] == "data analyst"
+        assert "departement" not in params
+        assert "region" not in params
+        assert "commune" not in params
+
+
+def test_francetravail_lyon_marseille_resolve_to_departement(mocker) -> None:
+    for location, expected_dept in (
+        ("Lyon", "69"),
+        ("Marseille", "13"),
+        ("Toulouse", "31"),
+        ("Bordeaux", "33"),
+        ("Sophia-Antipolis", "06"),
+        ("La Défense", "92"),
+    ):
+        params = _ft_search_params(mocker, "data", location=location)
+        assert params.get("departement") == expected_dept, (
+            f"{location!r} → {params}"
+        )
+        assert params["motsCles"] == "data"
+
+
+def test_francetravail_unknown_location_falls_back_to_keyword(mocker) -> None:
+    """Unknown locations must preserve the previous behaviour so we never
+    silently lose recall on a city we have not mapped yet.
+
+    We use a deliberately fictional place name so the geo cache cannot
+    resolve it even if it happens to be warm.
+    """
+    params = _ft_search_params(
+        mocker, "data scientist", location="Atlantide-sur-Mer, France"
+    )
+    assert params["motsCles"] == "data scientist Atlantide-sur-Mer, France"
+    assert "departement" not in params
+    assert "region" not in params
+
+
+def test_francetravail_explicit_departement_overrides_resolver(mocker) -> None:
+    """Explicit ``departement=`` kwarg always wins over the free-text
+    location, even if the resolver would have mapped it differently."""
+    params = _ft_search_params(
+        mocker, "data", location="Paris", departement="69"
+    )
+    assert params["departement"] == "69"
+    assert "region" not in params
+    assert params["motsCles"] == "data"
+
+
+def test_francetravail_explicit_commune_skips_resolver(mocker) -> None:
+    params = _ft_search_params(
+        mocker, "data", location="Lyon", commune="69123"
+    )
+    assert params["commune"] == "69123"
+    assert "departement" not in params
+    assert params["motsCles"] == "data"
+
+
+def test_francetravail_resolve_helper_unit() -> None:
+    from smartapply.scrapers.francetravail import _resolve_ft_location_params
+
+    assert _resolve_ft_location_params("Paris") == ({"departement": "75"}, None)
+    assert _resolve_ft_location_params("Paris, France") == (
+        {"departement": "75"},
+        None,
+    )
+    assert _resolve_ft_location_params("Île-de-France") == (
+        {"region": "11"},
+        None,
+    )
+    assert _resolve_ft_location_params("France") == ({}, None)
+    assert _resolve_ft_location_params("") == ({}, None)
+    assert _resolve_ft_location_params(None) == ({}, None)
+    assert _resolve_ft_location_params("Cherbourg") == ({}, "Cherbourg")

@@ -27,6 +27,7 @@ class RawJob(BaseModel):
     contract_type: str | None = None
     remote_policy: str | None = None
     description: str
+    experience: dict[str, Any] | None = None
     application_url: str | None = None
     apply_options: list[dict[str, Any]] | None = None
     published_date: datetime | None = None
