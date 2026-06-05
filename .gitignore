@@ -48,3 +48,5 @@ data/scraped/
 # ---- Streamlit ----
 .streamlit/secrets.toml
 /data/
+reports/
+scripts/

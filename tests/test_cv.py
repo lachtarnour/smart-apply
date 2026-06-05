@@ -406,7 +406,6 @@ def test_validator_stricter_threshold_for_inferred_evidence() -> None:
 
 def test_validator_accepts_project_bullet_source_id() -> None:
     """Bullets from project sources are now valid source_ids too."""
-    cv = _valid_adapted_cv()
     # Replace an experience bullet with a project bullet source_id — should not error
     # NOTE: the bullet still must logically belong to the experience it's nested
     # under. The validator catches that via bullet_wrong_parent for experiences.

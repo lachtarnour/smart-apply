@@ -22,12 +22,8 @@ from smartapply.cv.links import split_bullet_with_links
 from smartapply.cv.skill_profile import infer_skill_profile_id
 from smartapply.llm import AdaptedCV
 from smartapply.profile import (
-    Bullet,
     BulletLink,
-    Certificate,
     Degree,
-    Experience,
-    Language,
     Profile,
     Project,
     TemplateStyle,

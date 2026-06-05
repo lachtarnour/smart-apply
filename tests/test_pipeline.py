@@ -20,7 +20,6 @@ from smartapply.llm import (
     JobAnalysis,
     MockLLMProvider,
 )
-from smartapply.profile import get_profile
 from smartapply.ranking import MockEmbeddingsProvider
 from smartapply.scrapers.base import RawJob
 
@@ -179,8 +178,8 @@ def test_ingest_skips_already_processed_duplicate() -> None:
 
 def test_ingestor_splits_or_queries_and_balances_results(monkeypatch: pytest.MonkeyPatch) -> None:
     from smartapply.pipeline.ingestor import (
-        expand_query_for_source,
         Ingestor,
+        expand_query_for_source,
         split_or_query,
     )
 
@@ -276,6 +275,94 @@ def test_ingestor_splits_or_queries_and_balances_results(monkeypatch: pytest.Mon
     }
 
 
+def test_ingestor_reports_serpapi_fallback_audit(monkeypatch: pytest.MonkeyPatch) -> None:
+    from smartapply.pipeline.ingestor import Ingestor
+
+    class FakeScraper:
+        name = "serpapi"
+
+        def is_available(self) -> bool:
+            return True
+
+        def search(self, query, location=None, *, max_results=None, **kwargs):  # noqa: ANN001, ARG002
+            strict_meta = {
+                "_smartapply_search": {
+                    "query": query,
+                    "location": location,
+                    "google_domain": "google.com",
+                    "hl": "fr",
+                    "gl": "fr",
+                    "result_origin": "strict",
+                    "strict_chips": "employment_type:FULLTIME,date_posted:week",
+                    "fallback_reason": None,
+                    "fallback_chips": None,
+                    "fallback_query": None,
+                }
+            }
+            fallback_meta = {
+                "_smartapply_search": {
+                    "query": query,
+                    "location": location,
+                    "google_domain": "google.com",
+                    "hl": "fr",
+                    "gl": "fr",
+                    "result_origin": "fallback",
+                    "strict_chips": "employment_type:FULLTIME,date_posted:week",
+                    "fallback_reason": "low_result_strict_filters",
+                    "fallback_chips": "employment_type:FULLTIME,date_posted:month",
+                    "fallback_query": query,
+                }
+            }
+            for i in range(2):
+                yield RawJob(
+                    external_id=f"serpapi:strict:{i}",
+                    title=f"Strict {i}",
+                    company="Acme",
+                    location=location,
+                    description="Build ML systems.",
+                    source="serpapi",
+                    source_data=strict_meta,
+                )
+            for i in range(8):
+                yield RawJob(
+                    external_id=f"serpapi:fallback:{i}",
+                    title=f"Fallback {i}",
+                    company="Beta",
+                    location=location,
+                    description="Build data products.",
+                    source="serpapi",
+                    source_data=fallback_meta,
+                )
+
+    monkeypatch.setattr("smartapply.pipeline.ingestor.get_scraper", lambda source: FakeScraper())
+
+    report = Ingestor().from_source(
+        "serpapi",
+        "Applied Scientist",
+        location="Paris, France",
+        max_results=10,
+        split_or=False,
+    )
+
+    assert report.fetched == 10
+    assert report.search_audit == [
+        {
+            "query": "Applied Scientist",
+            "location": "Paris, France",
+            "google_domain": "google.com",
+            "hl": "fr",
+            "gl": "fr",
+            "strict_results": 2,
+            "fallback_added": 8,
+            "final_results": 10,
+            "fallback_reason": "low_result_strict_filters",
+            "strict_chips": "employment_type:FULLTIME,date_posted:week",
+            "fallback_chips": "employment_type:FULLTIME,date_posted:month",
+            "fallback_query": "Applied Scientist",
+        }
+    ]
+
+
 def test_serpapi_cdi_uses_fulltime_chip_not_query_suffix(monkeypatch: pytest.MonkeyPatch) -> None:
     from smartapply.pipeline import Pipeline
 
@@ -317,6 +404,73 @@ def test_serpapi_cdi_uses_fulltime_chip_not_query_suffix(monkeypatch: pytest.Mon
         "Machine Learning Engineer",
     ]
     assert all(chips == "employment_type:FULLTIME" for chips in chips_seen)
+
+
+def test_francetravail_permanent_preferences_use_cdi_filter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from smartapply.pipeline import Pipeline
+
+    type_contrats_seen: list[str | None] = []
+
+    class FakeScraper:
+        name = "francetravail"
+
+        def is_available(self) -> bool:
+            return True
+
+        def search(self, query, location=None, *, max_results=None, **kwargs):  # noqa: ANN001, ARG002
+            type_contrats_seen.append(kwargs.get("type_contrat"))
+            yield RawJob(
+                external_id="ft:1",
+                title=query,
+                company="Acme",
+                location="Paris",
+                description="Build ML systems.",
+                source="francetravail",
+                contract_type="CDI",
+            )
+
+    monkeypatch.setattr("smartapply.pipeline.ingestor.get_scraper", lambda source: FakeScraper())
+
+    pipeline = Pipeline(embeddings=MockEmbeddingsProvider(), llm=MockLLMProvider())
+    pipeline.ingest("francetravail", "Data Scientist", max_results=1)
+
+    assert type_contrats_seen == ["CDI"]
+
+
+def test_francetravail_does_not_force_cdi_when_cdd_is_accepted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from smartapply.pipeline import Pipeline
+
+    type_contrats_seen: list[str | None] = []
+
+    class FakeScraper:
+        name = "francetravail"
+
+        def is_available(self) -> bool:
+            return True
+
+        def search(self, query, location=None, *, max_results=None, **kwargs):  # noqa: ANN001, ARG002
+            type_contrats_seen.append(kwargs.get("type_contrat"))
+            yield RawJob(
+                external_id="ft:2",
+                title=query,
+                company="Acme",
+                location="Paris",
+                description="Build ML systems.",
+                source="francetravail",
+                contract_type="CDD",
+            )
+
+    monkeypatch.setattr("smartapply.pipeline.ingestor.get_scraper", lambda source: FakeScraper())
+
+    pipeline = Pipeline(embeddings=MockEmbeddingsProvider(), llm=MockLLMProvider())
+    pipeline.profile.preferences.accepted_contract_types = ["CDI", "CDD"]
+    pipeline.ingest("francetravail", "Data Scientist", max_results=1)
+
+    assert type_contrats_seen == [None]
 
 
 def test_freshness_kwargs_propagates_date_posted_to_both_sources() -> None:
@@ -578,8 +732,11 @@ def test_apply_to_rejects_manual_contact_when_optional_verification_fails(
     monkeypatch.setenv("ANYMAILFINDER_VERIFY_MANUAL_CONTACTS", "true")
     from smartapply.config import get_settings
     get_settings.cache_clear()
-    from smartapply.email_agent.contact_providers import ContactCandidate, ContactProvider
-    from smartapply.email_agent.contact_providers import ContactProviderChain
+    from smartapply.email_agent.contact_providers import (
+        ContactCandidate,
+        ContactProvider,
+        ContactProviderChain,
+    )
     from smartapply.pipeline import Pipeline
 
     class RejectingVerifier(ContactProvider):
@@ -627,16 +784,16 @@ def test_pipeline_invalid_source_raises() -> None:
     from smartapply.pipeline import Pipeline
 
     p = Pipeline(embeddings=MockEmbeddingsProvider(), llm=MockLLMProvider())
-    with pytest.raises(Exception):
+    with pytest.raises(RuntimeError):
         p.ingest("serpapi", "data scientist")  # no API key in tests
 
 
 def test_offer_language_detection_fr_and_en() -> None:
-    from smartapply.pipeline import Pipeline
+    from smartapply.pipeline.language import detect_offer_language
 
-    assert Pipeline._detect_offer_language("Vos missions: analyser des donnees. CDI Paris.") == "fr"
-    assert Pipeline._detect_offer_language("Poste en télétravail avec CDI et profil recherché data.") == "fr"
-    assert Pipeline._detect_offer_language("Responsibilities: build ML models. English required.") == "en"
+    assert detect_offer_language("Vos missions: analyser des donnees. CDI Paris.") == "fr"
+    assert detect_offer_language("Poste en télétravail avec CDI et profil recherché data.") == "fr"
+    assert detect_offer_language("Responsibilities: build ML models. English required.") == "en"
 
 
 def test_next_action_for_sent_application() -> None:

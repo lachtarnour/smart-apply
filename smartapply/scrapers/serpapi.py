@@ -19,6 +19,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from smartapply.config import get_settings
 from smartapply.logging_setup import get_logger
 from smartapply.scrapers.base import RawJob, Scraper, ScraperConfigError, make_external_id
+from smartapply.utils.contracts import normalize_source_contract_type
 
 logger = get_logger(__name__)
 
@@ -37,6 +38,7 @@ SERPAPI_DATE_POSTED_LABELS = {
     "week": "7 derniers jours",
     "month": "30 derniers jours",
 }
+LOW_RESULT_FALLBACK_TARGET = 10
 
 
 def split_localization_values(value: str | None, *, fallback: str) -> list[str]:
@@ -205,6 +207,56 @@ def zero_result_fallback_params(params: dict[str, Any]) -> list[dict[str, Any]]:
     return attempts
 
 
+def _low_result_target(
+    max_results: int | None,
+    fallback_target: int = LOW_RESULT_FALLBACK_TARGET,
+) -> int:
+    """Aim to fill at least one Google Jobs page when strict chips underperform."""
+    if max_results is None or fallback_target <= 0:
+        return 0
+    return min(max_results, fallback_target)
+
+
+def _should_widen_low_result(
+    params: dict[str, Any],
+    yielded: int,
+    max_results: int | None,
+    fallback_target: int = LOW_RESULT_FALLBACK_TARGET,
+) -> bool:
+    target = _low_result_target(max_results, fallback_target)
+    if yielded <= 0 or target <= 0 or yielded >= target:
+        return False
+    chips = params.get("chips") or ""
+    return any(
+        part.lower().startswith(("date_posted:", "employment_type:"))
+        for part in _chip_parts(chips)
+    )
+
+
+def _with_search_audit(
+    job: RawJob,
+    *,
+    params: dict[str, Any],
+    result_origin: str,
+    fallback_reason: str | None = None,
+    fallback_params: dict[str, Any] | None = None,
+) -> RawJob:
+    source_data = dict(job.source_data or {})
+    source_data["_smartapply_search"] = {
+        "query": params.get("q"),
+        "location": params.get("location"),
+        "google_domain": params.get("google_domain"),
+        "hl": params.get("hl"),
+        "gl": params.get("gl"),
+        "result_origin": result_origin,
+        "strict_chips": params.get("chips"),
+        "fallback_reason": fallback_reason,
+        "fallback_chips": fallback_params.get("chips") if fallback_params else None,
+        "fallback_query": fallback_params.get("q") if fallback_params else None,
+    }
+    return job.model_copy(update={"source_data": source_data})
+
+
 class SerpApiGoogleJobsScraper(Scraper):
     name = "serpapi"
 
@@ -216,10 +268,16 @@ class SerpApiGoogleJobsScraper(Scraper):
         google_domain: str | None = None,
         hl: str | None = None,
         gl: str | None = None,
+        low_result_fallback_target: int | None = None,
     ):
         settings = get_settings()
         self.api_key = api_key or settings.serpapi_api_key
         self.max_pages = max_pages or settings.serpapi_max_pages
+        self.low_result_fallback_target = (
+            settings.serpapi_low_result_fallback_target
+            if low_result_fallback_target is None
+            else low_result_fallback_target
+        )
         self.google_domain = google_domain or settings.serpapi_google_domain
         self.hl = hl or settings.serpapi_hl
         self.gl = gl or settings.serpapi_gl
@@ -323,43 +381,108 @@ class SerpApiGoogleJobsScraper(Scraper):
         *,
         max_results: int | None,
     ) -> Iterator[RawJob]:
-        yielded = False
-        for job in self._search_pages(params, max_results=max_results):
-            yielded = True
-            yield job
-        if yielded:
-            return
+        seen_external_ids: set[str] = set()
+        yielded = 0
 
-        for fallback_params in zero_result_fallback_params(params):
+        for job in self._search_pages(params, max_results=max_results):
+            if job.external_id in seen_external_ids:
+                continue
+            seen_external_ids.add(job.external_id)
+            yielded += 1
+            yield _with_search_audit(job, params=params, result_origin="strict")
+
+        if yielded == 0:
+            for fallback_params in zero_result_fallback_params(params):
+                logger.info(
+                    "SerpApi zero-result filter widening: q=%r hl=%s gl=%s chips=%r -> %r",
+                    params.get("q"),
+                    params.get("hl"),
+                    params.get("gl"),
+                    params.get("chips"),
+                    fallback_params.get("chips"),
+                )
+                fallback_yielded = False
+                for job in self._search_pages(
+                    fallback_params,
+                    max_results=max_results,
+                ):
+                    if job.external_id in seen_external_ids:
+                        continue
+                    seen_external_ids.add(job.external_id)
+                    fallback_yielded = True
+                    yield _with_search_audit(
+                        job,
+                        params=params,
+                        result_origin="fallback",
+                        fallback_reason="zero_result_strict_filters",
+                        fallback_params=fallback_params,
+                    )
+                if fallback_yielded:
+                    return
+
+            location = (params.get("location") or "").strip()
+            query = (params.get("q") or "").strip()
+            if not location or not query:
+                return
+            fallback_params = dict(params)
+            fallback_params["q"] = f"{query} jobs in {location}"
+            fallback_params.pop("location", None)
             logger.info(
-                "SerpApi zero-result filter widening: q=%r hl=%s gl=%s chips=%r -> %r",
-                params.get("q"),
-                params.get("hl"),
-                params.get("gl"),
-                params.get("chips"),
+                "SerpApi fallback search after empty result: q=%r hl=%s gl=%s chips=%r",
+                fallback_params.get("q"),
+                fallback_params.get("hl"),
+                fallback_params.get("gl"),
                 fallback_params.get("chips"),
             )
             for job in self._search_pages(fallback_params, max_results=max_results):
-                yielded = True
-                yield job
-            if yielded:
-                return
-
-        location = (params.get("location") or "").strip()
-        query = (params.get("q") or "").strip()
-        if not location or not query:
+                if job.external_id in seen_external_ids:
+                    continue
+                seen_external_ids.add(job.external_id)
+                yield _with_search_audit(
+                    job,
+                    params=params,
+                    result_origin="fallback",
+                    fallback_reason="zero_result_contextual_location",
+                    fallback_params=fallback_params,
+                )
             return
-        fallback_params = dict(params)
-        fallback_params["q"] = f"{query} jobs in {location}"
-        fallback_params.pop("location", None)
-        logger.info(
-            "SerpApi fallback search after empty result: q=%r hl=%s gl=%s chips=%r",
-            fallback_params.get("q"),
-            fallback_params.get("hl"),
-            fallback_params.get("gl"),
-            fallback_params.get("chips"),
-        )
-        yield from self._search_pages(fallback_params, max_results=max_results)
+
+        if not _should_widen_low_result(
+            params,
+            yielded,
+            max_results,
+            self.low_result_fallback_target,
+        ):
+            return
+
+        target = _low_result_target(max_results, self.low_result_fallback_target)
+        for fallback_params in zero_result_fallback_params(params):
+            if yielded >= target:
+                return
+            remaining = target - yielded
+            logger.info(
+                "SerpApi low-result filter widening: q=%r hl=%s gl=%s count=%d chips=%r -> %r",
+                params.get("q"),
+                params.get("hl"),
+                params.get("gl"),
+                yielded,
+                params.get("chips"),
+                fallback_params.get("chips"),
+            )
+            for job in self._search_pages(fallback_params, max_results=remaining):
+                if job.external_id in seen_external_ids:
+                    continue
+                seen_external_ids.add(job.external_id)
+                yielded += 1
+                yield _with_search_audit(
+                    job,
+                    params=params,
+                    result_origin="fallback",
+                    fallback_reason="low_result_strict_filters",
+                    fallback_params=fallback_params,
+                )
+                if yielded >= target:
+                    return
 
     def _search_pages(
         self,
@@ -380,7 +503,7 @@ class SerpApiGoogleJobsScraper(Scraper):
                 payload = self._fetch(page_params)
             except requests.RequestException as e:
                 logger.error("SerpApi request failed: %s", e)
-                break
+                return
 
             pages_fetched += 1
             jobs = payload.get("jobs_results") or []
@@ -466,24 +589,7 @@ class SerpApiGoogleJobsScraper(Scraper):
 
     @staticmethod
     def _normalize_contract(value: str | None) -> str | None:
-        if not value:
-            return None
-        v = value.lower()
-        mapping = {
-            "full-time": "Full-time",
-            "full time": "Full-time",
-            "part-time": "Part-time",
-            "part time": "Part-time",
-            "contract": "Contract",
-            "contractor": "Contract",
-            "internship": "Internship",
-            "intern": "Internship",
-            "temporary": "Temporary",
-        }
-        for key, normalized in mapping.items():
-            if key in v:
-                return normalized
-        return value
+        return normalize_source_contract_type(value)
 
     @staticmethod
     def _normalize_remote(extensions: dict[str, Any], location: str | None) -> str | None:

@@ -25,12 +25,15 @@ NON_COMPANY_CONTACT_DOMAINS = {
     "agefiph.asso.fr",
     "agefiph.fr",
     "apec.fr",
+    "app.link",
     "ashbyhq.com",
     "bamboohr.com",
     "bebee.com",
+    "bit.ly",
     "cadremploi.fr",
     "francetravail.fr",
     "glassdoor.com",
+    "google.com",
     "greenhouse.io",
     "hellowork.com",
     "handicap-job.com",
@@ -40,6 +43,7 @@ NON_COMPANY_CONTACT_DOMAINS = {
     "jobs.lever.co",
     "lever.co",
     "linkedin.com",
+    "lnkd.in",
     "meteojob.com",
     "monster.com",
     "monster.fr",
@@ -52,6 +56,31 @@ NON_COMPANY_CONTACT_DOMAINS = {
     "welcometothejungle.com",
     "workable.com",
     "workdayjobs.com",
+}
+
+SUSPECT_CONTACT_DOMAIN_MARKERS = {
+    "applicant",
+    "apply",
+    "ashby",
+    "ats",
+    "career",
+    "careers",
+    "candidate",
+    "emploi",
+    "greenhouse",
+    "hiring",
+    "icims",
+    "job",
+    "jobs",
+    "lever",
+    "recruit",
+    "recrut",
+    "smartrecruit",
+    "taleo",
+    "talent",
+    "teamtailor",
+    "workable",
+    "workday",
 }
 
 # Higher score = more likely to be a real recruitment contact.
@@ -143,10 +172,38 @@ def is_company_domain(domain: str | None) -> bool:
     if not domain:
         return False
     domain = domain.lower().removeprefix("www.")
-    return not any(
+    return not is_job_board_domain(domain)
+
+
+def is_job_board_domain(domain: str | None) -> bool:
+    if not domain:
+        return False
+    domain = domain.lower().removeprefix("www.")
+    return any(
         domain == blocked or domain.endswith(f".{blocked}")
         for blocked in NON_COMPANY_CONTACT_DOMAINS
     )
+
+
+def is_suspicious_contact_domain(domain: str | None) -> bool:
+    """Return True for domains that look like recruitment platforms."""
+    if not domain:
+        return False
+    labels = [
+        label
+        for label in domain.lower().removeprefix("www.").split(".")
+        if label
+    ]
+    searchable = labels[:-1] if len(labels) > 1 else labels
+    return any(
+        marker in label
+        for label in searchable
+        for marker in SUSPECT_CONTACT_DOMAIN_MARKERS
+    )
+
+
+def is_reliable_company_domain(domain: str | None) -> bool:
+    return is_company_domain(domain) and not is_suspicious_contact_domain(domain)
 
 
 def normalize_company_name(company: str) -> str:
@@ -155,7 +212,7 @@ def normalize_company_name(company: str) -> str:
 
 def contact_lookup_key(company: str, application_url: str | None) -> str:
     domain = domain_from_url(application_url)
-    if is_company_domain(domain):
+    if is_reliable_company_domain(domain):
         return f"domain:{domain}"
     normalized = normalize_company_name(company)
     return f"company:{normalized}" if normalized else "company:unknown"
@@ -244,7 +301,7 @@ class AnymailFinderContactProvider(ContactProvider):
         application_url: str | None,
     ) -> dict[str, str] | None:
         domain = domain_from_url(application_url)
-        if is_company_domain(domain):
+        if is_reliable_company_domain(domain):
             return {"domain": domain}
         company = " ".join((company or "").split())
         if company:

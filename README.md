@@ -120,6 +120,7 @@ Quelques réglages utiles :
 ```
 SERPAPI_DATE_POSTED=week  # any, today, 3days, week, month
 SERPAPI_MAX_PAGES=3       # 10 résultats max par page SerpApi
+SERPAPI_LOW_RESULT_FALLBACK_TARGET=10  # monte à 20 avec MAX_PAGES>=2 si besoin
 SERPAPI_UDS=              # filtre Google Jobs avancé, optionnel
 ```
 

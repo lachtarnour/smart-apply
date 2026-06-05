@@ -8,7 +8,6 @@ from pathlib import Path
 import pytest
 
 from smartapply.profile import (
-    Profile,
     ProfileLoadError,
     clear_cache,
     get_profile,
@@ -348,7 +347,8 @@ def test_load_invalid_json_raises(tmp_path: Path) -> None:
         load_profile(tmp_path)
 
 
-def test_duplicate_bullet_ids_rejected(tmp_path: Path, sample_profile_files) -> None:
+def test_duplicate_bullet_ids_rejected(tmp_path: Path, sample_profile_files: Path) -> None:
+    assert sample_profile_files == tmp_path
     # Inject duplicate bullet id and reload
     exps_path = tmp_path / "experiences.json"
     exps = json.loads(exps_path.read_text())

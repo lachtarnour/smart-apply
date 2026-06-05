@@ -1,11 +1,11 @@
 """Composite job scoring — combines semantic similarity with cheap signals.
 
 Weights (sum to 1.0):
-- 0.35 semantic similarity (embeddings)
+- 0.30 semantic similarity (embeddings)
 - 0.25 skills overlap
-- 0.15 title similarity
-- 0.10 seniority match
-- 0.10 location match
+- 0.10 title similarity
+- 0.25 seniority match
+- 0.05 location match
 - 0.05 domain match
 """
 
@@ -25,7 +25,6 @@ from smartapply.ranking.embeddings import (
     get_embeddings_provider,
 )
 from smartapply.utils.location import is_foreign_location
-
 
 WEIGHTS = {
     "semantic": 0.30,
@@ -55,10 +54,11 @@ class ScoreComponents:
     seniority: float
     location: float
     domain: float
+    cap: float | None = None
 
     @property
     def final(self) -> float:
-        return (
+        weighted = (
             WEIGHTS["semantic"] * self.semantic
             + WEIGHTS["skills"] * self.skills
             + WEIGHTS["title"] * self.title
@@ -66,9 +66,10 @@ class ScoreComponents:
             + WEIGHTS["location"] * self.location
             + WEIGHTS["domain"] * self.domain
         )
+        return min(weighted, self.cap) if self.cap is not None else weighted
 
-    def to_dict(self) -> dict[str, float]:
-        return {
+    def to_dict(self) -> dict[str, float | None]:
+        data: dict[str, float | None] = {
             "semantic": round(self.semantic, 4),
             "skills": round(self.skills, 4),
             "title": round(self.title, 4),
@@ -77,6 +78,9 @@ class ScoreComponents:
             "domain": round(self.domain, 4),
             "final": round(self.final, 4),
         }
+        if self.cap is not None:
+            data["cap"] = round(self.cap, 4)
+        return data
 
 
 class ScorableJob(Protocol):
@@ -234,6 +238,7 @@ class JobScorer:
 
     def score(self, job: ScorableJob, vec_cache: dict[int, list[float]] | None = None) -> ScoreComponents:
         cache = vec_cache if vec_cache is not None else {}
+        foreign_cap = 0.35 if is_foreign_location(job.location) else None
         return ScoreComponents(
             semantic=self._semantic_score(job, cache),
             skills=self._skills_score(job),
@@ -241,6 +246,7 @@ class JobScorer:
             seniority=self._seniority_score(job),
             location=self._location_score(job),
             domain=self._domain_score(job),
+            cap=foreign_cap,
         )
 
     def rank(
@@ -255,7 +261,7 @@ class JobScorer:
                     build_profile_text(self.profile)
                 )
             job_vectors = self.embeddings.embed([build_job_text(job) for job in jobs])
-            cache.update({id(job): vector for job, vector in zip(jobs, job_vectors)})
+            cache.update({id(job): vector for job, vector in zip(jobs, job_vectors, strict=True)})
         results = [(j, self.score(j, cache)) for j in jobs]
         results.sort(key=lambda r: r[1].final, reverse=True)
         if top_k is not None:

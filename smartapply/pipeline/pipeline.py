@@ -27,14 +27,17 @@ from smartapply.email_agent import (
 from smartapply.filtering import JobFilter, ruleset_from_preferences
 from smartapply.llm import get_llm_provider
 from smartapply.logging_setup import get_logger
-from smartapply.pipeline.applier import Applier, ApplyMode, ApplyReport
 from smartapply.pipeline.application_renderer import ApplicationDocumentRenderer
+from smartapply.pipeline.applier import Applier, ApplyReport
 from smartapply.pipeline.contact_service import ContactService
 from smartapply.pipeline.ingestor import Ingestor, IngestReport
-from smartapply.pipeline.language import detect_offer_language
-from smartapply.pipeline.processor import ProcessReport, Processor
+from smartapply.pipeline.processor import Processor, ProcessReport
 from smartapply.profile import get_profile
 from smartapply.ranking import JobScorer, get_embeddings_provider
+from smartapply.utils.contracts import (
+    should_filter_france_travail_to_cdi,
+    should_filter_serpapi_to_fulltime,
+)
 
 logger = get_logger(__name__)
 
@@ -117,24 +120,24 @@ class Pipeline:
         max_results: int = 20,
         **search_kwargs: Any,
     ) -> IngestReport:
-        accepted = [
-            c.strip().lower()
-            for c in (self.profile.preferences.accepted_contract_types or [])
-        ]
-        if accepted == ["cdi"]:
-            if source == "francetravail" and "type_contrat" not in search_kwargs:
-                search_kwargs["type_contrat"] = "CDI"
-            elif source == "serpapi":
-                existing_chips = search_kwargs.get("chips", "")
-                fulltime_chip = "employment_type:FULLTIME"
-                chips = [
-                    chip.strip()
-                    for chip in str(existing_chips).split(",")
-                    if chip.strip()
-                ]
-                if fulltime_chip.lower() not in {chip.lower() for chip in chips}:
-                    chips.append(fulltime_chip)
-                search_kwargs["chips"] = ",".join(chips)
+        accepted = self.profile.preferences.accepted_contract_types or []
+        if (
+            source == "francetravail"
+            and "type_contrat" not in search_kwargs
+            and should_filter_france_travail_to_cdi(accepted)
+        ):
+            search_kwargs["type_contrat"] = "CDI"
+        if source == "serpapi" and should_filter_serpapi_to_fulltime(accepted):
+            existing_chips = search_kwargs.get("chips", "")
+            fulltime_chip = "employment_type:FULLTIME"
+            chips = [
+                chip.strip()
+                for chip in str(existing_chips).split(",")
+                if chip.strip()
+            ]
+            if fulltime_chip.lower() not in {chip.lower() for chip in chips}:
+                chips.append(fulltime_chip)
+            search_kwargs["chips"] = ",".join(chips)
         return self._ingestor.from_source(
             source,
             query,
@@ -218,14 +221,6 @@ class Pipeline:
             create_gmail_draft=create_gmail_draft,
             require_quality_gate=require_quality_gate,
         )
-
-    # =================================================================
-    # Helpers exposed for backwards compatibility with tests
-    # =================================================================
-
-    @staticmethod
-    def _detect_offer_language(text: str) -> str:
-        return detect_offer_language(text)
 
     # =================================================================
     # Phase 4: End-to-end

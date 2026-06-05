@@ -10,7 +10,6 @@ from __future__ import annotations
 import shutil
 import subprocess
 import tempfile
-from dataclasses import dataclass
 from pathlib import Path
 import re
 
@@ -106,14 +105,6 @@ def pdf_page_count(pdf_path: str | Path) -> int:
     if counts:
         return max(counts)
     return max(1, len(re.findall(rb"/Type\s*/Page\b", data)))
-
-
-@dataclass(frozen=True)
-class RenderedApplicationDocuments:
-    cv_html_path: Path
-    cv_pdf_path: Path
-    letter_html_path: Path
-    letter_pdf_path: Path
 
 
 class HtmlApplicationRenderer:

@@ -9,7 +9,10 @@ from smartapply.email_agent.contact_providers import (
     default_contact_chain,
     domain_from_url,
     is_company_domain,
+    is_job_board_domain,
     is_recruitment_generic_email,
+    is_reliable_company_domain,
+    is_suspicious_contact_domain,
     score_email,
 )
 from smartapply.email_agent.eml_export import export_eml
@@ -29,6 +32,9 @@ __all__ = [
     "domain_from_url",
     "export_eml",
     "is_company_domain",
+    "is_job_board_domain",
+    "is_reliable_company_domain",
     "is_recruitment_generic_email",
+    "is_suspicious_contact_domain",
     "score_email",
 ]

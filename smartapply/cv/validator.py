@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 from rapidfuzz import fuzz
 
 from smartapply.llm import AdaptedCV, SkillSelectionBlock
-from smartapply.profile import Bullet, Profile
+from smartapply.profile import Profile
 
 
 _NUMBER_RE = re.compile(r"\d+(?:[.,]\d+)?")

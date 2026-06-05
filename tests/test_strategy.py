@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from smartapply.utils.strategy import decide_strategy, hint_for
+from smartapply.utils.strategy import decide_strategy
 
 
 def test_small_company_with_contact_is_email_only() -> None:
@@ -28,17 +28,29 @@ def test_large_company_with_contact_is_email_and_form() -> None:
     )
 
 
+def test_large_company_without_application_url_is_email_only() -> None:
+    assert (
+        decide_strategy(
+            company_size="large",
+            has_contact_email=True,
+            has_application_url=False,
+        )
+        == "email_only"
+    )
+
+
 def test_no_contact_falls_back_to_form_only() -> None:
     """If we couldn't find an email contact, the ATS form is the only path."""
     for size in ("large", "small", "unknown"):
-        assert (
-            decide_strategy(
-                company_size=size,
-                has_contact_email=False,
-                has_application_url=True,
+        for has_application_url in (True, False):
+            assert (
+                decide_strategy(
+                    company_size=size,
+                    has_contact_email=False,
+                    has_application_url=has_application_url,
+                )
+                == "form_only"
             )
-            == "form_only"
-        )
 
 
 def test_unknown_company_with_contact_defaults_to_email_only() -> None:
@@ -51,9 +63,3 @@ def test_unknown_company_with_contact_defaults_to_email_only() -> None:
         )
         == "email_only"
     )
-
-
-def test_strategy_hint_is_human_readable() -> None:
-    assert hint_for("email_only").startswith("Envoyer l'email")
-    assert "ATS" in hint_for("email_and_form")
-    assert "formulaire" in hint_for("form_only").lower()

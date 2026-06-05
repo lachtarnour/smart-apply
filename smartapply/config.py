@@ -54,6 +54,9 @@ class Settings(BaseSettings):
     serpapi_gl: str = Field(default="fr")
     serpapi_default_location: str = Field(default="Paris, France")
     serpapi_max_pages: int = Field(default=3, ge=1, le=300)
+    # Low-result fallback target. Default 10 fills one Google Jobs page after
+    # strict chips underperform; raise to 20/30 with SERPAPI_MAX_PAGES >= 2/3.
+    serpapi_low_result_fallback_target: int = Field(default=10, ge=0, le=300)
     # Google Jobs freshness filter. Allowed values: any, today, 3days, week, month.
     # "week" maps to the Google Jobs "Last week" / last 7 days filter.
     serpapi_date_posted: str = Field(default="week")

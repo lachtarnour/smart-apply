@@ -14,7 +14,6 @@ from smartapply.config import get_settings
 from smartapply.database import session_scope
 from smartapply.database.models import Job, JobStatus
 from smartapply.database.repository import (
-    list_jobs,
     list_pending_processing,
     mark_analyzed,
     mark_archived,

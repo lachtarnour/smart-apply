@@ -16,6 +16,26 @@ apply_app_style()
 
 settings = get_settings()
 
+
+def _serpapi_effective_config(
+    *,
+    max_results: int,
+    date_posted: str,
+    location: str | None,
+) -> str:
+    fallback_target = settings.serpapi_low_result_fallback_target
+    effective_fallback = min(max_results, fallback_target) if fallback_target > 0 else 0
+    freshness = SERPAPI_DATE_POSTED_LABELS.get(date_posted, date_posted)
+    return (
+        "SerpApi config effective : "
+        f"lieu {location or settings.serpapi_default_location} · "
+        f"fraîcheur {freshness} · "
+        f"résultats/source {max_results} · "
+        f"fallback {effective_fallback} · "
+        f"pages max {settings.serpapi_max_pages}"
+    )
+
+
 st.title("🚀 Autopilot candidatures")
 st.caption("Recherche, sélection, CV, email, contact RH, brouillon Gmail ou dossier prêt.")
 
@@ -64,6 +84,14 @@ with col2:
         max_value=300,
         value=max(25, settings.autopilot_target_drafts),
     )
+    if "serpapi" in sources:
+        st.caption(
+            _serpapi_effective_config(
+                max_results=int(max_per_source),
+                date_posted=date_posted,
+                location=location,
+            )
+        )
     gmail_draft = st.toggle("Créer des brouillons Gmail", value=False)
     quality_gate = st.toggle("Quality gate LLM strict", value=True)
 

@@ -24,20 +24,42 @@ class JobAnalysis(BaseModel):
     seniority: str = Field(description="One of: junior, mid, senior, lead, manager")
     domain: str = Field(description="Industry / vertical the role sits in")
     main_tasks: list[str] = Field(description="3-7 concrete responsibilities, short bullets")
-    required_skills: list[str] = Field(description="Hard skills explicitly required")
+    required_skills: list[str] = Field(
+        description=(
+            "Hard skills explicitly requested or clearly listed in the offer body only. "
+            "Do not add candidate-profile skills, broad domains, or inferred keywords."
+        )
+    )
     nice_to_have: list[str] = Field(description="Bonus skills appreciated but not required")
     match_reasons: list[str] = Field(description="Why this role matches the candidate")
-    risks: list[str] = Field(description="Concrete gaps or risks for this candidate")
+    risks: list[str] = Field(
+        description=(
+            "Concrete gaps or risks for this candidate, including visible seniority, "
+            "vague/short offer text, missing skills, peripheral BI/reporting, "
+            "Data Engineering/platform, MLOps/DevOps, support/operations, Master Data, "
+            "location/company/contact ambiguity."
+        )
+    )
     cv_keywords_to_include: list[str] = Field(
-        description="Tech keywords the CV should foreground"
+        description=(
+            "Offer-grounded CV keywords visible in or strongly supported by the offer body. "
+            "Return a short list when few reliable keywords exist; do not add candidate-only skills."
+        )
     )
     contact_domain_kind: str = Field(
         default="unknown",
-        description="One of: company_domain, ats_or_job_board, unknown",
+        description=(
+            "One of: company_domain, ats_or_job_board, unknown. Use company_domain "
+            "only when a literal company-owned domain/email is visible; never infer "
+            "from the company name, URL path, job-board slug or outside knowledge."
+        ),
     )
     contact_domain_hint: str = Field(
         default="",
-        description="Company-owned domain visible in the URL or offer text, without scheme",
+        description=(
+            "Literal company-owned domain visible in the application URL host or "
+            "offer body, without scheme. Empty when only an ATS/job board domain is visible."
+        ),
     )
     contact_domain_reason: str = Field(
         default="",
@@ -79,30 +101,30 @@ class JobAnalysis(BaseModel):
     extracted_location: str = Field(
         default="",
         description=(
-            "Most specific job location explicitly visible in the offer text, "
+            "Most specific job location explicitly visible in the offer body, "
             "for example 'Paris', 'Massy', 'Remote (France)' or "
-            "'Paris / Lyon'. Return an empty string when the offer gives no "
-            "reliable location beyond the structured location field. Never "
-            "infer or use external knowledge."
+            "'Paris / Lyon'. Do not copy the structured scraper location unless "
+            "the body confirms it. Return an empty string when the body gives no "
+            "reliable location. Never infer or use external knowledge."
         ),
     )
     company_context: str = Field(
         default="",
         description=(
-            "One concise, offer-grounded sentence about the company, product, "
-            "sector, clients, team, culture or business context. Use only facts "
-            "visible in the job offer. Empty string when the offer gives no "
-            "reliable company/about-us context."
+            "One concise, offer-body-grounded sentence about the company, product, "
+            "sector, clients, team, culture or business context. Do not infer from "
+            "company name, URL host or outside knowledge. Empty string when the body "
+            "gives no reliable context."
         ),
     )
     offer_interest_points: list[str] = Field(
         default_factory=list,
         description=(
-            "2-5 concrete reasons a candidate could be interested in this "
-            "specific offer, extracted only from the offer text: company/about-us "
-            "facts, product, mission, sector, context, stakes, team, clients, "
-            "culture or responsibilities. Do not include candidate claims. Empty "
-            "list when only generic information is available."
+            "0-5 concrete reasons a candidate could be interested in this specific "
+            "offer, extracted only from the offer body: company/about-us facts, "
+            "product, mission, sector, context, stakes, team, clients, culture or "
+            "responsibilities. Avoid generic filler and candidate claims. Empty list "
+            "when only generic information is available."
         ),
     )
 

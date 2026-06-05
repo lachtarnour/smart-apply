@@ -11,7 +11,7 @@ from smartapply.config import get_settings
 from smartapply.database import session_scope
 from smartapply.database.models import Application, Job, JobScore, JobStatus
 from smartapply.logging_setup import get_logger
-from smartapply.pipeline import ApplyReport, IngestReport, Pipeline, ProcessReport
+from smartapply.pipeline import ApplyReport, Pipeline
 from smartapply.pipeline.pipeline import freshness_kwargs
 
 logger = get_logger(__name__)

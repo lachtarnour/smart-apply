@@ -356,7 +356,7 @@ class Profile(BaseModel):
     def block_for_bullet(self, bullet_id: str) -> Experience | Project | None:
         return self.experience_for_bullet(bullet_id) or self.project_for_bullet(bullet_id)
 
-    def model_post_init(self, __context) -> None:  # noqa: D401
+    def model_post_init(self, _context) -> None:  # noqa: D401
         """Cross-field check: no bullet id collisions across experiences AND projects."""
         seen: set[str] = set()
         for bullet, _ in self._all_bullets():

@@ -30,17 +30,6 @@ def decide_strategy(
     """Pick the strategy from the LLM signal and the discovered artifacts."""
     if not has_contact_email:
         return "form_only"
-    if company_size == "large":
+    if company_size == "large" and has_application_url:
         return "email_and_form"
     return "email_only"
-
-
-STRATEGY_HINTS: dict[ApplicationStrategy, str] = {
-    "email_only": "Envoyer l'email — le formulaire n'est pas necessaire.",
-    "email_and_form": "Envoyer l'email ET soumettre via le formulaire ATS.",
-    "form_only": "Pas de contact email — soumettre via le formulaire ATS.",
-}
-
-
-def hint_for(strategy: str) -> str:
-    return STRATEGY_HINTS.get(strategy, "")  # type: ignore[arg-type]

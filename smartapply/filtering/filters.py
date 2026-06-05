@@ -10,8 +10,14 @@ from unidecode import unidecode
 
 from smartapply.filtering.rules import RuleSet
 from smartapply.profile import JobPreferences
+from smartapply.utils.contracts import (
+    INCOMPATIBLE_CONTRACT_TAGS,
+    contract_matches_accepted,
+    contract_type_tags,
+    normalize_contract_preferences,
+)
 from smartapply.utils.experience import required_min_years
-from smartapply.utils.location import is_foreign_location
+from smartapply.utils.location import is_foreign_location, is_french_location
 
 
 @dataclass
@@ -91,6 +97,43 @@ _CORE_DATA_TECH_TOKENS = (
     "sql",
 )
 
+_NEGATED_CORE_DATA_TECH_TOKENS = (
+    "no python",
+    "without python",
+    "pas de python",
+    "pas de developpement python",
+    "pas de développement python",
+    "no sql",
+    "without sql",
+    "pas de sql",
+    "no analytics ownership",
+    "without analytics ownership",
+    "sans ownership analytique",
+)
+
+_DATA_ENGINEERING_PLATFORM_TOKENS = (
+    "airflow",
+    "data platform",
+    "data warehouse",
+    "databricks",
+    "etl",
+    "informatica",
+    "snowflake",
+    "warehouse",
+)
+
+_ML_ANALYTICS_SCOPE_TOKENS = (
+    "ai",
+    "analytics",
+    "data science",
+    "machine learning",
+    "ml",
+    "python",
+    "statistical",
+    "statistique",
+    "statistics",
+)
+
 _DATA_AI_ANCHOR_TOKENS = (
     "ai",
     "artificial intelligence",
@@ -127,6 +170,8 @@ _TEAM_LEADERSHIP_TOKENS = (
     "pilotez une équipe",
 )
 
+_BROAD_FRANCE_LOCATION_PREFS = {"france", "fr"}
+
 
 def _contains_any(text: str, tokens: tuple[str, ...]) -> bool:
     for token in tokens:
@@ -138,12 +183,31 @@ def _contains_any(text: str, tokens: tuple[str, ...]) -> bool:
     return False
 
 
+def _specific_preferred_locations(preferred_locations: list[str]) -> list[str]:
+    return [
+        normalized
+        for loc in preferred_locations
+        if (normalized := _norm(loc)) and normalized not in _BROAD_FRANCE_LOCATION_PREFS
+    ]
+
+
+def _has_france_scope(preferred_locations: list[str]) -> bool:
+    return any(_norm(loc) in _BROAD_FRANCE_LOCATION_PREFS for loc in preferred_locations)
+
+
+def _is_remote_france(location: str | None, remote: str) -> bool:
+    if remote != "remote":
+        return False
+    norm = _norm(location)
+    return "france" in norm or bool(re.search(r"\bremote\b.*\bfr\b", norm))
+
+
 def ruleset_from_preferences(prefs: JobPreferences) -> RuleSet:
     return RuleSet(
         target_roles=[r.lower() for r in prefs.target_roles],
         deal_breakers=[d.lower() for d in prefs.deal_breakers],
         preferred_locations=[loc.lower() for loc in prefs.preferred_locations],
-        accepted_contract_types=[c.lower() for c in prefs.accepted_contract_types],
+        accepted_contract_types=normalize_contract_preferences(prefs.accepted_contract_types),
         accepted_remote_policies=[p.lower() for p in prefs.accepted_remote_policies],
     )
 
@@ -169,7 +233,7 @@ class JobFilter:
         # The candidate only targets the French market. Foreign offers are
         # dropped before any LLM analysis to save tokens.
         if is_foreign_location(job.location):
-            reasons.append(f"foreign_location:{(job.location or '').lower()}")
+            reasons.append(f"location_rejected_foreign:{(job.location or '').lower()}")
             return FilterResult(kept=False, score=0.0, reasons=reasons)
 
         # --- Hard reject: too-many years of experience required ---
@@ -187,6 +251,12 @@ class JobFilter:
         # Soft penalty on contract_off was not enough — internships sometimes
         # slipped through with a high semantic score. Now they're rejected
         # before any LLM analysis.
+        contract_tags = contract_type_tags(job.contract_type)
+        incompatible_tags = sorted(contract_tags & INCOMPATIBLE_CONTRACT_TAGS)
+        if contract and incompatible_tags:
+            reasons.append(f"blocked_contract_type:{contract} (tag '{incompatible_tags[0]}')")
+            return FilterResult(kept=False, score=0.0, reasons=reasons)
+
         if contract and self.rules.blocked_contract_types:
             matched = next(
                 (b for b in self.rules.blocked_contract_types if b in contract),
@@ -289,6 +359,14 @@ class JobFilter:
             reasons.append("finance_reporting_bi_without_core_data_tech")
             return FilterResult(kept=False, score=0.0, reasons=reasons)
 
+        reporting_without_core_data_tech = (
+            ("reporting" in title or "reporting" in description or "dashboard" in description)
+            and _contains_any(description, _NEGATED_CORE_DATA_TECH_TOKENS)
+        )
+        if reporting_without_core_data_tech:
+            reasons.append("reporting_without_core_data_tech")
+            return FilterResult(kept=False, score=0.0, reasons=reasons)
+
         reporting_bi_focus = (
             (
                 "analyst" in title
@@ -301,6 +379,15 @@ class JobFilter:
         )
         if reporting_bi_focus:
             reasons.append("reporting_bi_without_analytical_ownership")
+            return FilterResult(kept=False, score=0.0, reasons=reasons)
+
+        pure_data_engineering_role = (
+            bool(re.search(r"\bdata engineer(?:ing)?\b", title))
+            and _contains_any(combined, _DATA_ENGINEERING_PLATFORM_TOKENS)
+            and not _contains_any(combined, _ML_ANALYTICS_SCOPE_TOKENS)
+        )
+        if pure_data_engineering_role:
+            reasons.append("pure_data_engineering_role")
             return FilterResult(kept=False, score=0.0, reasons=reasons)
 
         mep_data_center_focus = (
@@ -349,19 +436,29 @@ class JobFilter:
 
         # --- Location ---
         if self.rules.preferred_locations:
-            if any(loc in location for loc in self.rules.preferred_locations):
+            specific_locations = _specific_preferred_locations(
+                self.rules.preferred_locations
+            )
+            accepts_france = _has_france_scope(self.rules.preferred_locations)
+            if any(loc in location for loc in specific_locations):
                 score += 0.1
-                reasons.append("location_match")
+                reasons.append("location_preferred")
+            elif _is_remote_france(job.location, remote):
+                score += 0.05
+                reasons.append("location_remote_france")
+            elif accepts_france and is_french_location(job.location):
+                score += 0.05
+                reasons.append("location_accepted_france")
             elif remote == "remote" and "remote" in self.rules.accepted_remote_policies:
                 score += 0.05
-                reasons.append("remote_acceptable")
+                reasons.append("location_remote_accepted")
             else:
-                score -= 0.1
-                reasons.append("location_mismatch")
+                score -= 0.05
+                reasons.append("location_unknown")
 
         # --- Contract type ---
         if self.rules.accepted_contract_types and contract:
-            if any(ct in contract for ct in self.rules.accepted_contract_types):
+            if contract_matches_accepted(job.contract_type, self.rules.accepted_contract_types):
                 reasons.append(f"contract_ok:{contract}")
             else:
                 score -= 0.1

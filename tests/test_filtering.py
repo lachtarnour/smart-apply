@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from smartapply.filtering import JobFilter, RuleSet, ruleset_from_preferences
 from smartapply.profile import get_profile
+from smartapply.utils.location import is_foreign_location
 
 
 @dataclass
@@ -37,6 +38,8 @@ def test_target_role_in_paris_kept_high_score() -> None:
     assert res.kept
     assert res.score >= 0.7
     assert "target_role:data scientist" in res.reasons
+    assert "location_preferred" in res.reasons
+    assert "location_mismatch" not in res.reasons
 
 
 def test_sales_role_rejected_by_negative_title() -> None:
@@ -100,7 +103,7 @@ def test_foreign_location_is_hard_rejected_even_when_remote() -> None:
     )
     res = f.evaluate(job)
     assert not res.kept
-    assert any("foreign_location" in r for r in res.reasons)
+    assert any("location_rejected_foreign" in r for r in res.reasons)
 
 
 def test_remote_eu_is_kept() -> None:
@@ -116,6 +119,39 @@ def test_remote_eu_is_kept() -> None:
     )
     res = f.evaluate(job)
     assert res.kept
+    assert "location_remote_accepted" in res.reasons
+
+
+def test_remote_us_is_foreign_and_rejected() -> None:
+    f = JobFilter(_real_rules())
+    job = FakeJob(
+        title="Data Scientist",
+        company="Acme",
+        description="Build ML pipelines.",
+        location="Remote US",
+        contract_type="Full-time",
+        remote_policy="remote",
+    )
+    res = f.evaluate(job)
+
+    assert not res.kept
+    assert any("location_rejected_foreign" in reason for reason in res.reasons)
+
+
+def test_remote_france_has_specific_location_reason() -> None:
+    f = JobFilter(_real_rules())
+    job = FakeJob(
+        title="Data Scientist",
+        company="Acme",
+        description="Build ML pipelines.",
+        location="Remote (France)",
+        contract_type="CDI",
+        remote_policy="remote",
+    )
+    res = f.evaluate(job)
+    assert res.kept
+    assert "location_remote_france" in res.reasons
+    assert "location_mismatch" not in res.reasons
 
 
 def test_filter_rejects_5plus_years_required() -> None:
@@ -460,8 +496,65 @@ def test_filter_keeps_cdi_contract_type() -> None:
     assert f.evaluate(job).kept
 
 
+def test_filter_accepts_multilingual_permanent_fulltime_contract_synonyms() -> None:
+    f = JobFilter(_real_rules())
+    contracts = (
+        "CDI",
+        "Contrat à durée indéterminée",
+        "Permanent",
+        "Permanent contract",
+        "Full-time",
+        "Full time",
+        "Fulltime",
+        "Temps plein",
+        "À temps plein",
+        "A plein temps",
+    )
+    for contract in contracts:
+        job = FakeJob(
+            title="Data Scientist",
+            company="Acme",
+            description="Build pipelines with Python.",
+            location="Paris",
+            contract_type=contract,
+        )
+        res = f.evaluate(job)
+        assert res.kept, contract
+        assert any(reason.startswith("contract_ok:") for reason in res.reasons), contract
+
+
+def test_filter_rejects_cdd_even_when_fulltime_is_visible() -> None:
+    f = JobFilter(_real_rules())
+    job = FakeJob(
+        title="Data Scientist",
+        company="Acme",
+        description="Build pipelines with Python.",
+        location="Paris",
+        contract_type="CDD temps plein",
+    )
+    res = f.evaluate(job)
+
+    assert not res.kept
+    assert any("blocked_contract_type" in reason for reason in res.reasons)
+
+
+def test_filter_rejects_contractor_contract_type() -> None:
+    f = JobFilter(_real_rules())
+    job = FakeJob(
+        title="AI Engineer",
+        company="Acme",
+        description="Build LLM products with Python.",
+        location="Paris",
+        contract_type="Contract",
+    )
+    res = f.evaluate(job)
+
+    assert not res.kept
+    assert any("blocked_contract_type" in reason for reason in res.reasons)
+
+
 def test_filter_blocked_contract_types_is_configurable() -> None:
-    """Project-specific override: relax for a user who DOES accept freelance."""
+    """Canonical incompatible contract tags still protect the current profile."""
     rules = _real_rules()
     rules.blocked_contract_types = ("stage",)  # only block stages
     f = JobFilter(rules)
@@ -472,12 +565,12 @@ def test_filter_blocked_contract_types_is_configurable() -> None:
         location="Paris",
         contract_type="Internship",
     )
-    # With the relaxed rules, internship is no longer hard-rejected by contract
-    res = f.evaluate(intern_job)
-    # Title still has 'internship' via deal_breakers though — adjust title to verify only contract path
+    assert not f.evaluate(intern_job).kept
+    # Title still has 'internship' via deal_breakers too — adjust title to verify
+    # the canonical contract tag remains protective by itself.
     rules.deal_breakers = [d for d in rules.deal_breakers if "intern" not in d and "apprentice" not in d]
     f2 = JobFilter(rules)
-    assert f2.evaluate(intern_job).kept
+    assert not f2.evaluate(intern_job).kept
 
 
 def test_filter_keeps_no_experience_mention() -> None:
@@ -522,7 +615,67 @@ def test_french_city_outside_paris_is_kept() -> None:
             contract_type="CDI",
             remote_policy="hybrid",
         )
-        assert f.evaluate(job).kept, city
+        res = f.evaluate(job)
+        assert res.kept, city
+        assert "location_accepted_france" in res.reasons
+        assert "location_mismatch" not in res.reasons
+
+
+def test_french_city_from_official_commune_cache_is_accepted(monkeypatch) -> None:  # noqa: ANN001
+    import smartapply.utils.location as location_utils
+
+    monkeypatch.setattr(
+        location_utils,
+        "_official_french_commune_names",
+        lambda: frozenset({"quimper"}),
+    )
+
+    f = JobFilter(_real_rules())
+    job = FakeJob(
+        title="Data Scientist",
+        company="Acme",
+        description="Build ML pipelines with PyTorch.",
+        location="Quimper",
+        contract_type="CDI",
+        remote_policy="hybrid",
+    )
+    res = f.evaluate(job)
+
+    assert res.kept
+    assert "location_accepted_france" in res.reasons
+    assert "location_mismatch" not in res.reasons
+
+
+def test_foreign_location_handles_strong_and_ambiguous_markers(monkeypatch) -> None:  # noqa: ANN001
+    import smartapply.utils.location as location_utils
+
+    monkeypatch.setattr(
+        location_utils,
+        "_official_french_commune_names",
+        lambda: frozenset({"montreal"}),
+    )
+
+    not_foreign = (
+        "Paris, France",
+        "75 - Paris",
+        "Remote France",
+        "Remote Europe",
+        "Montréal",
+    )
+    foreign = (
+        "Paris, TX",
+        "Paris, United States",
+        "Berlin, Germany",
+        "Berlin",
+        "Montreal, Canada",
+        "USA",
+        "UK",
+    )
+
+    for location in not_foreign:
+        assert not is_foreign_location(location), location
+    for location in foreign:
+        assert is_foreign_location(location), location
 
 
 def test_data_analyst_role_is_now_in_target_scope() -> None:
@@ -551,8 +704,41 @@ def test_bi_analyst_without_python_is_penalized() -> None:
         remote_policy="hybrid",
     )
     res = f.evaluate(job)
-    assert "analytics_without_python" in res.reasons
-    assert res.score < 0.7
+    assert not res.kept
+    assert any(
+        reason in res.reasons
+        for reason in ("analytics_without_python", "reporting_without_core_data_tech")
+    )
+
+
+def test_reporting_analyst_without_python_sql_is_rejected() -> None:
+    f = JobFilter(_real_rules())
+    job = FakeJob(
+        title="Reporting Analyst",
+        company="Acme",
+        description="Reporting dashboards only, no Python, no SQL, no analytics ownership.",
+        location="Paris",
+        contract_type="CDI",
+    )
+    res = f.evaluate(job)
+
+    assert not res.kept
+    assert "reporting_without_core_data_tech" in res.reasons
+
+
+def test_pure_data_engineer_platform_role_is_rejected() -> None:
+    f = JobFilter(_real_rules())
+    job = FakeJob(
+        title="Data Engineer",
+        company="Acme",
+        description="Own ETL, Airflow, warehouse modeling and data platform reliability.",
+        location="Paris",
+        contract_type="CDI",
+    )
+    res = f.evaluate(job)
+
+    assert not res.kept
+    assert "pure_data_engineering_role" in res.reasons
 
 
 def test_filter_many_partitions_jobs() -> None:

@@ -118,7 +118,7 @@ class Deduplicator:
 
         unique: list[JobLike] = []
         duplicate_groups: list[list[JobLike]] = []
-        for root, members in groups.items():
+        for _root, members in groups.items():
             members.sort()
             unique.append(jobs[members[0]])
             if len(members) > 1:

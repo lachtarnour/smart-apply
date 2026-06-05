@@ -17,7 +17,6 @@ from smartapply.database.models import (
     GeneratedDocument,
     Job,
     JobAnalysis,
-    JobEmbedding,
     JobScore,
     JobStatus,
     LLMCache,
@@ -45,10 +44,6 @@ def get_job_by_external_id(session: Session, external_id: str) -> Job | None:
     return session.execute(
         select(Job).where(Job.external_id == external_id)
     ).scalar_one_or_none()
-
-
-def get_job(session: Session, job_id: int) -> Job | None:
-    return session.get(Job, job_id)
 
 
 def list_jobs(
@@ -160,27 +155,6 @@ def set_analysis(session: Session, job_id: int, **fields: Any) -> JobAnalysis:
     for key, value in fields.items():
         setattr(existing, key, value)
     return existing
-
-
-# -------------------------- Embeddings --------------------------
-
-def set_embedding(session: Session, job_id: int, model: str, vector: list[float]) -> JobEmbedding:
-    existing = session.execute(
-        select(JobEmbedding).where(JobEmbedding.job_id == job_id)
-    ).scalar_one_or_none()
-    if existing is None:
-        emb = JobEmbedding(job_id=job_id, model=model, vector=vector)
-        session.add(emb)
-        return emb
-    existing.model = model
-    existing.vector = vector
-    return existing
-
-
-def get_embedding(session: Session, job_id: int) -> JobEmbedding | None:
-    return session.execute(
-        select(JobEmbedding).where(JobEmbedding.job_id == job_id)
-    ).scalar_one_or_none()
 
 
 # -------------------------- Contacts --------------------------

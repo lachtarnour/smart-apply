@@ -22,7 +22,6 @@ from smartapply.scrapers import (
     make_external_id,
 )
 
-
 # ============================ Helpers ============================
 
 def _mock_response(payload: dict[str, Any], status_code: int = 200) -> MagicMock:
@@ -191,7 +190,7 @@ def test_serpapi_maps_jobs_and_paginates(mocker) -> None:
     ]
     mocker.patch("smartapply.scrapers.serpapi.requests.get", side_effect=pages)
 
-    s = SerpApiGoogleJobsScraper(api_key="fake", hl="fr")
+    s = SerpApiGoogleJobsScraper(api_key="fake", hl="fr", low_result_fallback_target=10)
     jobs = list(s.search("data scientist"))
     assert len(jobs) == 2
     first, second = jobs
@@ -242,7 +241,7 @@ def test_serpapi_respects_max_results(mocker) -> None:
         "smartapply.scrapers.serpapi.requests.get",
         return_value=_mock_response(_sample_serpapi_page(jobs_page, "tok")),
     )
-    s = SerpApiGoogleJobsScraper(api_key="fake", hl="fr")
+    s = SerpApiGoogleJobsScraper(api_key="fake", hl="fr", low_result_fallback_target=10)
     out = list(s.search("data", max_results=3))
     assert len(out) == 3
 
@@ -268,9 +267,42 @@ def test_serpapi_respects_max_pages_even_with_max_results(mocker) -> None:
             make_page(3, None),
         ],
     )
-    s = SerpApiGoogleJobsScraper(api_key="fake", max_pages=1, hl="fr")
+    s = SerpApiGoogleJobsScraper(
+        api_key="fake",
+        max_pages=1,
+        hl="fr",
+        low_result_fallback_target=10,
+    )
     out = list(s.search("data", max_results=25))
     assert len(out) == 10
+    assert get_mock.call_count == 1
+
+
+def test_serpapi_does_not_low_result_fallback_without_max_results(mocker) -> None:
+    jobs_page = [
+        {
+            "title": f"Data Scientist {i}",
+            "company_name": "Acme",
+            "description": "Build ML.",
+            "job_id": f"strict-{i}",
+        }
+        for i in range(2)
+    ]
+    get_mock = mocker.patch(
+        "smartapply.scrapers.serpapi.requests.get",
+        return_value=_mock_response(_sample_serpapi_page(jobs_page, None)),
+    )
+
+    s = SerpApiGoogleJobsScraper(api_key="fake", hl="fr", low_result_fallback_target=10)
+    jobs = list(
+        s.search(
+            "Data Scientist",
+            chips="employment_type:FULLTIME",
+            date_posted="week",
+        )
+    )
+
+    assert len(jobs) == 2
     assert get_mock.call_count == 1
 
 
@@ -562,6 +594,138 @@ def test_serpapi_widens_zero_result_date_filter_before_giving_up(mocker) -> None
     )
 
 
+def test_serpapi_widens_low_result_strict_chips(mocker) -> None:
+    first_page_jobs = [
+        {
+            "title": f"Machine Learning Engineer {i}",
+            "company_name": "Acme",
+            "location": "Paris",
+            "description": "Build ML models.",
+            "job_id": f"strict-{i}",
+            "detected_extensions": {"schedule_type": "Full-time"},
+        }
+        for i in range(2)
+    ]
+    wider_page_jobs = [
+        {
+            "title": f"Data Scientist {i}",
+            "company_name": "Beta",
+            "location": "Paris",
+            "description": "Build data products.",
+            "job_id": f"wider-{i}",
+            "detected_extensions": {"schedule_type": "Full-time"},
+        }
+        for i in range(8)
+    ]
+    get_mock = mocker.patch(
+        "smartapply.scrapers.serpapi.requests.get",
+        side_effect=[
+            _mock_response(_sample_serpapi_page(first_page_jobs, None)),
+            _mock_response(_sample_serpapi_page(wider_page_jobs, None)),
+        ],
+    )
+
+    s = SerpApiGoogleJobsScraper(api_key="fake", hl="fr", low_result_fallback_target=10)
+    jobs = list(
+        s.search(
+            "Machine Learning Engineer",
+            chips="employment_type:FULLTIME",
+            date_posted="week",
+            max_results=20,
+        )
+    )
+
+    assert len(jobs) == 10
+    assert get_mock.call_count == 2
+    assert jobs[0].source_data["_smartapply_search"]["result_origin"] == "strict"
+    assert jobs[-1].source_data["_smartapply_search"] == {
+        "query": "Machine Learning Engineer",
+        "location": "Paris, France",
+        "google_domain": "google.com",
+        "hl": "fr",
+        "gl": "fr",
+        "result_origin": "fallback",
+        "strict_chips": "employment_type:FULLTIME,date_posted:week",
+        "fallback_reason": "low_result_strict_filters",
+        "fallback_chips": "employment_type:FULLTIME,date_posted:month",
+        "fallback_query": "Machine Learning Engineer",
+    }
+    assert get_mock.call_args_list[0].kwargs["params"]["chips"] == (
+        "employment_type:FULLTIME,date_posted:week"
+    )
+    assert get_mock.call_args_list[1].kwargs["params"]["chips"] == (
+        "employment_type:FULLTIME,date_posted:month"
+    )
+
+
+def test_serpapi_low_result_target_can_exceed_one_page(mocker) -> None:
+    first_page_jobs = [
+        {
+            "title": f"Machine Learning Engineer {i}",
+            "company_name": "Acme",
+            "location": "Paris",
+            "description": "Build ML models.",
+            "job_id": f"strict-{i}",
+            "detected_extensions": {"schedule_type": "Full-time"},
+        }
+        for i in range(2)
+    ]
+    fallback_page1 = [
+        {
+            "title": f"Data Scientist fallback p1 {i}",
+            "company_name": "Beta",
+            "location": "Paris",
+            "description": "Build data products.",
+            "job_id": f"fallback-p1-{i}",
+            "detected_extensions": {"schedule_type": "Full-time"},
+        }
+        for i in range(10)
+    ]
+    fallback_page2 = [
+        {
+            "title": f"Data Scientist fallback p2 {i}",
+            "company_name": "Gamma",
+            "location": "Paris",
+            "description": "Build data products.",
+            "job_id": f"fallback-p2-{i}",
+            "detected_extensions": {"schedule_type": "Full-time"},
+        }
+        for i in range(8)
+    ]
+    get_mock = mocker.patch(
+        "smartapply.scrapers.serpapi.requests.get",
+        side_effect=[
+            _mock_response(_sample_serpapi_page(first_page_jobs, None)),
+            _mock_response(_sample_serpapi_page(fallback_page1, "fallback-page-2")),
+            _mock_response(_sample_serpapi_page(fallback_page2, None)),
+        ],
+    )
+
+    s = SerpApiGoogleJobsScraper(
+        api_key="fake",
+        max_pages=3,
+        hl="fr",
+        low_result_fallback_target=20,
+    )
+    jobs = list(
+        s.search(
+            "Machine Learning Engineer",
+            chips="employment_type:FULLTIME",
+            date_posted="week",
+            max_results=20,
+        )
+    )
+
+    assert len(jobs) == 20
+    assert get_mock.call_count == 3
+    assert get_mock.call_args_list[1].kwargs["params"]["chips"] == (
+        "employment_type:FULLTIME,date_posted:month"
+    )
+    assert get_mock.call_args_list[2].kwargs["params"]["next_page_token"] == (
+        "fallback-page-2"
+    )
+
+
 def test_serpapi_stops_when_no_results(mocker) -> None:
     mocker.patch(
         "smartapply.scrapers.serpapi.requests.get",
@@ -666,7 +830,7 @@ def test_francetravail_date_posted_week_sends_creation_window(mocker) -> None:
     mocker.patch(
         "smartapply.scrapers.francetravail.datetime",
         wraps=datetime,
-        now=lambda tz=None: fixed_now,
+        now=lambda tz=None: fixed_now.astimezone(tz) if tz else fixed_now,
     )
 
     s = FranceTravailScraper(client_id="cid", client_secret="csec")
@@ -715,7 +879,7 @@ def test_francetravail_date_posted_today_uses_one_day_window(mocker) -> None:
     mocker.patch(
         "smartapply.scrapers.francetravail.datetime",
         wraps=datetime,
-        now=lambda tz=None: fixed_now,
+        now=lambda tz=None: fixed_now.astimezone(tz) if tz else fixed_now,
     )
 
     s = FranceTravailScraper(client_id="cid", client_secret="csec")

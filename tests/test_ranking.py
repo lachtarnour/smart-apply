@@ -7,11 +7,11 @@ from types import SimpleNamespace
 
 from smartapply.profile import get_profile
 from smartapply.ranking import (
+    WEIGHTS,
     EmbeddingsProvider,
     JobScorer,
     MockEmbeddingsProvider,
     ScoreComponents,
-    WEIGHTS,
     cosine_similarity,
     get_embeddings_provider,
 )
@@ -244,6 +244,19 @@ def test_scorer_still_penalizes_foreign_location() -> None:
     scorer = JobScorer(profile, embeddings=MockEmbeddingsProvider())
     foreign = FakeJob("Data Scientist", "ML role", location="Berlin, Germany")
     assert scorer.score(foreign).location <= 0.25
+
+
+def test_scorer_caps_foreign_location_final_score() -> None:
+    profile = get_profile()
+    scorer = JobScorer(profile, embeddings=MockEmbeddingsProvider())
+    foreign = FakeJob(
+        "Data Scientist",
+        "Python, PyTorch, NLP, machine learning, SQL and strong profile match.",
+        location="Berlin, Germany",
+    )
+    score = scorer.score(foreign)
+    assert score.final <= 0.35
+    assert score.cap == 0.35
 
 
 def test_scorer_paris_still_gets_top_location() -> None:

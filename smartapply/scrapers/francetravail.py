@@ -19,6 +19,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from smartapply.config import get_settings
 from smartapply.logging_setup import get_logger
 from smartapply.scrapers.base import RawJob, Scraper, ScraperConfigError, make_external_id
+from smartapply.utils.contracts import normalize_source_contract_type
 
 logger = get_logger(__name__)
 
@@ -228,7 +229,9 @@ class FranceTravailScraper(Scraper):
         ]
         description = "".join(p for p in description_parts if p)
 
-        contract_type = raw.get("typeContratLibelle") or raw.get("natureContrat")
+        contract_type = normalize_source_contract_type(
+            raw.get("typeContratLibelle") or raw.get("natureContrat")
+        )
         remote_policy: str | None = None
         if isinstance(raw.get("trancheSalaire"), str) and "télétravail" in raw.get(
             "trancheSalaire", ""

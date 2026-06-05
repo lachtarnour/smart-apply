@@ -77,6 +77,25 @@ for key, default in DEFAULTS.items():
     st.session_state.setdefault(key, default)
 
 
+def _serpapi_effective_config(
+    *,
+    max_results: int,
+    date_posted: str,
+    location: str | None,
+) -> str:
+    fallback_target = settings.serpapi_low_result_fallback_target
+    effective_fallback = min(max_results, fallback_target) if fallback_target > 0 else 0
+    freshness = SERPAPI_DATE_POSTED_LABELS.get(date_posted, date_posted)
+    return (
+        "SerpApi config effective : "
+        f"lieu {location or settings.serpapi_default_location} · "
+        f"fraîcheur {freshness} · "
+        f"résultats/source {max_results} · "
+        f"fallback {effective_fallback} · "
+        f"pages max {settings.serpapi_max_pages}"
+    )
+
+
 def reset_workflow() -> None:
     for key, default in DEFAULTS.items():
         st.session_state[key] = default
@@ -410,36 +429,6 @@ def _render_rejected_offer_controls() -> None:
                 st.rerun()
 
 
-def _jobs_df(job_ids: list[int]) -> pd.DataFrame:
-    """Legacy helper kept for step 3/4 — by-id snapshot."""
-    if not job_ids:
-        return pd.DataFrame()
-    rows: list[dict[str, Any]] = []
-    with session_scope() as s:
-        for job in s.query(Job).filter(Job.id.in_(job_ids)).all():
-            rows.append(
-                {
-                    "keep": True,
-                    "id": job.id,
-                    "title": job.title,
-                    "company": job.company,
-                    "location": job.location or "",
-                    "contract": job.contract_type or "",
-                    "status": job.status,
-                    "score": (
-                        round(job.score.final_score, 3)
-                        if job.score and job.score.final_score is not None
-                        else None
-                    ),
-                    "url": job.application_url or "",
-                }
-            )
-    df = pd.DataFrame(rows)
-    if "score" in df.columns:
-        df = df.sort_values("score", ascending=False, na_position="last")
-    return df
-
-
 def _analyzed_jobs_df(job_ids: list[int] | None = None) -> pd.DataFrame:
     """Jobs that already have an LLM analysis and can move to generation."""
     rows: list[dict[str, Any]] = []
@@ -515,14 +504,6 @@ def _kept_ids_from_full_df(df: pd.DataFrame) -> list[int]:
         for _, row in df.iterrows()
         if bool(keep_map.get(int(row["id"]), bool(row.get("keep", True))))
     ]
-
-
-def _generated_app_ids_for_jobs(job_ids: list[int]) -> list[int]:
-    if not job_ids:
-        return []
-    with session_scope() as s:
-        apps = s.query(Application).filter(Application.job_id.in_(job_ids)).all()
-        return [int(app.id) for app in apps]
 
 
 def _existing_generated_application_ids(limit: int = 50) -> list[int]:
@@ -725,6 +706,14 @@ def step1_fetch() -> None:
                 )
             with col3:
                 max_per_source = st.slider("Résultats/source", 5, 300, 15)
+                if "serpapi" in sources:
+                    st.caption(
+                        _serpapi_effective_config(
+                            max_results=int(max_per_source),
+                            date_posted=date_posted,
+                            location=location,
+                        )
+                    )
             submitted = st.form_submit_button("Lancer la recherche", type="primary")
 
     with tab_auto:
@@ -768,6 +757,14 @@ def step1_fetch() -> None:
             with a3:
                 auto_target = st.number_input("Objectif", min_value=1, max_value=50, value=8)
                 auto_max = st.number_input("Résultats/source", min_value=5, max_value=300, value=25)
+                if "serpapi" in auto_sources:
+                    st.caption(
+                        _serpapi_effective_config(
+                            max_results=int(auto_max),
+                            date_posted=auto_date,
+                            location=auto_location,
+                        )
+                    )
                 auto_gmail = st.toggle("Créer brouillons Gmail", value=False)
             auto_submitted = st.form_submit_button("Lancer autopilot", type="primary")
 

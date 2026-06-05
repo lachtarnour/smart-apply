@@ -30,8 +30,8 @@ from smartapply.database.models import Job, JobStatus
 from smartapply.database.repository import (
     add_contact,
     create_or_get_application,
-    upsert_document,
     update_status,
+    upsert_document,
 )
 from smartapply.email_agent import (
     ContactCandidate,
@@ -40,7 +40,6 @@ from smartapply.email_agent import (
 )
 from smartapply.email_agent.eml_export import MISSING_RECIPIENT_PLACEHOLDER
 from smartapply.email_agent.gmail_draft import GmailDraftError, create_draft
-from smartapply.utils.strategy import decide_strategy
 from smartapply.llm import (
     ApplicationQualityReview,
     EmailDraft,
@@ -54,6 +53,7 @@ from smartapply.pipeline.application_renderer import ApplicationDocumentRenderer
 from smartapply.pipeline.contact_service import ContactService
 from smartapply.pipeline.language import detect_offer_language
 from smartapply.profile import Profile
+from smartapply.utils.strategy import decide_strategy
 
 logger = get_logger(__name__)
 
@@ -480,6 +480,8 @@ class Applier:
             application_url=job.application_url,
             contact_domain_hint=analysis.contact_domain_hint,
             contact_domain_kind=analysis.contact_domain_kind,
+            job_description=job.cleaned_description or job.description,
+            analysis=analysis,
             job_location=analysis.extracted_location or job.location,
         )
         return (candidate.email if candidate else None), candidate

@@ -11,7 +11,6 @@ import click
 from smartapply.config import get_settings
 from smartapply.database import init_db as _init_db
 from smartapply.database import session_scope
-from smartapply.database.models import Application, Job, JobStatus
 from smartapply.database.repository import (
     list_applications,
     list_jobs,
