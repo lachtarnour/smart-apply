@@ -12,7 +12,11 @@ from typing import Any
 
 from smartapply.database import session_scope
 from smartapply.database.models import JobStatus
-from smartapply.database.repository import get_job_by_external_id, upsert_job
+from smartapply.database.repository import (
+    get_job_by_external_id,
+    get_known_external_ids,
+    upsert_job,
+)
 from smartapply.logging_setup import get_logger
 from smartapply.parsing import clean_description
 from smartapply.scrapers import ManualScraper, get_scraper
@@ -117,7 +121,36 @@ class IngestReport:
     inserted: int = 0
     updated_pending: int = 0
     skipped_processed: int = 0
+    # Raw offers whose external_id was already in the DB and were dropped
+    # during the round-robin *before* counting against ``max_results``.
+    # This is the metric that surfaces "the scraper paginated past known
+    # offers to look for genuinely new ones".
+    skipped_known_during_collect: int = 0
+    # True when the collector stopped because it hit the raw-fetch safety
+    # cap (``max_results`` × scan budget) instead of either reaching
+    # ``max_results`` new offers or exhausting the source. Useful in
+    # the UI to suggest raising the slider.
+    hit_raw_seen_cap: bool = False
     search_audit: list[dict[str, Any]] = field(default_factory=list)
+
+
+# How many raw offers a single round-robin run is allowed to *examine*
+# before giving up. The cap is multiplicative on ``max_results`` so a
+# small request stays cheap while a 300-item request gets the headroom
+# to skip a few thousand already-known offers if needed. The bound
+# guarantees the loop terminates even if a misbehaving scraper yields
+# endless duplicates.
+_RAW_SEEN_MULTIPLIER = 10
+_RAW_SEEN_MIN = 50
+
+
+@dataclass(frozen=True)
+class _CollectResult:
+    """Outcome of one ``_collect_round_robin`` invocation."""
+
+    raw_jobs: list[RawJob]
+    skipped_known: int
+    hit_raw_seen_cap: bool
 
 
 class Ingestor:
@@ -156,15 +189,24 @@ class Ingestor:
             queries,
             location,
         )
-        raw_jobs = self._collect_round_robin(
+        with session_scope() as s:
+            known_external_ids = get_known_external_ids(s, source)
+        collect_result = self._collect_round_robin(
             scraper=scraper,
             queries=queries,
             location=location,
             max_results=max_results,
             search_kwargs=search_kwargs,
+            known_external_ids=known_external_ids,
         )
-        search_audit = _build_search_audit(raw_jobs)
-        return self._persist(source, raw_jobs, search_audit=search_audit)
+        search_audit = _build_search_audit(collect_result.raw_jobs)
+        return self._persist(
+            source,
+            collect_result.raw_jobs,
+            search_audit=search_audit,
+            collect_skipped_known=collect_result.skipped_known,
+            hit_raw_seen_cap=collect_result.hit_raw_seen_cap,
+        )
 
     def _collect_round_robin(
         self,
@@ -174,49 +216,81 @@ class Ingestor:
         location: str | None,
         max_results: int | None,
         search_kwargs: dict,
-    ) -> list[RawJob]:
+        known_external_ids: set[str] | None = None,
+    ) -> _CollectResult:
         """Collect results fairly across expanded queries.
 
-        ``max_results`` is the global target, not a per-query quota. Each
-        concrete query can yield up to that target; this avoids wasting paid
-        SerpApi pages by taking only 2-4 jobs from a 10-result page. A
-        round-robin pass prevents the first broad query from consuming the
-        whole target before the other role titles get a chance.
+        ``max_results`` is the global target of **new** offers (not yet in
+        the DB), not a per-query quota and not a raw-fetch quota. The
+        round-robin keeps paginating past already-known offers until it
+        either accumulates ``max_results`` new ones, exhausts the source,
+        or hits the raw-scan safety cap.
+
+        ``known_external_ids`` is the set of offers already persisted for
+        this source. Offers in that set are skipped before counting
+        against ``max_results`` so a few hundred known duplicates at the
+        top of the API feed do not collapse the budget to zero.
         """
         if not queries:
-            return []
+            return _CollectResult([], 0, False)
+        known = known_external_ids or set()
         raw_jobs: list[RawJob] = []
         seen_external_ids: set[str] = set()
+        skipped_known = 0
+        raw_seen = 0
+        # Give each iterator generous room so the scraper paginates deep
+        # enough to surface new offers. The round-robin enforces the real
+        # cap below; the per-iterator value is just a safety bound to
+        # avoid SerpApi-style overshoots.
+        if max_results is None:
+            scraper_budget: int | None = None
+            raw_seen_cap: int | None = None
+        else:
+            scraper_budget = max(_RAW_SEEN_MIN, max_results * _RAW_SEEN_MULTIPLIER)
+            raw_seen_cap = scraper_budget
         iterators = [
             iter(
                 scraper.search(
                     concrete_query,
                     location=location,
-                    max_results=max_results,
+                    max_results=scraper_budget,
                     **search_kwargs,
                 )
             )
             for concrete_query in queries
         ]
         active = [True] * len(iterators)
+        hit_cap = False
         while any(active):
             for i, iterator in enumerate(iterators):
                 if not active[i]:
                     continue
                 if max_results is not None and len(raw_jobs) >= max_results:
-                    return raw_jobs
+                    return _CollectResult(raw_jobs, skipped_known, hit_cap)
+                if raw_seen_cap is not None and raw_seen >= raw_seen_cap:
+                    hit_cap = True
+                    return _CollectResult(raw_jobs, skipped_known, hit_cap)
                 try:
                     raw = next(iterator)
                 except StopIteration:
                     active[i] = False
                     continue
+                raw_seen += 1
                 if raw.external_id in seen_external_ids:
+                    # Intra-call deduplication (e.g. the same offer surfaced
+                    # by two expanded queries) — silent, do not count.
                     continue
                 seen_external_ids.add(raw.external_id)
+                if raw.external_id in known:
+                    # Already persisted by a previous run: skip *without*
+                    # touching ``max_results`` so we keep looking for new
+                    # offers further down the API feed.
+                    skipped_known += 1
+                    continue
                 raw_jobs.append(raw)
                 if max_results is not None and len(raw_jobs) >= max_results:
-                    return raw_jobs
-        return raw_jobs
+                    return _CollectResult(raw_jobs, skipped_known, hit_cap)
+        return _CollectResult(raw_jobs, skipped_known, hit_cap)
 
     def from_url(self, url: str) -> IngestReport:
         return self._persist("manual", [ManualScraper().from_url(url)])
@@ -245,6 +319,8 @@ class Ingestor:
         raws: list[RawJob],
         *,
         search_audit: list[dict[str, Any]] | None = None,
+        collect_skipped_known: int = 0,
+        hit_raw_seen_cap: bool = False,
     ) -> IngestReport:
         job_ids: list[int] = []
         inserted = 0
@@ -286,6 +362,8 @@ class Ingestor:
             inserted=inserted,
             updated_pending=updated_pending,
             skipped_processed=skipped_processed,
+            skipped_known_during_collect=collect_skipped_known,
+            hit_raw_seen_cap=hit_raw_seen_cap,
             search_audit=search_audit or [],
         )
 

@@ -46,6 +46,23 @@ def get_job_by_external_id(session: Session, external_id: str) -> Job | None:
     ).scalar_one_or_none()
 
 
+def get_known_external_ids(session: Session, source: str) -> set[str]:
+    """Return every ``external_id`` already persisted for ``source``.
+
+    Loaded as a single SQL ``SELECT external_id`` so it stays cheap even
+    on a database with tens of thousands of jobs. Callers use this to
+    pre-deduplicate during scraper collection: if an offer's external_id
+    is already known, it does not count against the ``max_results`` quota,
+    so the collector can keep paginating until it finds genuinely new
+    offers instead of returning ``0 new`` when the API's top-N happens
+    to overlap with the DB.
+    """
+    rows = session.execute(
+        select(Job.external_id).where(Job.source == source)
+    ).scalars()
+    return {row for row in rows if row}
+
+
 def list_jobs(
     session: Session,
     *,

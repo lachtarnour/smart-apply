@@ -246,7 +246,11 @@ def test_ingestor_splits_or_queries_and_balances_results(monkeypatch: pytest.Mon
         "Ingénieur Intelligence Artificielle",
         "AI ML Engineer",
     ]
-    assert [max_results for _, max_results in calls] == [11] * 11
+    # Each scraper call now gets a generous raw budget (``max_results`` × 10)
+    # so the round-robin can paginate past already-known offers without
+    # blowing the global cap. The collector itself still enforces the
+    # real cap of 11 new offers — see ``_collect_round_robin``.
+    assert [max_results for _, max_results in calls] == [110] * 11
     assert report.fetched == 11
     assert report.persisted == 11
     from smartapply.database import session_scope
@@ -273,6 +277,138 @@ def test_ingestor_splits_or_queries_and_balances_results(monkeypatch: pytest.Mon
         "Ingénieur Intelligence Artificielle": 1,
         "AI ML Engineer": 1,
     }
+
+
+# ---- max_results semantics: "new offers", not "raw fetched" -----------------
+# Regression guard for the bug where re-running a France Travail search
+# returned ``0 nouvelle(s)`` because the most recent offers in the API were
+# already in the DB and consumed the whole ``max_results`` quota before any
+# new offer could surface.
+
+
+def _yielding_scraper(yields: list[RawJob]) -> type:
+    """Build a deterministic scraper class that yields the same list each call."""
+
+    class _FakeScraper:
+        name = "fake"
+
+        def is_available(self) -> bool:  # noqa: D401
+            return True
+
+        def search(self, query, location=None, *, max_results=None, **kwargs):  # noqa: ANN001, ARG002
+            limit = max_results if max_results is not None else len(yields)
+            yield from yields[:limit]
+
+    return _FakeScraper
+
+
+def _fake_raw_jobs(n: int) -> list[RawJob]:
+    return [
+        RawJob(
+            external_id=f"fake:{i:03d}",
+            title=f"Data Scientist {i}",
+            company=f"Acme {i}",
+            location="Paris",
+            description="Build ML pipelines.",
+            source="fake",
+        )
+        for i in range(n)
+    ]
+
+
+def test_collect_skips_known_external_ids_and_finds_genuinely_new(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cas 1 : les 5 premières offres FT sont déjà en DB, les 5 suivantes
+    sont nouvelles. ``max_results=5`` doit retourner les 5 nouvelles."""
+    from smartapply.pipeline.ingestor import Ingestor
+
+    yields = _fake_raw_jobs(20)
+    monkeypatch.setattr(
+        "smartapply.pipeline.ingestor.get_scraper",
+        lambda source: _yielding_scraper(yields)(),
+    )
+    ing = Ingestor()
+    first = ing.from_source("fake", "Data Scientist", max_results=5, split_or=False)
+    assert first.inserted == 5
+    assert first.skipped_known_during_collect == 0
+
+    second = ing.from_source("fake", "Data Scientist", max_results=5, split_or=False)
+    assert second.inserted == 5, (
+        f"second run should find the next 5 new offers, got "
+        f"inserted={second.inserted} skipped_known={second.skipped_known_during_collect}"
+    )
+    assert second.skipped_known_during_collect == 5
+    # The pre-filter caught every duplicate before persist, so the per-row
+    # ``skipped_processed`` / ``updated_pending`` paths stay quiet.
+    assert second.skipped_processed == 0
+    assert second.updated_pending == 0
+    assert second.hit_raw_seen_cap is False
+
+
+def test_collect_safety_cap_stops_when_every_offer_is_known(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cas 2 : toutes les offres yieldées sont déjà connues — le collecteur
+    s'arrête grâce à la limite de sécurité (``max_results × 10``), pas par
+    boucle infinie."""
+    from smartapply.pipeline.ingestor import Ingestor
+
+    yields = _fake_raw_jobs(200)  # supply far above the cap
+    monkeypatch.setattr(
+        "smartapply.pipeline.ingestor.get_scraper",
+        lambda source: _yielding_scraper(yields)(),
+    )
+    ing = Ingestor()
+    # Pre-seed the DB with all 200 external_ids.
+    first = ing.from_source("fake", "q", max_results=200, split_or=False)
+    assert first.inserted == 200
+
+    # max_results=5 → raw cap = max(50, 5*10) = 50. The collector should
+    # scan 50 known offers then bail out.
+    second = ing.from_source("fake", "q", max_results=5, split_or=False)
+    assert second.inserted == 0
+    assert second.skipped_known_during_collect == 50
+    assert second.hit_raw_seen_cap is True
+
+
+def test_collect_preserves_intra_call_deduplication(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cas 3 : la dédup intra-call (même offre yieldée deux fois dans la
+    même recherche) reste silencieuse — pas comptée dans
+    ``skipped_known_during_collect`` ni dans ``inserted``."""
+    from smartapply.pipeline.ingestor import Ingestor
+
+    duplicated = _fake_raw_jobs(3)
+    yields = duplicated + duplicated  # each ID surfaces twice
+    monkeypatch.setattr(
+        "smartapply.pipeline.ingestor.get_scraper",
+        lambda source: _yielding_scraper(yields)(),
+    )
+    ing = Ingestor()
+    report = ing.from_source("fake", "q", max_results=10, split_or=False)
+    assert report.inserted == 3, f"expected 3 unique, got {report.inserted}"
+    assert report.skipped_known_during_collect == 0
+
+
+def test_collect_caps_new_offers_at_max_results(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cas 4 : ``max_results=5`` retourne au maximum 5 **nouvelles** offres,
+    même si le scraper continue de yielder plus loin."""
+    from smartapply.pipeline.ingestor import Ingestor
+
+    yields = _fake_raw_jobs(100)
+    monkeypatch.setattr(
+        "smartapply.pipeline.ingestor.get_scraper",
+        lambda source: _yielding_scraper(yields)(),
+    )
+    ing = Ingestor()
+    report = ing.from_source("fake", "q", max_results=5, split_or=False)
+    assert report.inserted == 5
+    assert report.fetched == 5
+    assert report.skipped_known_during_collect == 0
 
 
 def test_ingestor_reports_serpapi_fallback_audit(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -467,6 +603,7 @@ def test_francetravail_does_not_force_cdi_when_cdd_is_accepted(
     monkeypatch.setattr("smartapply.pipeline.ingestor.get_scraper", lambda source: FakeScraper())
 
     pipeline = Pipeline(embeddings=MockEmbeddingsProvider(), llm=MockLLMProvider())
+    pipeline.profile = pipeline.profile.model_copy(deep=True)
     pipeline.profile.preferences.accepted_contract_types = ["CDI", "CDD"]
     pipeline.ingest("francetravail", "Data Scientist", max_results=1)
 
@@ -552,6 +689,76 @@ def test_process_pending_can_analyze_only_selected_jobs() -> None:
         assert later.status == JobStatus.SCRAPED
 
 
+def test_rank_pending_scores_without_llm_analysis() -> None:
+    from smartapply.database import session_scope
+    from smartapply.database.models import Job, JobStatus
+    from smartapply.pipeline import Pipeline
+
+    p = Pipeline(embeddings=MockEmbeddingsProvider(), llm=MockLLMProvider())
+    first = p.ingest_text(
+        text="Construire des modèles Machine Learning avec Python, SQL et PyTorch. CDI Paris.",
+        title="Data Scientist",
+        company="ScoreCo",
+        location="Paris",
+    )
+    second = p.ingest_text(
+        text="Analyser des données produit avec Python, SQL et expérimentation. CDI Lyon.",
+        title="Product Data Analyst",
+        company="RankCo",
+        location="Lyon",
+    )
+
+    report = p.rank_pending(
+        top_k_ranked=1,
+        job_ids=[first.job_ids[0], second.job_ids[0]],
+    )
+
+    assert report.total == 2
+    assert report.ranked == 2
+    assert report.shortlisted == 1
+    with session_scope() as s:
+        jobs = s.query(Job).filter(Job.id.in_(report.ranked_ids)).all()
+        assert all(job.score and job.score.final_score is not None for job in jobs)
+        assert all(job.analyzed_at is None for job in jobs)
+        assert sum(job.status == JobStatus.SHORTLISTED for job in jobs) == 1
+
+
+def test_analyze_jobs_only_selected_ranked_jobs() -> None:
+    _register_llm_responses()
+    from smartapply.database import session_scope
+    from smartapply.database.models import Job, JobStatus
+    from smartapply.pipeline import Pipeline
+
+    p = Pipeline(embeddings=MockEmbeddingsProvider(), llm=MockLLMProvider())
+    first = p.ingest_text(
+        text="Construire des modèles Machine Learning avec Python, SQL et PyTorch. CDI Paris.",
+        title="Data Scientist",
+        company="AnalyzeCo",
+        location="Paris",
+    )
+    second = p.ingest_text(
+        text="Analyser des données produit avec Python, SQL et expérimentation. CDI Lyon.",
+        title="Product Data Analyst",
+        company="LaterRankCo",
+        location="Lyon",
+    )
+    p.rank_pending(
+        top_k_ranked=2,
+        job_ids=[first.job_ids[0], second.job_ids[0]],
+    )
+
+    report = p.analyze_jobs([first.job_ids[0]])
+
+    assert report.requested == 1
+    assert report.analyzed == 1
+    with session_scope() as s:
+        selected = s.get(Job, first.job_ids[0])
+        later = s.get(Job, second.job_ids[0])
+        assert selected.status == JobStatus.ANALYZED
+        assert later.status == JobStatus.SHORTLISTED
+        assert later.analyzed_at is None
+
+
 def test_filter_pending_archives_internships_before_llm() -> None:
     from smartapply.database import session_scope
     from smartapply.database.models import Job, JobStatus
@@ -582,7 +789,60 @@ def test_filter_pending_archives_internships_before_llm() -> None:
         stage_job = s.get(Job, stage.job_ids[0])
         cdi_job = s.get(Job, cdi.job_ids[0])
         assert stage_job.status == JobStatus.ARCHIVED
+        assert stage_job.score.components["rejection_stage"] == "local_filter"
+        assert any(
+            "blocked_contract_visible_text:stage" in reason
+            for reason in stage_job.score.components["rejection_reasons"]
+        )
         assert cdi_job.status == JobStatus.SCRAPED
+
+
+def test_filter_pending_records_duplicate_archive_reason() -> None:
+    from smartapply.database import session_scope
+    from smartapply.database.models import Job, JobStatus
+    from smartapply.database.repository import upsert_job
+    from smartapply.pipeline import Pipeline
+
+    with session_scope() as s:
+        first = upsert_job(
+            s,
+            external_id="manual:duplicate-a",
+            title="Data Scientist",
+            company="Acme",
+            description="Build ML models with Python and PyTorch.",
+            location="Paris",
+            contract_type="CDI",
+            source="manual",
+        )
+        second = upsert_job(
+            s,
+            external_id="manual:duplicate-b",
+            title="Data Scientist H/F",
+            company="Acme SAS",
+            description="Build ML models with Python and PyTorch.",
+            location="Paris",
+            contract_type="CDI",
+            source="manual",
+        )
+        first_id = first.id
+        second_id = second.id
+
+    p = Pipeline(embeddings=MockEmbeddingsProvider(), llm=MockLLMProvider())
+    report = p.filter_pending(job_ids=[first_id, second_id])
+
+    assert report.duplicates_removed == 1
+    with session_scope() as s:
+        archived = (
+            s.query(Job)
+            .filter(Job.id.in_([first_id, second_id]))
+            .filter(Job.status == JobStatus.ARCHIVED)
+            .one()
+        )
+        assert archived.score.components["rejection_stage"] == "deduplication"
+        assert any(
+            reason.startswith("duplicate_of:")
+            for reason in archived.score.components["rejection_reasons"]
+        )
 
 
 def test_process_pending_respects_manual_filter_override() -> None:
