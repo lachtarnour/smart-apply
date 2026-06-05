@@ -8,7 +8,15 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from smartapply.app._helpers import apply_app_style, pipeline_singleton, status_label
+from smartapply.app._helpers import (
+    apply_app_style,
+    pipeline_singleton,
+    render_badge_row,
+    render_empty_state,
+    render_info_panel,
+    render_page_header,
+    status_label,
+)
 from smartapply.database import session_scope
 from smartapply.database.models import Application, JobStatus
 from smartapply.database.repository import (
@@ -19,7 +27,6 @@ from smartapply.database.repository import (
 )
 from smartapply.email_agent.eml_export import MISSING_RECIPIENT_PLACEHOLDER, export_eml
 from smartapply.jobsearch import APPLICATION_STATUSES, next_action_for
-
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
@@ -128,14 +135,15 @@ def _regenerate_eml(
 
 st.set_page_config(page_title="Candidatures | SmartApply", page_icon="📝", layout="wide")
 apply_app_style()
-st.markdown(
-    """
-    <div class="sa-hero">
-      <h2>Candidatures générées</h2>
-      <div class="sa-muted">Suivi opérationnel des dossiers prêts, brouillons Gmail, formulaires et relances.</div>
-    </div>
-    """,
-    unsafe_allow_html=True,
+render_page_header(
+    "Centre de contrôle des candidatures",
+    "Piloter les dossiers générés, vérifier les contacts, relire les documents et préparer les actions sans envoi automatique.",
+    icon="📝",
+    badges=[
+        ("Revue manuelle obligatoire", "warn"),
+        ("Brouillons Gmail optionnels", "blue"),
+        ("Aucun envoi automatique", "neutral"),
+    ],
 )
 
 with session_scope() as s:
@@ -189,7 +197,10 @@ with session_scope() as s:
 
 df = pd.DataFrame(rows)
 if df.empty:
-    st.info("Pas encore de candidature générée. Va dans la page Offres pour en créer.")
+    render_empty_state(
+        "Aucune candidature générée",
+        "Crée d'abord une candidature depuis le Workflow ou la page Offres.",
+    )
     st.stop()
 
 col_search, col_status = st.columns([1.5, 1])
@@ -218,9 +229,29 @@ if search.strip():
     visible_df = visible_df[mask]
 
 if visible_df.empty:
-    st.warning("Aucune candidature ne correspond à ce filtre.")
+    render_empty_state(
+        "Aucune candidature ne correspond aux filtres",
+        "Élargis la recherche ou affiche tous les statuts.",
+    )
     st.stop()
 
+ready_statuses = {
+    JobStatus.EMAIL_GENERATED,
+    JobStatus.READY_FOR_FORM_SUBMISSION,
+    JobStatus.DRAFT_CREATED,
+}
+needs_review = visible_df[
+    visible_df["contact"].fillna("").astype(str).eq("")
+    | visible_df["status"].isin([JobStatus.CONTACT_MISSING, JobStatus.QUALITY_REJECTED])
+]
+k1, k2, k3, k4, k5 = st.columns(5)
+k1.metric("Candidatures visibles", len(visible_df))
+k2.metric("Prêtes", int(visible_df["status"].isin(ready_statuses).sum()))
+k3.metric("À revoir", len(needs_review))
+k4.metric("Contact trouvé", int(visible_df["contact"].fillna("").astype(str).ne("").sum()))
+k5.metric("Formulaire requis", int(visible_df["form_url"].notna().sum()))
+
+st.markdown("### 1. Liste des candidatures")
 st.dataframe(
     visible_df.drop(
         columns=[
@@ -249,7 +280,7 @@ st.dataframe(
 
 st.divider()
 
-st.subheader("Téléchargement & relance")
+st.markdown("### 2. Détail candidature sélectionnée")
 app_id = st.selectbox(
     "Candidature",
     options=visible_df["id"].astype(int).tolist(),
@@ -272,16 +303,66 @@ subject_key = f"applications_subject_{int(app_id)}"
 body_key = f"applications_body_{int(app_id)}"
 _session_text_default(subject_key, r["subject"])
 _session_text_default(body_key, r["body"])
-st.write(f"**{_text(r['title'])}** — {_text(r['company'])}")
-st.write(f"Statut : **{status_label(_text(r['status']))}**")
-st.write(f"Prochaine action : **{_text(r['next_action'])}**")
-st.write(f"Contact : `{contact or 'Aucun'}`")
-contact_summary = _contact_summary(r)
-if contact_summary:
-    st.caption(contact_summary)
-if email_cc:
-    st.write(f"CC : `{email_cc}`")
-st.write(f"Stratégie : `{_text(r['strategy'])}`")
+contact_valid_now = _is_valid_email(contact or "")
+has_form = bool(_optional_text(r["form_url"]))
+has_draft = _text(r["status"]) == JobStatus.DRAFT_CREATED
+placeholder_visible = any(
+    MISSING_RECIPIENT_PLACEHOLDER in value
+    for value in [contact or "", _text(r["subject"]), _text(r["body"])]
+)
+st.markdown(
+    f"""
+    <div class="sa-panel">
+      <h3 style="margin:0;">{_text(r['title'])}</h3>
+      <div class="sa-muted">{_text(r['company'])} · prochaine action : {_text(r['next_action'])}</div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+render_badge_row(
+    [
+        (status_label(_text(r["status"])), "good" if _text(r["status"]) in ready_statuses else "blue"),
+        ("Contact fiable" if contact_valid_now else "Contact à vérifier", "good" if contact_valid_now else "warn"),
+        ("Formulaire requis", "purple" if has_form else "neutral"),
+        ("Brouillon Gmail créé" if has_draft else "Revue nécessaire", "good" if has_draft else "warn"),
+    ]
+)
+if not contact_valid_now:
+    render_info_panel(
+        "Contact à vérifier avant usage",
+        "Aucun destinataire fiable n'est attaché à cette candidature. Corrige le contact avant d'utiliser l'EML ou Gmail.",
+        kind="warning",
+    )
+if placeholder_visible:
+    render_info_panel(
+        "Destinataire placeholder détecté",
+        "Le fichier email contient encore un destinataire temporaire. Remplace-le par un email valide avant toute utilisation.",
+        kind="danger",
+    )
+
+meta_col, contact_col = st.columns([1.2, 1])
+with meta_col:
+    st.markdown(
+        f"""
+        <div class="sa-kv">
+          <div class="sa-kv-label">Statut</div><div class="sa-kv-value">{status_label(_text(r['status']))}</div>
+          <div class="sa-kv-label">Stratégie</div><div class="sa-kv-value">{_text(r['strategy']) or '—'}</div>
+          <div class="sa-kv-label">Contact</div><div class="sa-kv-value">{contact or '—'}</div>
+          <div class="sa-kv-label">CC</div><div class="sa-kv-value">{email_cc or '—'}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+with contact_col:
+    contact_summary = _contact_summary(r)
+    with st.expander("Détails contact", expanded=not contact_valid_now):
+        st.write(f"Email : `{contact or '—'}`")
+        if email_cc:
+            st.write(f"CC : `{email_cc}`")
+        st.write(contact_summary or "Pas de détail contact disponible.")
+        if _optional_text(r["contact_source_url"]):
+            st.caption(f"Source : {_optional_text(r['contact_source_url'])}")
+
 form_url = _optional_text(r["form_url"])
 if form_url:
     st.link_button("Ouvrir le formulaire", form_url)
@@ -360,20 +441,29 @@ with st.expander("Modifier le destinataire / CC", expanded=False):
 
 letter_body = _text(r["letter_body"])
 letter_subject = _text(r["letter_subject"])
-if letter_body:
-    st.subheader("Lettre de motivation")
-    if letter_subject:
-        st.text_input("Sujet de la lettre", value=letter_subject, disabled=True)
-    st.text_area(
-        "Corps de la lettre",
-        value=letter_body,
-        height=220,
-        disabled=True,
-    )
+tab_letter, tab_email, tab_follow = st.tabs(["Lettre", "Email final", "Suivi"])
+with tab_letter:
+    if letter_body:
+        if letter_subject:
+            st.text_input("Sujet de la lettre", value=letter_subject, disabled=True)
+        st.text_area(
+            "Corps de la lettre",
+            value=letter_body,
+            height=220,
+            disabled=True,
+        )
+    else:
+        render_empty_state("Lettre non disponible", "Aucune lettre n'est attachée à cette candidature.")
 
-st.subheader("Email final")
-st.text_input("Sujet", key=subject_key)
-st.text_area("Corps de l'email", key=body_key, height=220)
+with tab_email:
+    if not contact_valid_now:
+        render_info_panel(
+            "Email non prêt à envoyer",
+            "Le contenu peut être relu, mais le destinataire doit être corrigé avant export ou brouillon Gmail.",
+            kind="warning",
+        )
+    st.text_input("Sujet", key=subject_key)
+    st.text_area("Corps de l'email", key=body_key, height=220)
 if st.button("Enregistrer l'email final"):
     with session_scope() as s:
         app = s.get(Application, int(app_id))
@@ -397,37 +487,37 @@ if st.button("Enregistrer l'email final"):
     st.success("Email final enregistré.")
     st.rerun()
 
-st.subheader("Suivi")
-row_status = _text(r["status"])
-current_status = row_status if row_status in APPLICATION_STATUSES else APPLICATION_STATUSES[0]
-new_status = st.selectbox(
-    "Statut",
-    options=APPLICATION_STATUSES,
-    index=APPLICATION_STATUSES.index(current_status),
-    format_func=status_label,
-)
-new_notes = st.text_area(
-    "Notes / prochaines actions",
-    value=_text(r["notes"]),
-    height=120,
-    placeholder="Ex: relancer le recruteur mardi, préparer 3 exemples de projets NLP, feedback reçu...",
-)
-if st.button("Enregistrer le suivi", type="primary"):
-    try:
-        with session_scope() as s:
-            update_application_tracking(
-                s,
-                int(app_id),
-                status=new_status,
-                notes=new_notes,
-            )
-        st.success("Suivi mis a jour.")
-        st.rerun()
-    except Exception as e:
-        st.error(f"Echec : {e}")
+with tab_follow:
+    row_status = _text(r["status"])
+    current_status = row_status if row_status in APPLICATION_STATUSES else APPLICATION_STATUSES[0]
+    new_status = st.selectbox(
+        "Statut",
+        options=APPLICATION_STATUSES,
+        index=APPLICATION_STATUSES.index(current_status),
+        format_func=status_label,
+    )
+    new_notes = st.text_area(
+        "Notes / prochaines actions",
+        value=_text(r["notes"]),
+        height=120,
+        placeholder="Ex: relancer le recruteur mardi, préparer 3 exemples de projets NLP, feedback reçu...",
+    )
+    if st.button("Enregistrer le suivi", type="primary"):
+        try:
+            with session_scope() as s:
+                update_application_tracking(
+                    s,
+                    int(app_id),
+                    status=new_status,
+                    notes=new_notes,
+                )
+            st.success("Suivi mis a jour.")
+            st.rerun()
+        except Exception as e:
+            st.error(f"Echec : {e}")
 
 st.divider()
-st.subheader("Documents")
+st.markdown("### 3. Actions et documents")
 cols = st.columns(4)
 cv_path = _optional_text(r["cv_path"])
 if cv_path and Path(cv_path).exists():
@@ -458,14 +548,15 @@ if letter_pdf_path and Path(letter_pdf_path).exists():
 
 eml_path = _optional_text(r["eml_path"])
 if eml_path and Path(eml_path).exists():
-    if not contact:
-        cols[3].warning("Destinataire à renseigner avant envoi.")
-    cols[3].download_button(
-        "⬇️ Télécharger l'email (.eml)",
-        Path(eml_path).read_bytes(),
-        file_name=Path(eml_path).name,
-        mime="message/rfc822",
-    )
+    if not contact_valid_now:
+        cols[3].warning("EML à vérifier : destinataire manquant ou invalide.")
+    else:
+        cols[3].download_button(
+            "⬇️ Télécharger l'email (.eml)",
+            Path(eml_path).read_bytes(),
+            file_name=Path(eml_path).name,
+            mime="message/rfc822",
+        )
 
 st.divider()
 if not contact:

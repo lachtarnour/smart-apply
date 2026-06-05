@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from html import escape
 from typing import Any
 
 import pandas as pd
@@ -11,7 +12,6 @@ import streamlit as st
 from smartapply.database import init_db, session_scope
 from smartapply.database.models import JobStatus
 from smartapply.database.repository import list_jobs, total_cost
-
 
 STATUS_FLOW: list[dict[str, Any]] = [
     {
@@ -321,6 +321,15 @@ def apply_app_style() -> None:
         .sa-pill-warn { color: #B45309; background: #FFFBEB; border-color: #FDE68A; }
         .sa-pill-bad { color: #B91C1C; background: #FEF2F2; border-color: #FECACA; }
         .sa-pill-blue { color: #1D4ED8; background: #EFF6FF; border-color: #BFDBFE; }
+        .sa-pill-neutral { color: #475569; background: #F8FAFC; border-color: #CBD5E1; }
+        .sa-pill-purple { color: #6D28D9; background: #F5F3FF; border-color: #DDD6FE; }
+        .sa-pill-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.35rem;
+            align-items: center;
+            margin: 0.45rem 0 0.1rem 0;
+        }
         .sa-kv {
             display: grid;
             grid-template-columns: 8.5rem 1fr;
@@ -329,6 +338,17 @@ def apply_app_style() -> None:
         }
         .sa-kv-label { color: var(--sa-muted); }
         .sa-kv-value { color: var(--sa-text); font-weight: 650; }
+        .sa-box-title {
+            margin: 0 0 0.25rem 0;
+            color: var(--sa-ink);
+            font-weight: 800;
+            font-size: 0.98rem;
+        }
+        .sa-box-message {
+            color: var(--sa-muted);
+            font-size: 0.9rem;
+            line-height: 1.42;
+        }
         .sa-runbar {
             border: 1px solid #BFDBFE;
             background: #EFF6FF;
@@ -341,6 +361,16 @@ def apply_app_style() -> None:
             border-color: #FECACA;
             background: #FEF2F2;
             color: #991B1B;
+        }
+        .sa-warning {
+            border-color: #FDE68A;
+            background: #FFFBEB;
+            color: #92400E;
+        }
+        .sa-success {
+            border-color: #A7F3D0;
+            background: #ECFDF5;
+            color: #065F46;
         }
         .sa-command-grid {
             display: grid;
@@ -374,6 +404,87 @@ def apply_app_style() -> None:
             align-items: center;
         }
         </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_status_badge(label: str, kind: str = "blue") -> str:
+    """Return a compact safe HTML badge."""
+    cls = {
+        "good": "sa-pill-good",
+        "success": "sa-pill-good",
+        "warn": "sa-pill-warn",
+        "warning": "sa-pill-warn",
+        "bad": "sa-pill-bad",
+        "danger": "sa-pill-bad",
+        "blue": "sa-pill-blue",
+        "info": "sa-pill-blue",
+        "purple": "sa-pill-purple",
+        "neutral": "sa-pill-neutral",
+    }.get(kind, "sa-pill-blue")
+    return f"<span class='sa-pill {cls}'>{escape(str(label))}</span>"
+
+
+def render_badge_row(badges: list[tuple[str, str]]) -> None:
+    if not badges:
+        return
+    html = "".join(render_status_badge(label, kind) for label, kind in badges)
+    st.markdown(f"<div class='sa-pill-row'>{html}</div>", unsafe_allow_html=True)
+
+
+def render_page_header(
+    title: str,
+    subtitle: str,
+    *,
+    icon: str | None = None,
+    badges: list[tuple[str, str]] | None = None,
+) -> None:
+    heading = f"{escape(icon)} {escape(title)}" if icon else escape(title)
+    badge_html = ""
+    if badges:
+        badge_html = (
+            "<div class='sa-pill-row'>"
+            + "".join(render_status_badge(label, kind) for label, kind in badges)
+            + "</div>"
+        )
+    st.markdown(
+        f"""
+        <div class="sa-hero">
+          <h2>{heading}</h2>
+          <div class="sa-muted">{escape(subtitle)}</div>
+          {badge_html}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_info_panel(title: str, message: str, *, kind: str = "info") -> None:
+    cls = {
+        "info": "sa-runbar",
+        "warning": "sa-runbar sa-warning",
+        "danger": "sa-runbar sa-danger",
+        "success": "sa-runbar sa-success",
+    }.get(kind, "sa-runbar")
+    st.markdown(
+        f"""
+        <div class="{cls}">
+          <div class="sa-box-title">{escape(title)}</div>
+          <div class="sa-box-message">{escape(message)}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_empty_state(title: str, message: str) -> None:
+    st.markdown(
+        f"""
+        <div class="sa-panel">
+          <div class="sa-box-title">{escape(title)}</div>
+          <div class="sa-box-message">{escape(message)}</div>
+        </div>
         """,
         unsafe_allow_html=True,
     )
@@ -469,12 +580,11 @@ def render_status_funnel(
 
     for start in range(0, len(pipeline_rows), 5):
         cols = st.columns(5)
-        for col, row in zip(cols, pipeline_rows[start : start + 5]):
-            with col:
-                with st.container(border=True):
-                    st.caption(f"Étape {row['order']}")
-                    st.metric(row["label"], row["count"])
-                    st.caption(row["description"])
+        for col, row in zip(cols, pipeline_rows[start : start + 5], strict=False):
+            with col, st.container(border=True):
+                st.caption(f"Étape {row['order']}")
+                st.metric(row["label"], row["count"])
+                st.caption(row["description"])
 
     df = pd.DataFrame(pipeline_rows)
     if not df.empty:

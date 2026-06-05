@@ -1,4 +1,4 @@
-"""Interactive 4-step workflow: Fetch → Analyze → Generate → Send.
+"""Interactive workflow: Fetch → Score → Analyze → Generate → Send.
 
 Streamlit single-page wizard that walks the user through one full
 job-application loop. The state is held in ``st.session_state`` so each
@@ -25,13 +25,12 @@ from smartapply.database import session_scope
 from smartapply.database.models import Application, Job, JobStatus
 from smartapply.database.repository import (
     list_pending_processing,
-    upsert_document,
     update_application_tracking,
+    upsert_document,
 )
 from smartapply.jobsearch import AutopilotRunner
 from smartapply.pipeline.pipeline import freshness_kwargs
 from smartapply.scrapers import SERPAPI_DATE_POSTED_LABELS
-
 
 # ============================================================
 # Page setup
@@ -48,7 +47,7 @@ settings = get_settings()
 
 st.title("🧭 Workflow guidé")
 st.caption(
-    "Recherche → Analyse LLM → Génération CV/email → Envoi Gmail. "
+    "Recherche → Scoring → Analyse IA → Génération CV/email → Envoi Gmail. "
     "À chaque étape tu peux désélectionner ce qui ne t'intéresse pas."
 )
 
@@ -60,8 +59,11 @@ DEFAULTS = {
     "wf_step": 1,
     "wf_fetched_ids": [],      # IDs from the last fetch
     "wf_keep_map": {},         # Manual keep/deselect state in step 1
+    "wf_analysis_keep_map": {},  # Manual keep/deselect state after ranking
     "wf_auto_filter_report": None,
     "wf_filter_override_ids": [],  # Jobs manually restored after local rejection
+    "wf_selected_for_scoring": [],
+    "wf_ranked_ids": [],
     "wf_selected_for_analysis": [],
     "wf_selected_for_apply": [],
     "wf_manual_contacts": {},
@@ -175,7 +177,7 @@ def render_stepper() -> None:
         """
         <div class="sa-hero">
           <h2>SmartApply Command Center</h2>
-          <div class="sa-muted">Un flux compact pour chercher, trier, générer, vérifier et préparer tes candidatures sans perdre le contrôle.</div>
+          <div class="sa-muted">Un flux fluide pour chercher, scorer, analyser, générer, vérifier et préparer tes candidatures sans perdre le contrôle.</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -193,13 +195,14 @@ def render_stepper() -> None:
 
     steps = [
         ("1", "Fetch", "Chercher et choisir"),
-        ("2", "Analyse", "LLM et scoring"),
-        ("3", "Génération", "CV, lettre, email"),
-        ("4", "Finalisation", "Gmail ou formulaire"),
+        ("2", "Scoring", "Ranker et shortlister"),
+        ("3", "Analyse", "IA sur sélection"),
+        ("4", "Génération", "CV, lettre, email"),
+        ("5", "Finalisation", "Gmail ou formulaire"),
     ]
     cols = st.columns(len(steps))
     current = st.session_state["wf_step"]
-    for col, (n, label, desc) in zip(cols, steps):
+    for col, (n, label, desc) in zip(cols, steps, strict=True):
         i = int(n)
         state_cls = "sa-step-active" if i == current else "sa-step-done" if i < current else ""
         with col:
@@ -351,7 +354,7 @@ def _render_compact_job_cards(df: pd.DataFrame, selected_ids: list[int]) -> None
     if df.empty:
         return
     selected_set = set(selected_ids)
-    with st.expander("Vue compacte des offres sélectionnées", expanded=False):
+    with st.expander("Vue synthétique des offres sélectionnées", expanded=False):
         for _, row in df[df["id"].isin(selected_set)].head(8).iterrows():
             st.markdown(
                 f"""
@@ -379,7 +382,7 @@ def _render_rejected_offer_controls() -> None:
 
     with st.expander(f"Offres retirées par le filtre local ({len(df)})"):
         st.caption(
-            "Ces offres ont été retirées automatiquement avant le LLM. "
+            "Ces offres ont été retirées automatiquement avant l'analyse IA. "
             "Si le filtre est trop strict pour une offre précise, réactive-la ici."
         )
         edited = st.data_editor(
@@ -465,6 +468,96 @@ def _analyzed_jobs_df(job_ids: list[int] | None = None) -> pd.DataFrame:
     if not df.empty and "score" in df.columns:
         df = df.sort_values("score", ascending=False, na_position="last")
     return df
+
+
+def _ranked_jobs_df(job_ids: list[int] | None = None) -> pd.DataFrame:
+    """Ranked jobs that can be manually selected for LLM analysis."""
+    rows: list[dict[str, Any]] = []
+    analysis_keep_map = {
+        int(k): bool(v)
+        for k, v in st.session_state.get("wf_analysis_keep_map", {}).items()
+    }
+    with session_scope() as s:
+        query = (
+            s.query(Job)
+            .filter(Job.archived_at.is_(None))
+            .filter(Job.analyzed_at.is_(None))
+        )
+        if job_ids:
+            query = query.filter(Job.id.in_(job_ids))
+        for job in query.all():
+            if job.score is None or job.score.final_score is None:
+                continue
+            components = job.score.components or {}
+            desc = (job.cleaned_description or job.description or "").strip()
+            default_keep = job.status == JobStatus.SHORTLISTED
+            rows.append(
+                {
+                    "analyze": analysis_keep_map.get(int(job.id), default_keep),
+                    "id": int(job.id),
+                    "title": job.title,
+                    "company": job.company,
+                    "location": job.location or "",
+                    "contract": job.contract_type or "",
+                    "source": job.source,
+                    "status": status_label(job.status),
+                    "score": round(float(job.score.final_score), 3),
+                    "semantic": (
+                        round(float(job.score.semantic_score), 3)
+                        if job.score.semantic_score is not None
+                        else None
+                    ),
+                    "skills": (
+                        round(float(job.score.skill_score), 3)
+                        if job.score.skill_score is not None
+                        else None
+                    ),
+                    "seniority_score": (
+                        round(float(job.score.seniority_score), 3)
+                        if job.score.seniority_score is not None
+                        else None
+                    ),
+                    "location_score": (
+                        round(float(job.score.location_score), 3)
+                        if job.score.location_score is not None
+                        else None
+                    ),
+                    "reasons": " · ".join(str(r) for r in (components.get("reasons") or [])[:4]),
+                    "preview": desc[:180] + ("..." if len(desc) > 180 else ""),
+                    "url": job.application_url or "",
+                }
+            )
+    df = pd.DataFrame(rows)
+    if not df.empty and "score" in df.columns:
+        df = df.sort_values("score", ascending=False, na_position="last")
+    return df
+
+
+def _sync_analysis_keep_state(df: pd.DataFrame) -> None:
+    if df.empty or not {"id", "analyze"}.issubset(df.columns):
+        return
+    updates = {
+        int(row["id"]): bool(row["analyze"])
+        for _, row in df[["id", "analyze"]].iterrows()
+    }
+    st.session_state["wf_analysis_keep_map"] = {
+        **st.session_state.get("wf_analysis_keep_map", {}),
+        **updates,
+    }
+
+
+def _selected_analysis_ids_from_df(df: pd.DataFrame) -> list[int]:
+    if df.empty or "id" not in df.columns:
+        return []
+    keep_map = {
+        int(k): bool(v)
+        for k, v in st.session_state.get("wf_analysis_keep_map", {}).items()
+    }
+    return [
+        int(row["id"])
+        for _, row in df.iterrows()
+        if bool(keep_map.get(int(row["id"]), bool(row.get("analyze", True))))
+    ]
 
 
 def _sync_manual_contacts(df: pd.DataFrame) -> None:
@@ -655,8 +748,8 @@ def step1_fetch() -> None:
         <div class="sa-panel">
           <div style="display:flex;justify-content:space-between;gap:1rem;align-items:center;flex-wrap:wrap;">
             <div>
-              <h3 style="margin:0;">Étape 1 · Recherche et sélection</h3>
-              <div class="sa-muted">Cherche des offres, applique le filtre local, puis garde uniquement ce qui mérite un appel LLM.</div>
+              <h3 style="margin:0;">Étape 1 · Recherche et filtre local</h3>
+              <div class="sa-muted">Cherche des offres, applique le filtre local, puis garde uniquement ce qui mérite un scoring.</div>
             </div>
             <div>
               <span class="sa-pill sa-pill-blue">Filtre stages/alternances actif</span>
@@ -677,8 +770,7 @@ def step1_fetch() -> None:
     )
     tab_manual, tab_auto = st.tabs(["Recherche contrôlée", "Autopilot express"])
 
-    with tab_manual:
-        with st.form("fetch_form"):
+    with tab_manual, st.form("fetch_form"):
             col1, col2, col3 = st.columns([1.5, 1.1, 1])
             with col1:
                 query = st.text_input("Requête", value="Data Scientist OR Machine Learning Engineer")
@@ -799,7 +891,7 @@ def step1_fetch() -> None:
                     )
                     st.success(st.session_state["wf_last_run_summary"])
                     if generated:
-                        st.session_state["wf_step"] = 4
+                        st.session_state["wf_step"] = 5
                         st.rerun()
                 except Exception as e:
                     _end_run("Autopilot interrompu par erreur.")
@@ -842,11 +934,25 @@ def step1_fetch() -> None:
                                 max_results=max_per_source,
                                 **kwargs,
                             )
-                            st.success(
-                                f"{src} : {report.inserted} nouvelle(s), "
-                                f"{report.updated_pending} déjà en attente, "
-                                f"{report.skipped_processed} déjà traitée(s)/ignorée(s)."
-                            )
+                            summary_bits = [f"{report.inserted} nouvelle(s)"]
+                            if report.skipped_known_during_collect:
+                                summary_bits.append(
+                                    f"{report.skipped_known_during_collect} déjà connue(s) ignorée(s) en collecte"
+                                )
+                            if report.updated_pending:
+                                summary_bits.append(
+                                    f"{report.updated_pending} déjà en attente"
+                                )
+                            if report.skipped_processed:
+                                summary_bits.append(
+                                    f"{report.skipped_processed} déjà traitée(s)/ignorée(s)"
+                                )
+                            st.success(f"{src} : " + ", ".join(summary_bits) + ".")
+                            if report.hit_raw_seen_cap and not report.inserted:
+                                st.info(
+                                    f"{src} : limite de scan atteinte avant de trouver de nouvelles offres. "
+                                    "Augmente le slider 'Résultats/source' ou élargis la requête."
+                                )
                             all_ids.extend(report.job_ids)
                         except Exception as e:
                             st.error(f"{src} : {e}")
@@ -876,7 +982,7 @@ def step1_fetch() -> None:
     if auto_filter_report:
         st.caption(
             "Filtre automatique actif : stages, alternances, offres hors cible, "
-            "doublons et postes trop senior sont retirés avant l'étape LLM. "
+            "doublons et postes trop senior sont retirés avant l'étape IA. "
             f"Dernier passage : {auto_filter_report.get('kept', 0)} gardée(s), "
             f"{auto_filter_report.get('rejected', 0)} retirée(s)."
         )
@@ -885,20 +991,23 @@ def step1_fetch() -> None:
             f"{len(st.session_state['wf_filter_override_ids'])} offre(s) réactivée(s) "
             "manuellement seront autorisées à passer le filtre local."
         )
-    if not submitted and _scraped_job_ids_excluding(_filter_override_ids()):
-        if st.button(
+    if (
+        not submitted
+        and _scraped_job_ids_excluding(_filter_override_ids())
+        and st.button(
             "Appliquer le filtre local aux nouvelles offres",
             key="wf_filter_pending_now",
-        ):
-            with st.spinner("Filtre local automatique..."):
-                filter_report = _filter_pending_for_step1()
-            if filter_report is not None:
-                st.session_state["wf_auto_filter_report"] = filter_report.__dict__
-                st.success(
-                    f"Filtre local : {filter_report.kept} gardée(s), "
-                    f"{filter_report.rejected} retirée(s)."
-                )
-            st.rerun()
+        )
+    ):
+        with st.spinner("Filtre local automatique..."):
+            filter_report = _filter_pending_for_step1()
+        if filter_report is not None:
+            st.session_state["wf_auto_filter_report"] = filter_report.__dict__
+            st.success(
+                f"Filtre local : {filter_report.kept} gardée(s), "
+                f"{filter_report.rejected} retirée(s)."
+            )
+        st.rerun()
     keep_map = st.session_state.get("wf_keep_map", {})
     df = _pending_jobs_df(keep_map=keep_map, recent_ids=fetched_ids)
     if df.empty:
@@ -964,7 +1073,7 @@ def step1_fetch() -> None:
         _render_rejected_offer_controls()
         return
     detail_id = st.selectbox(
-        "Checker une offre avant de passer à l'analyse",
+        "Checker une offre avant de passer au scoring",
         options=detail_ids,
         format_func=lambda jid: (
             f"[{jid}] "
@@ -977,26 +1086,223 @@ def step1_fetch() -> None:
     _render_rejected_offer_controls()
 
     if st.button(
-        "Passer à l'étape 2 : analyse LLM",
+        "Passer à l'étape 2 : scoring",
         type="primary",
         disabled=not full_kept_ids,
     ):
-        st.session_state["wf_selected_for_analysis"] = full_kept_ids
+        st.session_state["wf_selected_for_scoring"] = full_kept_ids
+        st.session_state["wf_ranked_ids"] = []
+        st.session_state["wf_selected_for_analysis"] = []
+        st.session_state["wf_analysis_keep_map"] = {}
         st.session_state["wf_step"] = 2
         st.rerun()
 
 
 # ============================================================
-# STEP 2 — Analyze (LLM)
+# STEP 2 — Score + shortlist
 # ============================================================
 
 
-def step2_analyze() -> None:
+def step2_score() -> None:
     st.markdown(
         """
         <div class="sa-panel">
-          <h3 style="margin:0;">Étape 2 · Analyse LLM</h3>
-          <div class="sa-muted">Le système ranke les offres sélectionnées et analyse les meilleures en parallèle. Tu gardes ensuite celles qui valent une candidature.</div>
+          <h3 style="margin:0;">Étape 2 · Scoring et shortlist</h3>
+          <div class="sa-muted">Calcule le ranking local/embedding, puis choisis exactement les offres qui auront droit à l'analyse IA.</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    ids_to_score = list(st.session_state.get("wf_selected_for_scoring", []))
+    if not ids_to_score:
+        pending_df = _pending_jobs_df(
+            keep_map=st.session_state.get("wf_keep_map", {}),
+            recent_ids=st.session_state.get("wf_fetched_ids", []),
+        )
+        if pending_df.empty:
+            ranked_resume = _ranked_jobs_df(st.session_state.get("wf_ranked_ids") or None)
+            if ranked_resume.empty:
+                st.warning("Aucune offre à scorer. Retourne à la recherche.")
+                if st.button("Retourner à la recherche", key="wf_step2_empty_back"):
+                    st.session_state["wf_step"] = 1
+                    st.rerun()
+                return
+        else:
+            st.info(
+                "Mode reprise : des offres sont en attente. Sélectionne celles à scorer."
+            )
+            pending_search = st.text_input(
+                "Rechercher dans les offres à scorer",
+                placeholder="Entreprise, poste, ville, source...",
+                key="wf_step2_score_pending_search",
+            )
+            visible_pending_df = _filter_table(pending_df, pending_search)
+            if visible_pending_df.empty:
+                st.warning("Aucune offre en attente ne correspond à cette recherche.")
+                return
+            _job_editor(visible_pending_df, key="wf_step2_score_pending_editor")
+            ids_to_score = _kept_ids_from_full_df(pending_df)
+            st.session_state["wf_selected_for_scoring"] = ids_to_score
+
+    if ids_to_score:
+        s1, s2, s3 = st.columns(3)
+        s1.metric("À scorer", len(ids_to_score))
+        s2.metric("Top-K défaut", settings.top_k_ranked)
+        s3.metric("Embeddings", settings.openai_model_embed)
+        override_ids = sorted(_filter_override_ids().intersection(ids_to_score))
+        if override_ids:
+            st.caption(
+                f"{len(override_ids)} offre(s) réactivée(s) manuellement peuvent passer le filtre local."
+            )
+
+        default_top = min(settings.top_k_ranked, len(ids_to_score))
+        top_k_ranked = st.number_input(
+            "Préselection automatique pour analyse",
+            min_value=1,
+            max_value=max(1, len(ids_to_score)),
+            value=max(1, default_top),
+            help="Après le scoring, ces top offres seront cochées par défaut. Tu peux ajuster manuellement avant l'analyse.",
+            key="wf_step2_top_k_ranked",
+        )
+
+        run_col, back_col = st.columns([2, 1])
+        with run_col:
+            run_ranking = st.button(
+                "Calculer le scoring",
+                type="primary",
+                width="stretch",
+                key="wf_run_scoring",
+            )
+        with back_col:
+            if st.button("Retour recherche", key="wf_step2_back_fetch", width="stretch"):
+                st.session_state["wf_step"] = 1
+                st.rerun()
+
+        if run_ranking:
+            _begin_run("scoring")
+            progress = st.progress(0.0, text="Filtrage et ranking...")
+            with st.spinner("Filtrage local + scoring sémantique en cours..."):
+                try:
+                    progress.progress(0.35, text="Filtrage local...")
+                    report = pipeline_singleton().rank_pending(
+                        top_k_ranked=int(top_k_ranked),
+                        job_ids=ids_to_score,
+                        local_filter_override_ids=override_ids,
+                    )
+                    progress.progress(1.0, text="Scoring terminé.")
+                    st.session_state["wf_ranked_ids"] = report.ranked_ids
+                    st.session_state["wf_selected_for_analysis"] = report.shortlisted_ids
+                    st.session_state["wf_analysis_keep_map"] = {
+                        int(job_id): int(job_id) in set(report.shortlisted_ids)
+                        for job_id in report.ranked_ids
+                    }
+                    _end_run(
+                        f"Scoring : {report.ranked} offre(s) scorée(s), "
+                        f"{report.shortlisted} présélectionnée(s)."
+                    )
+                    c1, c2, c3, c4 = st.columns(4)
+                    c1.metric("Total", report.total)
+                    c2.metric("Filtre OK", report.kept_after_filter)
+                    c3.metric("Doublons", report.duplicates_removed)
+                    c4.metric("Scorées", report.ranked)
+                    st.success(st.session_state["wf_last_run_summary"])
+                except Exception as e:
+                    _end_run("Scoring interrompu par erreur.")
+                    st.error(f"Échec scoring : {e}")
+                finally:
+                    progress.empty()
+
+    st.divider()
+
+    ranked_ids = st.session_state.get("wf_ranked_ids") or ids_to_score
+    ranked_df = _ranked_jobs_df(ranked_ids)
+    if ranked_df.empty:
+        st.info("Lance le scoring pour afficher la shortlist triée.")
+        return
+
+    st.write("**Shortlist scorée.** Coche uniquement les offres à envoyer à l'analyse IA.")
+    rank_search = st.text_input(
+        "Rechercher dans la shortlist scorée",
+        placeholder="Entreprise, poste, ville, raison, score...",
+        key="wf_step2_rank_search",
+    )
+    visible_ranked_df = _filter_table(ranked_df, rank_search)
+    edited = st.data_editor(
+        visible_ranked_df,
+        column_config={
+            "analyze": st.column_config.CheckboxColumn("Analyser", default=True),
+            "id": st.column_config.NumberColumn("id", disabled=True, width="small"),
+            "title": st.column_config.TextColumn("Titre", disabled=True, width="large"),
+            "company": st.column_config.TextColumn("Entreprise", disabled=True, width="medium"),
+            "location": st.column_config.TextColumn("Lieu", disabled=True, width="small"),
+            "contract": st.column_config.TextColumn("Contrat", disabled=True, width="small"),
+            "source": st.column_config.TextColumn("Source", disabled=True, width="small"),
+            "status": st.column_config.TextColumn("Statut", disabled=True, width="small"),
+            "score": st.column_config.NumberColumn("Score final", disabled=True, format="%.3f", width="small"),
+            "semantic": st.column_config.NumberColumn("Sémantique", disabled=True, format="%.3f", width="small"),
+            "skills": st.column_config.NumberColumn("Skills", disabled=True, format="%.3f", width="small"),
+            "seniority_score": st.column_config.NumberColumn("Seniorité", disabled=True, format="%.3f", width="small"),
+            "location_score": st.column_config.NumberColumn("Lieu score", disabled=True, format="%.3f", width="small"),
+            "reasons": st.column_config.TextColumn("Raisons", disabled=True, width="large"),
+            "preview": st.column_config.TextColumn("Aperçu", disabled=True, width="large"),
+            "url": st.column_config.LinkColumn("URL", disabled=True, width="small"),
+        },
+        hide_index=True,
+        width="stretch",
+        key="wf_step2_ranked_editor",
+    )
+    _sync_analysis_keep_state(edited)
+    selected = _selected_analysis_ids_from_df(ranked_df)
+    st.session_state["wf_selected_for_analysis"] = selected
+    st.markdown(
+        f"{_status_pill(str(len(selected)) + ' à analyser', 'good')} "
+        f"{_status_pill(str(len(ranked_df) - len(selected)) + ' non analysée(s)', 'warn')}",
+        unsafe_allow_html=True,
+    )
+
+    detail_ids = visible_ranked_df["id"].astype(int).tolist()
+    if detail_ids:
+        detail_id = st.selectbox(
+            "Checker une offre scorée",
+            options=detail_ids,
+            format_func=lambda jid: (
+                f"[{jid}] "
+                f"{visible_ranked_df.loc[visible_ranked_df['id'] == jid, 'company'].iloc[0]} — "
+                f"{visible_ranked_df.loc[visible_ranked_df['id'] == jid, 'title'].iloc[0]}"
+            ),
+            key="wf_step2_rank_detail_select",
+        )
+        _render_job_detail(int(detail_id))
+
+    col_back, col_next = st.columns(2)
+    with col_back:
+        if st.button("Retour à l'étape 1", key="wf_step2_back_bottom"):
+            st.session_state["wf_step"] = 1
+            st.rerun()
+    with col_next:
+        if st.button(
+            "Passer à l'étape 3 : analyse IA",
+            type="primary",
+            disabled=not selected,
+            key="wf_step2_next_analysis",
+        ):
+            st.session_state["wf_selected_for_analysis"] = selected
+            st.session_state["wf_step"] = 3
+            st.rerun()
+
+
+# ============================================================
+# STEP 3 — Analyze (LLM)
+# ============================================================
+
+
+def step3_analyze() -> None:
+    st.markdown(
+        """
+        <div class="sa-panel">
+          <h3 style="margin:0;">Étape 3 · Analyse IA</h3>
+          <div class="sa-muted">Analyse uniquement les offres cochées après le scoring. Rien n'est envoyé automatiquement.</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -1005,91 +1311,58 @@ def step2_analyze() -> None:
     resume_mode = False
     analysis_attempted = False
     if not ids_to_analyze:
-        pending_df = _pending_jobs_df(
-            keep_map=st.session_state.get("wf_keep_map", {}),
-            recent_ids=st.session_state.get("wf_fetched_ids", []),
-        )
-        if not pending_df.empty:
-            st.info(
-                "Mode reprise : des offres sont en attente d'analyse. "
-                "Sélectionne celles à envoyer au LLM, puis lance l'analyse."
-            )
-            pending_search = st.text_input(
-                "Rechercher dans les offres à analyser",
-                placeholder="Entreprise, poste, ville, source...",
-                key="wf_step2_pending_search",
-            )
-            visible_pending_df = _filter_table(pending_df, pending_search)
-            if visible_pending_df.empty:
-                st.warning("Aucune offre en attente ne correspond à cette recherche.")
-                return
-            _job_editor(visible_pending_df, key="wf_step2_pending_editor")
-            all_keep_map = st.session_state.get("wf_keep_map", {})
-            ids_to_analyze = [
-                int(row["id"])
-                for _, row in pending_df.iterrows()
-                if bool(all_keep_map.get(int(row["id"]), bool(row["keep"])))
-            ]
-            if not ids_to_analyze:
-                st.warning("Sélectionne au moins une offre à analyser.")
-                return
-        else:
-            existing_df = _analyzed_jobs_df()
-            if existing_df.empty:
-                st.warning("Aucune offre sélectionnée, aucune offre en attente et aucune offre déjà analysée disponible.")
-                if st.button("Retourner à la recherche", key="wf_step2_empty_back"):
+        existing_df = _analyzed_jobs_df()
+        if existing_df.empty:
+            st.warning("Aucune offre sélectionnée pour analyse. Retourne au scoring pour choisir la shortlist.")
+            col_score, col_fetch = st.columns(2)
+            with col_score:
+                if st.button("Retourner au scoring", key="wf_step3_empty_score"):
+                    st.session_state["wf_step"] = 2
+                    st.rerun()
+            with col_fetch:
+                if st.button("Retourner à la recherche", key="wf_step3_empty_fetch"):
                     st.session_state["wf_step"] = 1
                     st.rerun()
-                return
-            resume_mode = True
-            ids_to_analyze = existing_df["id"].astype(int).tolist()
-            st.info(
-                "Mode reprise : aucune offre en attente, donc j'affiche les offres déjà analysées en base."
-            )
+            return
+        resume_mode = True
+        ids_to_analyze = existing_df["id"].astype(int).tolist()
+        st.info(
+            "Mode reprise : aucune nouvelle sélection, donc j'affiche les offres déjà analysées en base."
+        )
 
     a1, a2, a3 = st.columns(3)
     a1.metric("Sélection", len(ids_to_analyze))
-    a2.metric("Parallélisme LLM", settings.llm_max_concurrent)
-    a3.metric("Modèle analyse", settings.openai_model_cheap)
-    override_ids = sorted(_filter_override_ids().intersection(ids_to_analyze))
-    if override_ids:
-        st.caption(
-            f"{len(override_ids)} offre(s) réactivée(s) manuellement passeront "
-            "le filtre local même si elles avaient été rejetées."
-        )
+    a2.metric("Parallélisme IA", settings.llm_max_concurrent)
+    a3.metric("Analyse IA", settings.openai_model_cheap)
 
     run_analysis = False
     if not resume_mode:
         run_col, stop_col = st.columns([2, 1])
         with run_col:
-            run_analysis = st.button("Lancer l'analyse LLM", type="primary", width="stretch")
+            run_analysis = st.button("Lancer l'analyse IA", type="primary", width="stretch")
         with stop_col:
             if st.button("Arrêter", key="wf_stop_analysis", width="stretch"):
                 st.session_state["wf_stop_requested"] = True
     else:
-        if st.button("Analyser de nouvelles offres", key="wf_step2_new_search"):
-            st.session_state["wf_step"] = 1
+        if st.button("Analyser une nouvelle shortlist", key="wf_step3_new_score"):
+            st.session_state["wf_step"] = 2
             st.rerun()
 
     if run_analysis:
         analysis_attempted = True
         st.session_state["wf_selected_for_analysis"] = ids_to_analyze
-        _begin_run("analyse LLM")
-        progress = st.progress(0.0, text="Filtrage et ranking...")
-        with st.spinner("Filtrage + ranking + analyse LLM en cours..."):
+        _begin_run("analyse IA")
+        progress = st.progress(0.0, text="Analyse IA...")
+        with st.spinner("Analyse IA en cours sur la shortlist sélectionnée..."):
             try:
-                progress.progress(0.25, text="Filtrage local et score sémantique...")
-                report = pipeline_singleton().process_pending(
-                    top_k_analyze=len(ids_to_analyze),
-                    job_ids=ids_to_analyze,
-                    local_filter_override_ids=override_ids,
-                )
+                progress.progress(0.35, text="Appels IA en parallèle...")
+                report = pipeline_singleton().analyze_jobs(ids_to_analyze)
                 progress.progress(1.0, text="Analyse terminée.")
                 st.success("Traitement terminé")
                 col1, col2, col3, col4 = st.columns(4)
-                col1.metric("Total", report.total)
-                col2.metric("Filtre OK", report.kept_after_filter)
-                col3.metric("Doublons", report.duplicates_removed)
+                col1.metric("Demandées", report.requested)
+                col2.metric("Déjà analysées", report.already_analyzed)
+                col3.metric("Ignorées", report.skipped_missing)
                 col4.metric("Analysées", report.analyzed)
                 _end_run(f"Analyse : {report.analyzed} offre(s) analysée(s).")
             except Exception as e:
@@ -1139,10 +1412,10 @@ def step2_analyze() -> None:
     if not analyzed_ids:
         if not analysis_attempted and not resume_mode:
             st.info(
-                "Sélection prête. Clique sur **Lancer l'analyse LLM** pour analyser ces offres."
+                "Sélection prête. Clique sur **Lancer l'analyse IA** pour analyser ces offres."
             )
             return
-        st.info("Aucune offre n'a survécu au filtre. Retour à l'étape 1 pour ajuster.")
+        st.info("Aucune offre analysée. Retour au scoring pour ajuster la shortlist.")
         return
 
     st.write(f"**{len(analyzed_ids)} offre(s) analysée(s).** Sélectionne celles pour lesquelles tu veux générer une candidature :")
@@ -1191,30 +1464,30 @@ def step2_analyze() -> None:
 
     col_back, col_next = st.columns(2)
     with col_back:
-        if st.button("⬅ Retour à l'étape 1"):
-            st.session_state["wf_step"] = 1
+        if st.button("⬅ Retour à l'étape 2 : scoring"):
+            st.session_state["wf_step"] = 2
             st.rerun()
     with col_next:
         if st.button(
-            "Passer à l'étape 3 : génération",
+            "Passer à l'étape 4 : génération",
             type="primary",
             disabled=not selected,
         ):
             st.session_state["wf_selected_for_apply"] = selected
-            st.session_state["wf_step"] = 3
+            st.session_state["wf_step"] = 4
             st.rerun()
 
 
 # ============================================================
-# STEP 3 — Generate (CV + email)
+# STEP 4 — Generate (CV + email)
 # ============================================================
 
 
-def step3_generate() -> None:
+def step4_generate() -> None:
     st.markdown(
         """
         <div class="sa-panel">
-          <h3 style="margin:0;">Étape 3 · Génération des candidatures</h3>
+          <h3 style="margin:0;">Étape 4 · Génération des candidatures</h3>
           <div class="sa-muted">Le système génère un CV PDF/DOCX, une lettre et un email. Tu peux ajouter un contact manuel et arrêter proprement entre deux offres.</div>
         </div>
         """,
@@ -1226,12 +1499,12 @@ def step3_generate() -> None:
         st.warning("Aucune offre sélectionnée et aucune offre analysée disponible pour génération.")
         col_back, col_analyze = st.columns(2)
         with col_back:
-            if st.button("Retourner à la recherche", key="wf_step3_empty_fetch"):
-                st.session_state["wf_step"] = 1
+            if st.button("Retourner au scoring", key="wf_step4_empty_score"):
+                st.session_state["wf_step"] = 2
                 st.rerun()
         with col_analyze:
-            if st.button("Voir l'analyse", key="wf_step3_empty_analyze"):
-                st.session_state["wf_step"] = 2
+            if st.button("Voir l'analyse", key="wf_step4_empty_analyze"):
+                st.session_state["wf_step"] = 3
                 st.rerun()
         return
 
@@ -1368,16 +1641,16 @@ def step3_generate() -> None:
 
     col_back, col_next = st.columns(2)
     with col_back:
-        if st.button("⬅ Retour à l'étape 2", key="wf_step3_back"):
-            st.session_state["wf_step"] = 2
+        if st.button("⬅ Retour à l'étape 3", key="wf_step4_back_analysis"):
+            st.session_state["wf_step"] = 3
             st.rerun()
     with col_next:
         if st.button(
-            "Passer à l'étape 4 : envoi Gmail",
+            "Passer à l'étape 5 : envoi Gmail",
             type="primary",
-            key="wf_step3_next",
+            key="wf_step4_next_send",
         ):
-            st.session_state["wf_step"] = 4
+            st.session_state["wf_step"] = 5
             st.rerun()
 
 
@@ -1518,15 +1791,15 @@ def _render_application_detail(application_id: int) -> None:
 
 
 # ============================================================
-# STEP 4 — Send
+# STEP 5 — Send
 # ============================================================
 
 
-def step4_send() -> None:
+def step5_send() -> None:
     st.markdown(
         """
         <div class="sa-panel">
-          <h3 style="margin:0;">Étape 4 · Finalisation Gmail et formulaires</h3>
+          <h3 style="margin:0;">Étape 5 · Finalisation Gmail et formulaires</h3>
           <div class="sa-muted">Dernier contrôle avant action : ajuste l'email, vérifie les pièces jointes, crée les brouillons Gmail ou marque les formulaires soumis.</div>
         </div>
         """,
@@ -1536,7 +1809,7 @@ def step4_send() -> None:
     if not app_ids:
         app_ids = _existing_generated_application_ids()
         if not app_ids:
-            st.warning("Aucune candidature générée. Retourne à l'étape 3.")
+            st.warning("Aucune candidature générée. Retourne à l'étape 4.")
             return
         st.session_state["wf_generated_app_ids"] = app_ids
         st.info(
@@ -1619,8 +1892,8 @@ def step4_send() -> None:
 
     col_back, col_reset = st.columns([1, 1])
     with col_back:
-        if st.button("⬅ Retour à l'étape 3", key="wf_step4_back", width="stretch"):
-            st.session_state["wf_step"] = 3
+        if st.button("⬅ Retour à l'étape 4", key="wf_step5_back", width="stretch"):
+            st.session_state["wf_step"] = 4
             st.rerun()
     with col_reset:
         if st.button("🔄 Nouveau workflow", key="wf_reset", width="stretch"):
@@ -1887,8 +2160,10 @@ step = st.session_state["wf_step"]
 if step == 1:
     step1_fetch()
 elif step == 2:
-    step2_analyze()
+    step2_score()
 elif step == 3:
-    step3_generate()
+    step3_analyze()
 elif step == 4:
-    step4_send()
+    step4_generate()
+elif step == 5:
+    step5_send()

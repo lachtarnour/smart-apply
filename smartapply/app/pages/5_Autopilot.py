@@ -5,11 +5,16 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from smartapply.app._helpers import SERPAPI_LANGUAGE_OPTIONS, apply_app_style
+from smartapply.app._helpers import (
+    SERPAPI_LANGUAGE_OPTIONS,
+    apply_app_style,
+    render_badge_row,
+    render_info_panel,
+    render_page_header,
+)
 from smartapply.config import get_settings
 from smartapply.jobsearch import AutopilotRunner
 from smartapply.scrapers import SERPAPI_DATE_POSTED_LABELS
-
 
 st.set_page_config(page_title="Autopilot | SmartApply", page_icon="🚀", layout="wide")
 apply_app_style()
@@ -36,64 +41,103 @@ def _serpapi_effective_config(
     )
 
 
-st.title("🚀 Autopilot candidatures")
-st.caption("Recherche, sélection, CV, email, contact RH, brouillon Gmail ou dossier prêt.")
+render_page_header(
+    "Autopilot candidatures",
+    "Lancer un run contrôlé qui cherche, trie, analyse et prépare des dossiers sans envoi automatique.",
+    icon="🚀",
+    badges=[
+        ("Quality gate recommandé", "good"),
+        ("Brouillons Gmail optionnels", "blue"),
+        ("SerpApi peut consommer des crédits", "warn"),
+    ],
+)
 
-col1, col2 = st.columns(2)
-with col1:
-    query = st.text_input(
-        "Requête",
-        value="Data Scientist OR Machine Learning Engineer",
-    )
-    st.caption("Les rôles séparés par `OR` sont recherchés séparément. L'anglais est gardé, un alias FR est ajouté si utile.")
-    location = st.text_input("Localisation", value=settings.serpapi_default_location)
-    sources = st.multiselect(
-        "Sources",
-        options=["serpapi", "francetravail"],
-        default=["serpapi", "francetravail"],
-    )
-with col2:
-    date_options = list(SERPAPI_DATE_POSTED_LABELS)
-    default_date = (
-        settings.serpapi_date_posted
-        if settings.serpapi_date_posted in SERPAPI_DATE_POSTED_LABELS
-        else "week"
-    )
-    date_posted = st.selectbox(
-        "Fraîcheur des offres",
-        options=date_options,
-        index=date_options.index(default_date),
-        format_func=lambda value: SERPAPI_DATE_POSTED_LABELS[value],
-        help="Appliqué à Google Jobs (chip date_posted) et à France Travail (minCreationDate).",
-    )
-    language_label = st.selectbox(
-        "Langue Google Jobs",
-        options=list(SERPAPI_LANGUAGE_OPTIONS),
-        index=0,
-        help="Bilingue lance les recherches en contexte anglais puis français.",
-    )
-    target = st.number_input(
-        "Objectif brouillons/dossiers",
-        min_value=1,
-        max_value=300,
-        value=settings.autopilot_target_drafts,
-    )
-    max_per_source = st.number_input(
-        "Résultats max par source",
-        min_value=5,
-        max_value=300,
-        value=max(25, settings.autopilot_target_drafts),
-    )
-    if "serpapi" in sources:
-        st.caption(
-            _serpapi_effective_config(
-                max_results=int(max_per_source),
-                date_posted=date_posted,
-                location=location,
-            )
+date_options = list(SERPAPI_DATE_POSTED_LABELS)
+default_date = (
+    settings.serpapi_date_posted
+    if settings.serpapi_date_posted in SERPAPI_DATE_POSTED_LABELS
+    else "week"
+)
+
+left, right = st.columns(2)
+with left:
+    with st.container(border=True):
+        st.markdown("### 1. Cible de recherche")
+        query = st.text_input(
+            "Requête",
+            value="Data Scientist OR Machine Learning Engineer",
         )
-    gmail_draft = st.toggle("Créer des brouillons Gmail", value=False)
-    quality_gate = st.toggle("Quality gate LLM strict", value=True)
+        st.caption("Les rôles séparés par `OR` sont recherchés séparément. L'anglais est gardé, un alias FR est ajouté si utile.")
+        location = st.text_input("Localisation", value=settings.serpapi_default_location)
+
+    with st.container(border=True):
+        st.markdown("### 2. Sources et fraîcheur")
+        sources = st.multiselect(
+            "Sources",
+            options=["serpapi", "francetravail"],
+            default=["serpapi", "francetravail"],
+        )
+        date_posted = st.selectbox(
+            "Fraîcheur des offres",
+            options=date_options,
+            index=date_options.index(default_date),
+            format_func=lambda value: SERPAPI_DATE_POSTED_LABELS[value],
+            help="Appliqué à Google Jobs (chip date_posted) et à France Travail (minCreationDate).",
+        )
+        language_label = st.selectbox(
+            "Langue Google Jobs",
+            options=list(SERPAPI_LANGUAGE_OPTIONS),
+            index=0,
+            help="Bilingue lance les recherches en contexte anglais puis français.",
+        )
+
+with right:
+    with st.container(border=True):
+        st.markdown("### 3. Volume")
+        target = st.number_input(
+            "Objectif brouillons/dossiers",
+            min_value=1,
+            max_value=300,
+            value=settings.autopilot_target_drafts,
+        )
+        max_per_source = st.number_input(
+            "Résultats max par source",
+            min_value=5,
+            max_value=300,
+            value=max(25, settings.autopilot_target_drafts),
+        )
+        with st.expander("Détails de recherche", expanded=False):
+            if "serpapi" in sources:
+                st.write(
+                    _serpapi_effective_config(
+                        max_results=int(max_per_source),
+                        date_posted=date_posted,
+                        location=location,
+                    )
+                )
+                st.caption("SerpApi consomme des crédits selon les pages et fallbacks utilisés.")
+            else:
+                st.caption("SerpApi désactivé pour ce run.")
+
+    with st.container(border=True):
+        st.markdown("### 4. Sécurité")
+        gmail_draft = st.toggle("Créer des brouillons Gmail", value=False)
+        quality_gate = st.toggle("Quality gate IA strict", value=True)
+        render_badge_row(
+            [
+                ("Rien n'est envoyé automatiquement", "good"),
+                ("Brouillons Gmail optionnels", "blue" if gmail_draft else "neutral"),
+                ("Quality gate actif" if quality_gate else "Quality gate désactivé", "good" if quality_gate else "warn"),
+            ]
+        )
+        if "serpapi" in sources:
+            render_info_panel(
+                "Crédits SerpApi",
+                "La recherche Google Jobs peut consommer des crédits. Réduis le volume ou retire SerpApi pour un run gratuit France Travail.",
+                kind="warning",
+            )
+
+st.markdown("### 5. Lancement")
 
 if st.button("Lancer Autopilot", type="primary", disabled=not query or not sources):
     with st.spinner("Autopilot en cours..."):
@@ -116,14 +160,21 @@ if st.button("Lancer Autopilot", type="primary", disabled=not query or not sourc
                 f"{data['ready_for_form_submission']} dossier(s) formulaire."
             )
 
-            k1, k2, k3, k4 = st.columns(4)
+            k1, k2, k3, k4, k5 = st.columns(5)
             k1.metric("Tentées", data["attempted"])
-            k2.metric("Brouillons", data["draft_created"])
-            k3.metric("Dossiers formulaire", data["ready_for_form_submission"])
-            k4.metric("Rejets qualité", data["quality_rejected"])
+            k2.metric("Sorties prêtes", data["productive_outputs"])
+            k3.metric("Brouillons Gmail", data["draft_created"])
+            k4.metric("Dossiers formulaire", data["ready_for_form_submission"])
+            k5.metric("Rejets qualité", data["quality_rejected"])
 
             if data["errors"]:
-                st.warning("\n".join(data["errors"]))
+                render_info_panel(
+                    "Erreurs pendant le run",
+                    "Certaines offres n'ont pas pu être traitées. Les détails restent visibles dans le rapport technique.",
+                    kind="warning",
+                )
+                with st.expander("Erreurs techniques"):
+                    st.write("\n".join(data["errors"]))
 
             if data["applications"]:
                 rows = [
@@ -139,8 +190,9 @@ if st.button("Lancer Autopilot", type="primary", disabled=not query or not sourc
                     }
                     for a in data["applications"]
                 ]
+                st.markdown("### Applications générées")
                 st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
-            with st.expander("Rapport JSON"):
+            with st.expander("Rapport technique"):
                 st.json(data)
         except Exception as e:
             st.error(f"Echec autopilot : {e}")

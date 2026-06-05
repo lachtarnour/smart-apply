@@ -14,11 +14,11 @@ from smartapply.app._helpers import (
     status_label,
     total_jobs,
 )
+from smartapply.config import get_settings
 from smartapply.database import session_scope
 from smartapply.database.models import Application, Job, JobStatus
 from smartapply.database.repository import list_pending_processing
 from smartapply.jobsearch import next_action_for
-
 
 st.set_page_config(
     page_title="SmartApply AI",
@@ -90,7 +90,7 @@ def _recommended_action(status_counts: dict[str, int], snapshot: dict[str, Any])
     if snapshot["pending"]:
         return (
             "Trier les offres en attente",
-            "Ouvre le workflow pour sélectionner, désélectionner et lancer l'analyse LLM.",
+            "Ouvre le workflow pour sélectionner, scorer, shortlister puis lancer l'analyse IA.",
             "pages/0_Workflow.py",
         )
     if status_counts.get(JobStatus.ANALYZED, 0):
@@ -115,6 +115,7 @@ def _recommended_action(status_counts: dict[str, int], snapshot: dict[str, Any])
 status_counts = jobs_per_status()
 snapshot = _dashboard_snapshot()
 next_title, next_caption, next_page = _recommended_action(status_counts, snapshot)
+settings = get_settings()
 
 st.title("SmartApply")
 st.caption("Cockpit minimal pour savoir quoi faire maintenant et accéder vite aux bons outils.")
@@ -124,29 +125,30 @@ m1.metric("Offres", total_jobs())
 m2.metric("À traiter", snapshot["pending"])
 m3.metric("Dossiers prêts", snapshot["ready"])
 m4.metric("Brouillons Gmail", snapshot["drafts"])
+st.caption(
+    f"Analyse IA : `{settings.openai_model_cheap}`"
+)
 
 st.divider()
 
 left, right = st.columns([1.25, 1])
-with left:
-    with st.container(border=True):
-        st.caption("Prochaine action")
-        st.subheader(next_title)
-        st.write(next_caption)
-        st.page_link(next_page, label="Continuer", icon="➡️")
+with left, st.container(border=True):
+    st.caption("Prochaine action")
+    st.subheader(next_title)
+    st.write(next_caption)
+    st.page_link(next_page, label="Continuer", icon="➡️")
 
-with right:
-    with st.container(border=True):
-        st.caption("Raccourcis")
-        c1, c2 = st.columns(2)
-        with c1:
-            st.page_link("pages/0_Workflow.py", label="Workflow", icon="🧭")
-            st.page_link("pages/1_Offres.py", label="Offres", icon="📋")
-            st.page_link("pages/2_Candidatures.py", label="Candidatures", icon="📝")
-        with c2:
-            st.page_link("pages/5_Autopilot.py", label="Autopilot", icon="🚀")
-            st.page_link("pages/4_Stats.py", label="Stats", icon="📊")
-            st.page_link("pages/3_Profil.py", label="Profil", icon="👤")
+with right, st.container(border=True):
+    st.caption("Raccourcis")
+    c1, c2 = st.columns(2)
+    with c1:
+        st.page_link("pages/0_Workflow.py", label="Workflow", icon="🧭")
+        st.page_link("pages/1_Offres.py", label="Offres", icon="📋")
+        st.page_link("pages/2_Candidatures.py", label="Candidatures", icon="📝")
+    with c2:
+        st.page_link("pages/5_Autopilot.py", label="Autopilot", icon="🚀")
+        st.page_link("pages/4_Stats.py", label="Stats", icon="📊")
+        st.page_link("pages/3_Profil.py", label="Profil", icon="👤")
 
 st.divider()
 
