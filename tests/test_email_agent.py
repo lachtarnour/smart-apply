@@ -513,10 +513,27 @@ def test_workflow_step5_uses_creer_brouillon_label_not_envoyer() -> None:
     assert "Archiver" in source
     assert "wf_close_done_" in source
     assert "wf_close_archive_" in source
+    assert "wf_send_card_" in source
+    assert "sa-wf-card-slide-up" in source
+    assert "wf_closed_slide_target_ids" in source
     assert "Appliquer la clôture" not in source
     assert "Action finale" not in source
     assert "on_click=_reset_final_email" in source
     assert 'or row["strategy"] == "form_only"' not in source
+
+
+def test_workflow_step5_drop_application_targets_cards_below() -> None:
+    from importlib import import_module
+
+    step5_module = import_module("smartapply.app.workflow.step5_send")
+
+    remaining_ids, slide_target_ids = step5_module._drop_application_id(
+        [10, 20, 30, 40],
+        20,
+    )
+
+    assert remaining_ids == [10, 30, 40]
+    assert slide_target_ids == [30, 40]
 
 
 def test_workflow_step5_close_application_marks_done_or_archived(

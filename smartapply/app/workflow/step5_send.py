@@ -96,7 +96,10 @@ def step5_send() -> None:
                 }
             )
 
+    rows = _sort_rows_by_app_ids(rows, app_ids)
     rows = _active_rows(rows)
+    animation_target_ids = _consume_close_animation_target_ids(rows)
+    _render_card_animation_styles(animation_target_ids)
     if not rows:
         st.info("Pas de candidature à envoyer.")
         st.success("Toutes les candidatures générées pour cette étape sont clôturées.")
@@ -140,7 +143,8 @@ def step5_send() -> None:
         "Rien n'est envoyé automatiquement. Le bouton Gmail crée seulement un brouillon, après validation manuelle."
     )
     for row in rows:
-        _render_send_card(row)
+        with st.container(key=f"wf_send_card_{int(row['id'])}"):
+            _render_send_card(row)
 
     _render_step5_navigation()
     st.divider()
@@ -176,6 +180,41 @@ def _render_close_button_styles() -> None:
     )
 
 
+def _render_card_animation_styles(app_ids: list[int]) -> None:
+    if not app_ids:
+        return
+    selectors = ",\n".join(
+        f'div[class*="st-key-wf_send_card_{app_id}"]' for app_id in app_ids
+    )
+    st.markdown(
+        f"""
+        <style>
+        @keyframes sa-wf-card-slide-up {{
+            from {{
+                opacity: 0.35;
+                transform: translateY(22px);
+            }}
+            to {{
+                opacity: 1;
+                transform: translateY(0);
+            }}
+        }}
+        {selectors} {{
+            animation: sa-wf-card-slide-up 260ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+            transform-origin: top center;
+            will-change: transform, opacity;
+        }}
+        @media (prefers-reduced-motion: reduce) {{
+            {selectors} {{
+                animation: none !important;
+            }}
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def _render_step5_navigation() -> None:
     col_back, col_reset = st.columns([1, 1])
     with col_back:
@@ -203,13 +242,39 @@ def _active_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return active
 
 
+def _sort_rows_by_app_ids(
+    rows: list[dict[str, Any]],
+    app_ids: list[int],
+) -> list[dict[str, Any]]:
+    order = {int(app_id): index for index, app_id in enumerate(app_ids)}
+    return sorted(rows, key=lambda row: order.get(int(row["id"]), len(order)))
+
+
 def _drop_application_from_step5(app_id: int) -> None:
     current_ids = st.session_state.get("wf_generated_app_ids", [])
-    st.session_state["wf_generated_app_ids"] = [
-        int(current_id)
-        for current_id in current_ids
-        if int(current_id) != int(app_id)
-    ]
+    remaining_ids, slide_target_ids = _drop_application_id(current_ids, int(app_id))
+    st.session_state["wf_generated_app_ids"] = remaining_ids
+    st.session_state["wf_closed_slide_target_ids"] = slide_target_ids
+
+
+def _drop_application_id(
+    current_ids: list[int],
+    app_id: int,
+) -> tuple[list[int], list[int]]:
+    normalized_ids = [int(current_id) for current_id in current_ids]
+    if app_id not in normalized_ids:
+        return normalized_ids, []
+    closed_index = normalized_ids.index(app_id)
+    return (
+        [current_id for current_id in normalized_ids if current_id != app_id],
+        normalized_ids[closed_index + 1 :],
+    )
+
+
+def _consume_close_animation_target_ids(rows: list[dict[str, Any]]) -> list[int]:
+    active_ids = {int(row["id"]) for row in rows}
+    target_ids = st.session_state.pop("wf_closed_slide_target_ids", [])
+    return [int(app_id) for app_id in target_ids if int(app_id) in active_ids]
 
 
 def _is_valid_email(value: str) -> bool:
