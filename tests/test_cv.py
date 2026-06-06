@@ -10,8 +10,8 @@ from smartapply.cv import (
     CvAdapter,
     CvBlockSelector,
     CvDocxRenderer,
-    HtmlApplicationRenderer,
     CvValidator,
+    HtmlApplicationRenderer,
 )
 from smartapply.cv.html_renderer import pdf_page_count
 from smartapply.cv.motivation_validator import (
@@ -295,6 +295,63 @@ def test_adapter_adds_summary_mentioned_allowed_skill_to_skills() -> None:
     assert "FAISS" in selected
 
 
+def test_adapter_removes_unsupported_offer_terms_from_cv_header() -> None:
+    MockLLMProvider.clear()
+    cv = _valid_adapted_cv().model_copy(
+        update={
+            "cv_title": "Data Analyst | Power BI, SAP & Databricks",
+            "professional_summary": (
+                "Data Scientist aligned with SAP data reliability, Power BI "
+                "reporting and Databricks-driven analytics."
+            ),
+            "selected_skills": [
+                SkillSelectionBlock(category_id="data_analysis", skills=["Python", "SQL"])
+            ],
+            "skills_order": ["data_analysis"],
+        }
+    )
+    MockLLMProvider.register(
+        "application_draft",
+        ApplicationDraft(
+            cv_title=cv.cv_title,
+            professional_summary=cv.professional_summary,
+            selected_experiences=cv.selected_experiences,
+            selected_project_ids=cv.selected_project_ids,
+            selected_skills=cv.selected_skills,
+            skills_order=cv.skills_order,
+            warnings=cv.warnings,
+            motivation_letter_subject="Candidature - Data Analyst",
+            motivation_letter_body=(
+                "Votre contexte data m'intéresse.\n\n"
+                "J'ai travaillé avec Python et SQL chez Emobot.\n\n"
+                "Je serais heureux d'échanger."
+            ),
+        ),
+    )
+    analysis = _sample_analysis().model_copy(
+        update={
+            "required_skills": ["Power BI", "SAP", "Databricks"],
+            "cv_keywords_to_include": ["reporting"],
+        }
+    )
+    adapted, _letter, _selection = CvAdapter(
+        get_profile(),
+        llm=MockLLMProvider(),
+        embeddings=MockEmbeddingsProvider(),
+    ).adapt_application(analysis, job_title="Data Analyst", job_company="Acme")
+
+    header = f"{adapted.cv_title}\n{adapted.professional_summary}"
+    assert "Power BI" not in header
+    assert "SAP" not in header
+    assert "Databricks" not in header
+    assert "reporting" not in header.lower()
+    assert "data visualization" in header.lower()
+    assert any(
+        warning.startswith("unsupported_cv_head_terms_replaced:")
+        for warning in adapted.warnings
+    )
+
+
 # ---------------- Validator ----------------
 
 
@@ -496,6 +553,37 @@ def test_motivation_letter_validator_flags_unsupported_terms_as_candidate_claim(
     assert "unsupported_tech_in_letter:bigquery" in result.warnings
 
 
+def test_motivation_letter_validator_accepts_supported_alias_terms() -> None:
+    analysis = _sample_analysis().model_copy(
+        update={
+            "required_skills": ["Deep Learning"],
+            "cv_keywords_to_include": [
+                "séries temporelles",
+                "prévision",
+                "traitement statistique de données",
+            ],
+        }
+    )
+    letter = MotivationLetter(
+        subject="Candidature - Data Scientist",
+        body=(
+            "Votre contexte de prévision sur séries temporelles m'intéresse.\n\n"
+            "J'ai développé des modèles de prévision chez Value Digital Services "
+            "et travaillé avec PyTorch chez Emobot.\n\n"
+            "Je peux contribuer avec une base solide en Python et modélisation."
+        ),
+    )
+    result = MotivationLetterValidator(get_profile(), min_words=1).validate(
+        letter,
+        cv=_valid_adapted_cv(),
+        analysis=analysis,
+    )
+    assert not any(
+        warning.startswith("unsupported_term_in_letter")
+        for warning in result.warnings
+    )
+
+
 def test_normalize_french_elisions_repairs_missing_apostrophes() -> None:
     text = "J ai travaillé sur l IA générative, d AI à la production, jusqu à l usage."
     fixed = normalize_french_elisions(text, language="fr")
@@ -504,6 +592,15 @@ def test_normalize_french_elisions_repairs_missing_apostrophes() -> None:
     assert "d'AI" in fixed
     assert "jusqu'à" in fixed
     assert "J ai" not in fixed
+
+
+def test_normalize_french_elisions_does_not_break_acronyms() -> None:
+    text = "Un passage de R&D vers la production avec GRU-D et GP-VAE."
+    fixed = normalize_french_elisions(text, language="fr")
+    assert "R&D vers" in fixed
+    assert "GRU-D et" in fixed
+    assert "R&D'vers" not in fixed
+    assert "GRU-D'et" not in fixed
 
 
 def test_motivation_letter_validator_flags_missing_french_apostrophes() -> None:
@@ -520,6 +617,25 @@ def test_motivation_letter_validator_flags_missing_french_apostrophes() -> None:
         analysis=_sample_analysis(),
     )
     assert "french_elision_missing_apostrophe" in result.warnings
+
+
+def test_motivation_letter_validator_flags_non_three_paragraphs() -> None:
+    letter = MotivationLetter(
+        subject="Candidature - Data Scientist",
+        body=(
+            "Votre contexte data m'intéresse pour ses missions concrètes.\n\n"
+            "Chez Emobot, j'ai travaillé sur des pipelines multimodaux et SciFact "
+            "RAG Verifier illustre ma pratique du retrieval.\n\n"
+            "Je peux contribuer avec une approche structurée.\n\n"
+            "Je serais heureux d'échanger avec vous."
+        ),
+    )
+    result = MotivationLetterValidator(get_profile(), min_words=1).validate(
+        letter,
+        cv=_valid_adapted_cv(),
+        analysis=_sample_analysis(),
+    )
+    assert "letter_not_3_paragraphs:4" in result.warnings
 
 
 def test_motivation_letter_validator_does_not_flag_english_possessive_as_french_elision() -> None:
@@ -840,7 +956,8 @@ def test_application_draft_prompt_separates_matching_keywords_from_display_skill
     assert "why this company/context, why this role, why this candidate" in prompt
     assert "Connect the offer anchor to one role mission/responsibility" in prompt
     assert "=== MOTIVATION LETTER ===" in prompt
-    assert "Body: 180-280 words" in prompt
+    assert "French: 180-260 words, target 200-230" in prompt
+    assert "English: 160-230 words, target 180-210" in prompt
     assert "selected_project_ids must contain 2 to 4 projects" in prompt
     assert "write a motivation letter" in application_draft.SYSTEM
     assert "email is NOT generated by the LLM" in application_draft.SYSTEM

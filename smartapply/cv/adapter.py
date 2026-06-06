@@ -28,6 +28,20 @@ from smartapply.ranking.embeddings import (
     get_embeddings_provider,
 )
 
+_CV_HEAD_UNSUPPORTED_REPLACEMENTS: tuple[tuple[str, str], ...] = (
+    ("Databricks-driven", "data pipeline"),
+    ("Databricks", "data pipelines"),
+    ("Power BI", "data visualization"),
+    ("SAP", "data reliability"),
+    ("ETL/ELT", "data pipelines"),
+    ("Data Cloud", "Data Pipelines"),
+    ("data engineering", "data pipelines"),
+    ("Data Engineer", "Data Pipelines Specialist"),
+    ("Reporting", "Data Visualization"),
+    ("reporting", "data visualization"),
+    ("GCP", "cloud-adjacent"),
+)
+
 
 class CvAdapter:
     def __init__(
@@ -69,6 +83,7 @@ class CvAdapter:
         )
         adapted = self._ensure_supported_offer_skills(adapted, analysis)
         adapted = self._apply_role_family_contract(adapted, analysis, job_title)
+        adapted = self._avoid_unsupported_cv_head_terms(adapted, analysis)
         adapted = self._enforce_complete_experiences(adapted)
         adapted = self._ensure_summary_skills_visible(adapted)
         adapted = self._enforce_summary_length(adapted)
@@ -104,6 +119,7 @@ class CvAdapter:
         )
         adapted = self._ensure_supported_offer_skills(draft.to_cv(), analysis)
         adapted = self._apply_role_family_contract(adapted, analysis, job_title)
+        adapted = self._avoid_unsupported_cv_head_terms(adapted, analysis)
         adapted = self._enforce_complete_experiences(adapted)
         adapted = self._ensure_summary_skills_visible(adapted)
         adapted = self._enforce_summary_length(adapted)
@@ -334,6 +350,59 @@ class CvAdapter:
             }
         )
 
+    def _avoid_unsupported_cv_head_terms(
+        self,
+        adapted: AdaptedCV,
+        analysis: JobAnalysis,
+    ) -> AdaptedCV:
+        """Keep unsupported offer/vendor terms out of the CV header.
+
+        The CV title and summary read as candidate claims. When the offer
+        mentions a vendor/tool or broad family that the profile does not
+        support directly, replace only those headline occurrences with a
+        supported adjacent phrase. Bullets and skills remain governed by the
+        existing validator/contract path.
+        """
+        offer_terms: set[str] = set()
+        for raw_term in (
+            list(analysis.required_skills)
+            + list(analysis.cv_keywords_to_include)
+            + [analysis.role_type]
+        ):
+            term = str(raw_term).strip()
+            if term:
+                offer_terms.add(term.lower())
+        if not offer_terms:
+            return adapted
+
+        title = adapted.cv_title
+        summary = adapted.professional_summary
+        changed: list[str] = []
+        for raw, replacement in _CV_HEAD_UNSUPPORTED_REPLACEMENTS:
+            raw_lower = raw.lower()
+            if not any(raw_lower in term or term in raw_lower for term in offer_terms):
+                continue
+            pattern = re.compile(re.escape(raw), flags=re.IGNORECASE)
+            if pattern.search(title) or pattern.search(summary):
+                changed.append(raw)
+            title = pattern.sub(replacement, title)
+            summary = pattern.sub(replacement, summary)
+
+        if not changed:
+            return adapted
+
+        warnings = list(adapted.warnings)
+        warnings.append(
+            "unsupported_cv_head_terms_replaced:" + ",".join(sorted(set(changed)))
+        )
+        return adapted.model_copy(
+            update={
+                "cv_title": self._tidy_headline_text(title),
+                "professional_summary": self._tidy_headline_text(summary),
+                "warnings": warnings,
+            }
+        )
+
     def _apply_role_family_contract(
         self,
         adapted: AdaptedCV,
@@ -349,6 +418,13 @@ class CvAdapter:
             allowed_skills_lower=allowed_skills_lower,
         )
         return adapted
+
+    @staticmethod
+    def _tidy_headline_text(text: str) -> str:
+        cleaned = re.sub(r"\s+", " ", text or "").strip()
+        cleaned = re.sub(r"\s+([,;:|])", r"\1", cleaned)
+        cleaned = re.sub(r"([|,;:])\s*([|,;:])+", r"\1", cleaned)
+        return cleaned
 
     @staticmethod
     def _summary_mentions_skill(summary: str, skill: str) -> bool:

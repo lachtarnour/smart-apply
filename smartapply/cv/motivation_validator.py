@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import re
 
+from unidecode import unidecode
+
 from smartapply.cv.constants import NON_DISPLAY_DOMAIN_TERMS
 from smartapply.cv.validator import ValidationResult
 from smartapply.llm import AdaptedCV, JobAnalysis, MotivationLetter
 from smartapply.profile import Profile
-
 
 _SELF_DEPRECATION_PATTERNS = {
     "although_gap": r"\b(although|even though|while)\b[^.]{0,120}\b(i|my|this profile)\b[^.]{0,120}\b(do not|don't|does not|lack|lacks|limited|still learning|new to)\b",
@@ -49,6 +50,35 @@ _UNSUPPORTED_TECH_TERMS = {
     "typescript",
 }
 
+_SUPPORTED_TERM_ALIASES = {
+    "api rest": ("rest apis", "fastapi", "flask"),
+    "deep learning": ("pytorch", "tensorflow", "cnns"),
+    "machine learning": ("pytorch", "tensorflow", "scikit-learn"),
+    "prevision": ("forecasting",),
+    "prévision": ("forecasting",),
+    "preparation de donnees": ("data pipelines", "pandas", "polars"),
+    "préparation de données": ("data pipelines", "pandas", "polars"),
+    "reporting": ("data visualization", "streamlit", "panel"),
+    "series temporelles": (
+        "time-series",
+        "time-series analysis",
+        "time-series modeling",
+        "arima/sarima",
+    ),
+    "séries temporelles": (
+        "time-series",
+        "time-series analysis",
+        "time-series modeling",
+        "arima/sarima",
+    ),
+    "statistiques": ("statistical modeling", "statistical analysis"),
+    "traitement statistique de donnees": ("statistical analysis", "statistical modeling"),
+    "traitement statistique de données": ("statistical analysis", "statistical modeling"),
+    "data engineering": ("data pipelines", "spark"),
+    "data engineer": ("data pipelines", "spark"),
+    "etl/elt": ("data pipelines", "spark"),
+}
+
 _PROJECT_ALIASES = {
     "proj_svc": (
         "singing voice conversion",
@@ -79,8 +109,18 @@ def _normalize(text: str) -> str:
     return " ".join((text or "").lower().split())
 
 
+def _alias_keys(term: str) -> set[str]:
+    normalized = _normalize(term)
+    return {normalized, unidecode(normalized)}
+
+
 def _word_count(text: str) -> int:
     return len(re.findall(r"\b[\w'-]+\b", text or ""))
+
+
+def _paragraph_count(text: str) -> int:
+    paragraphs = re.split(r"\n\s*\n+", (text or "").strip())
+    return len([paragraph for paragraph in paragraphs if paragraph.strip()])
 
 
 def normalize_french_elisions(text: str, *, language: str = "fr") -> str:
@@ -96,7 +136,7 @@ def normalize_french_elisions(text: str, *, language: str = "fr") -> str:
     fixed = text
     # j ai -> j'ai, d AI -> d'AI, l IA -> l'IA, m ont -> m'ont, ...
     fixed = re.sub(
-        r"\b([cdjlmnstCDJLMNST])\s+([A-Za-zÀ-ÖØ-öø-ÿ][\wÀ-ÖØ-öø-ÿ-]*)",
+        r"(?<![A-Za-zÀ-ÖØ-öø-ÿ&-])\b([cdjlmnstCDJLMNST])\s+([A-Za-zÀ-ÖØ-öø-ÿ][\wÀ-ÖØ-öø-ÿ-]*)",
         one_letter,
         fixed,
     )
@@ -118,7 +158,7 @@ def normalize_french_elisions(text: str, *, language: str = "fr") -> str:
 
 
 _MISSING_APOSTROPHE_PATTERNS = (
-    r"\b[cdjlmnstCDJLMNST]\s+[A-Za-zÀ-ÖØ-öø-ÿ]",
+    r"(?<![A-Za-zÀ-ÖØ-öø-ÿ&-])\b[cdjlmnstCDJLMNST]\s+[A-Za-zÀ-ÖØ-öø-ÿ]",
     r"\b[qQ]u\s+[A-Za-zÀ-ÖØ-öø-ÿ]",
     r"\b[jJ]usqu\s+[A-Za-zÀ-ÖØ-öø-ÿ]",
     r"\b[lL]orsqu\s+[A-Za-zÀ-ÖØ-öø-ÿ]",
@@ -180,10 +220,20 @@ class MotivationLetterValidator:
         for label in self._foreign_scripts(letter.body):
             errors.append(f"foreign_script_in_letter:{label}")
 
+        paragraph_count = _paragraph_count(letter.body)
+        if paragraph_count != 3:
+            warnings.append(f"letter_not_3_paragraphs:{paragraph_count}")
+
         count = _word_count(letter.body)
-        if count < self.min_words:
+        if (analysis.offer_language or "fr").lower().startswith("en"):
+            min_words = min(self.min_words, 160)
+            max_words = min(self.max_words, 230)
+        else:
+            min_words = self.min_words
+            max_words = min(self.max_words, 260)
+        if count < min_words:
             warnings.append(f"letter_too_short:{count}")
-        if count > self.max_words:
+        if count > max_words:
             warnings.append(f"letter_too_long:{count}")
 
         for term in self._unsupported_offer_terms(analysis):
@@ -236,11 +286,16 @@ class MotivationLetterValidator:
 
     def _term_supported_by_allowed_skill(self, term: str) -> bool:
         normalized = _normalize(term)
+        alias_terms = {
+            alias
+            for key in _alias_keys(term)
+            for alias in _SUPPORTED_TERM_ALIASES.get(key, ())
+        }
         for skill in self.allowed_skills:
             skill_norm = _normalize(skill)
             if not skill_norm:
                 continue
-            if normalized == skill_norm:
+            if normalized == skill_norm or skill_norm in alias_terms:
                 return True
             if len(skill_norm) > 2 and (skill_norm in normalized or normalized in skill_norm):
                 return True
@@ -250,6 +305,13 @@ class MotivationLetterValidator:
         normalized = _normalize(term)
         if not normalized:
             return False
+        alias_terms = {
+            alias
+            for key in _alias_keys(term)
+            for alias in _SUPPORTED_TERM_ALIASES.get(key, ())
+        }
+        if any(alias in self.allowed_terms for alias in alias_terms):
+            return True
         for allowed in self.allowed_terms:
             if len(allowed) <= 2:
                 continue
