@@ -82,7 +82,7 @@ if costs:
     ).sort_values("cost_usd", ascending=False)
     chart = (
         alt.Chart(cost_df)
-        .mark_bar(cornerRadiusTopLeft=5, cornerRadiusTopRight=5, color="#2563EB")
+        .mark_bar(cornerRadiusTopLeft=5, cornerRadiusTopRight=5, color="#78A9FF")
         .encode(
             x=alt.X("usage:N", sort="-y", title=None, axis=alt.Axis(labelAngle=-25)),
             y=alt.Y("cost_usd:Q", title="Coût USD"),
@@ -133,7 +133,7 @@ if usage_rows:
     st.markdown("### Coût IA par modèle")
     mchart = (
         alt.Chart(model_df)
-        .mark_bar(cornerRadiusTopLeft=5, cornerRadiusTopRight=5, color="#4F46E5")
+        .mark_bar(cornerRadiusTopLeft=5, cornerRadiusTopRight=5, color="#A8A8A8")
         .encode(
             x=alt.X("model:N", sort="-y", title=None, axis=alt.Axis(labelAngle=-20)),
             y=alt.Y("cost_usd:Q", title="Coût USD"),

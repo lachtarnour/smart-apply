@@ -74,8 +74,8 @@ with left:
         st.markdown("### 2. Sources et fraîcheur")
         sources = st.multiselect(
             "Sources",
-            options=["serpapi", "francetravail"],
-            default=["serpapi", "francetravail"],
+            options=["serpapi", "francetravail", "welcometothejungle"],
+            default=["serpapi", "francetravail", "welcometothejungle"],
         )
         date_posted = st.selectbox(
             "Fraîcheur des offres",

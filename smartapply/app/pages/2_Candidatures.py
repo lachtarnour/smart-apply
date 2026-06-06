@@ -568,8 +568,9 @@ contact_valid = _is_valid_email(contact)
 draft_disabled = not contact_valid or not final_subject or not final_body
 if st.button("📧 Créer un brouillon Gmail", type="primary", disabled=draft_disabled):
     try:
-        from smartapply.email_agent.gmail_draft import create_draft
+        from smartapply.email_agent.gmail_draft import create_draft_result
 
+        created_draft_id: str | None = None
         with session_scope() as s:
             app = s.get(Application, int(app_id))
             if app is None:
@@ -579,7 +580,7 @@ if st.button("📧 Créer un brouillon Gmail", type="primary", disabled=draft_di
                 for path in [cv_pdf_path or cv_path, letter_pdf_path]
                 if path and Path(path).exists()
             ]
-            draft_id = create_draft(
+            result = create_draft_result(
                 subject=final_subject,
                 body=final_body,
                 recipient=contact or "",
@@ -587,28 +588,33 @@ if st.button("📧 Créer un brouillon Gmail", type="primary", disabled=draft_di
                 sender=pipeline_singleton().profile.identity.email,
                 attachment_paths=attachment_paths,
             )
-            app.email_subject = final_subject
-            app.email_body = final_body
-            app.email_cc = email_cc
-            upsert_document(
-                s,
-                int(app_id),
-                doc_type="email",
-                content=final_body,
-                extra={"subject": final_subject},
-            )
-            eml_path = _regenerate_eml(
-                app,
-                recipient=contact,
-                cc_recipient=email_cc,
-            )
-            if eml_path:
-                upsert_document(s, int(app_id), doc_type="eml", path=eml_path)
-            app.gmail_draft_id = draft_id
-            app.status = JobStatus.DRAFT_CREATED
-            if app.job is not None:
-                app.job.status = JobStatus.DRAFT_CREATED
-        st.success(f"Brouillon créé : {draft_id}")
+            if result.status != "draft_created" or not result.draft_id:
+                st.error(result.error or "Gmail n'a pas renvoyé d'identifiant de brouillon.")
+            else:
+                app.email_subject = final_subject
+                app.email_body = final_body
+                app.email_cc = email_cc
+                upsert_document(
+                    s,
+                    int(app_id),
+                    doc_type="email",
+                    content=final_body,
+                    extra={"subject": final_subject},
+                )
+                eml_path = _regenerate_eml(
+                    app,
+                    recipient=contact,
+                    cc_recipient=email_cc,
+                )
+                if eml_path:
+                    upsert_document(s, int(app_id), doc_type="eml", path=eml_path)
+                app.gmail_draft_id = result.draft_id
+                app.status = JobStatus.DRAFT_CREATED
+                if app.job is not None:
+                    app.job.status = JobStatus.DRAFT_CREATED
+                created_draft_id = result.draft_id
+        if created_draft_id:
+            st.success(f"Brouillon créé : {created_draft_id}")
     except Exception as e:
         st.error(f"Échec : {e}")
 elif draft_disabled:

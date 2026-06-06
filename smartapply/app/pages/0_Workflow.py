@@ -1,4 +1,4 @@
-"""Interactive workflow: Fetch → Score → Analyze → Generate → Send.
+"""Interactive workflow: Fetch → Score → Analyze → Generate → Draft.
 
 Streamlit single-page wizard that walks the user through one full
 job-application loop. The state is held in ``st.session_state`` so each
@@ -8,6 +8,8 @@ interaction reruns cheaply.
 from __future__ import annotations
 
 import base64
+from datetime import datetime, timezone
+from html import escape
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +20,7 @@ from smartapply.app._helpers import (
     SERPAPI_LANGUAGE_OPTIONS,
     apply_app_style,
     pipeline_singleton,
+    render_section_header,
     status_label,
 )
 from smartapply.config import get_settings
@@ -45,12 +48,6 @@ st.set_page_config(
 apply_app_style()
 settings = get_settings()
 
-st.title("🧭 Workflow guidé")
-st.caption(
-    "Recherche → Scoring → Analyse IA → Génération CV/email → Envoi Gmail. "
-    "À chaque étape tu peux désélectionner ce qui ne t'intéresse pas."
-)
-
 # ============================================================
 # Session state
 # ============================================================
@@ -67,7 +64,15 @@ DEFAULTS = {
     "wf_selected_for_analysis": [],
     "wf_selected_for_apply": [],
     "wf_manual_contacts": {},
+    "wf_rejected_score_map": {},
+    "wf_rejected_analysis_map": {},
+    "wf_apply_keep_map": {},
+    "wf_generate_keep_map": {},
+    "wf_generate_seed_ids": [],
+    "wf_contact_lookup_map": {},
+    "wf_contact_lookup_bulk_value": False,
     "wf_generated_app_ids": [],
+    "wf_use_contact_lookup": False,
     "wf_running": None,
     "wf_stop_requested": False,
     "wf_last_run_summary": None,
@@ -162,8 +167,39 @@ def _status_pill(label: str, kind: str = "blue") -> str:
         "warn": "sa-pill-warn",
         "bad": "sa-pill-bad",
         "blue": "sa-pill-blue",
+        "neutral": "sa-pill-neutral",
+        "purple": "sa-pill-purple",
     }.get(kind, "sa-pill-blue")
-    return f"<span class='sa-pill {cls}'>{label}</span>"
+    return f"<span class='sa-pill {cls}'>{escape(str(label))}</span>"
+
+
+def _render_action_strip(
+    *,
+    kicker: str,
+    title: str,
+    message: str,
+    badges: list[tuple[str, str]] | None = None,
+) -> None:
+    badge_html = ""
+    if badges:
+        badge_html = (
+            "<div class='sa-pill-row'>"
+            + "".join(_status_pill(label, kind) for label, kind in badges)
+            + "</div>"
+        )
+    st.markdown(
+        f"""
+        <div class="sa-action-strip">
+          <div>
+            <div class="sa-focus-kicker">{escape(kicker)}</div>
+            <strong>{escape(title)}</strong>
+            <div class="sa-section-subtitle">{escape(message)}</div>
+          </div>
+          {badge_html}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 # ============================================================
@@ -176,8 +212,13 @@ def render_stepper() -> None:
     st.markdown(
         """
         <div class="sa-hero">
-          <h2>SmartApply Command Center</h2>
-          <div class="sa-muted">Un flux fluide pour chercher, scorer, analyser, générer, vérifier et préparer tes candidatures sans perdre le contrôle.</div>
+          <h2>Workflow guidé</h2>
+          <div class="sa-muted">Recherche, scoring, analyse IA, génération et finalisation depuis un seul écran de contrôle.</div>
+          <div class="sa-pill-row">
+            <span class="sa-pill sa-pill-good">Chaque étape est indépendante</span>
+            <span class="sa-pill sa-pill-blue">Sélections modifiables</span>
+            <span class="sa-pill sa-pill-neutral">Aucun envoi automatique</span>
+          </div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -197,7 +238,7 @@ def render_stepper() -> None:
         ("1", "Fetch", "Chercher et choisir"),
         ("2", "Scoring", "Ranker et shortlister"),
         ("3", "Analyse", "IA sur sélection"),
-        ("4", "Génération", "CV, lettre, email"),
+        ("4", "Génération", "CV, lettre, email, contact"),
         ("5", "Finalisation", "Gmail ou formulaire"),
     ]
     cols = st.columns(len(steps))
@@ -318,6 +359,130 @@ def _rejected_jobs_df(job_ids: list[int]) -> pd.DataFrame:
     return pd.DataFrame(rows).sort_values(["company", "title"]) if rows else pd.DataFrame()
 
 
+def _filter_rejected_jobs_df(
+    selection_map: dict[int, bool],
+    *,
+    selection_col: str = "include",
+    limit: int = 300,
+) -> pd.DataFrame:
+    """Filter/dedup archived jobs that can be manually brought back."""
+    rows: list[dict[str, Any]] = []
+    with session_scope() as s:
+        jobs = (
+            s.query(Job)
+            .filter(Job.archived_at.is_not(None))
+            .order_by(Job.scraped_at.desc())
+            .limit(limit)
+            .all()
+        )
+        for job in jobs:
+            components = job.score.components if job.score and job.score.components else {}
+            stage = str(components.get("rejection_stage") or "")
+            if stage not in {"local_filter", "deduplication"}:
+                continue
+            desc = (job.cleaned_description or job.description or "").strip()
+            rows.append(
+                {
+                    selection_col: bool(selection_map.get(int(job.id), False)),
+                    "id": int(job.id),
+                    "title": job.title,
+                    "company": job.company,
+                    "location": job.location or "",
+                    "source": job.source,
+                    "phase": "Filtre local" if stage == "local_filter" else "Doublon",
+                    "reason": _reason_text(job),
+                    "preview": desc[:180] + ("..." if len(desc) > 180 else ""),
+                    "url": job.application_url or "",
+                }
+            )
+    return pd.DataFrame(rows).sort_values(["company", "title"]) if rows else pd.DataFrame()
+
+
+def _render_filter_rejected_picker(
+    *,
+    state_key: str,
+    editor_key: str,
+    title: str,
+    checkbox_label: str,
+    caption: str,
+) -> list[int]:
+    selection_map = {
+        int(k): bool(v)
+        for k, v in st.session_state.get(state_key, {}).items()
+    }
+    df = _filter_rejected_jobs_df(selection_map, selection_col="include")
+    if df.empty:
+        return []
+
+    with st.expander(f"{title} ({len(df)})", expanded=False):
+        st.caption(caption)
+        rejected_search = st.text_input(
+            "Rechercher dans les offres rejetées",
+            placeholder="Entreprise, poste, raison, source...",
+            key=f"{editor_key}_search",
+        )
+        visible_df = _filter_table(df, rejected_search)
+        edited = st.data_editor(
+            visible_df,
+            column_config={
+                "include": st.column_config.CheckboxColumn(checkbox_label, default=False),
+                "id": st.column_config.NumberColumn("id", disabled=True, width="small"),
+                "title": st.column_config.TextColumn("Titre", disabled=True, width="large"),
+                "company": st.column_config.TextColumn("Entreprise", disabled=True, width="medium"),
+                "location": st.column_config.TextColumn("Lieu", disabled=True, width="small"),
+                "source": st.column_config.TextColumn("Source", disabled=True, width="small"),
+                "phase": st.column_config.TextColumn("Origine", disabled=True, width="small"),
+                "reason": st.column_config.TextColumn("Raison", disabled=True, width="large"),
+                "preview": st.column_config.TextColumn("Aperçu", disabled=True, width="large"),
+                "url": st.column_config.LinkColumn("URL", disabled=True, width="small"),
+            },
+            hide_index=True,
+            width="stretch",
+            key=editor_key,
+        )
+        if not edited.empty and {"id", "include"}.issubset(edited.columns):
+            for _, row in edited[["id", "include"]].iterrows():
+                selection_map[int(row["id"])] = bool(row["include"])
+            st.session_state[state_key] = selection_map
+        selected_ids = [
+            int(row["id"])
+            for _, row in df.iterrows()
+            if bool(selection_map.get(int(row["id"]), bool(row.get("include", False))))
+        ]
+        st.caption(f"{len(selected_ids)} offre(s) ajoutée(s) par sélection manuelle.")
+        return selected_ids
+
+
+def _restore_archived_jobs_for_manual_flow(job_ids: list[int]) -> list[int]:
+    """Make manually selected archived jobs available again without max-score rescue."""
+    unique_ids = list(dict.fromkeys(int(job_id) for job_id in job_ids))
+    if not unique_ids:
+        return []
+    now = datetime.now(timezone.utc)
+    restored: list[int] = []
+    with session_scope() as s:
+        for job_id in unique_ids:
+            job = s.get(Job, int(job_id))
+            if job is None:
+                continue
+            job.archived_at = None
+            job.analyzed_at = None
+            if job.filtered_at is None:
+                job.filtered_at = now
+            job.status = JobStatus.FILTERED
+            restored.append(int(job_id))
+
+    if restored:
+        overrides = _filter_override_ids()
+        overrides.update(restored)
+        st.session_state["wf_filter_override_ids"] = sorted(overrides)
+        keep_map = st.session_state.get("wf_keep_map", {})
+        for job_id in restored:
+            keep_map[int(job_id)] = True
+        st.session_state["wf_keep_map"] = keep_map
+    return restored
+
+
 def _filter_table(df: pd.DataFrame, query: str) -> pd.DataFrame:
     if df.empty or not query.strip():
         return df
@@ -332,6 +497,7 @@ def _filter_table(df: pd.DataFrame, query: str) -> pd.DataFrame:
         "status",
         "preview",
         "reasons",
+        "reason",
         "risks",
         "domain",
         "seniority",
@@ -414,6 +580,8 @@ def _render_rejected_offer_controls() -> None:
                     for job_id in restore_ids:
                         job = s.get(Job, int(job_id))
                         if job is not None:
+                            job.archived_at = None
+                            job.analyzed_at = None
                             job.status = JobStatus.SCRAPED
                 keep_map = st.session_state.get("wf_keep_map", {})
                 for job_id in restore_ids:
@@ -575,23 +743,40 @@ def _sync_manual_contacts(df: pd.DataFrame) -> None:
     st.session_state["wf_manual_contacts"] = contacts
 
 
-def _sync_keep_state(df: pd.DataFrame) -> None:
+def _sync_contact_lookup_state(df: pd.DataFrame) -> None:
+    lookup_map = {
+        int(k): bool(v)
+        for k, v in st.session_state.get("wf_contact_lookup_map", {}).items()
+    }
+    if df.empty or not {"id", "lookup_contact"}.issubset(df.columns):
+        st.session_state["wf_contact_lookup_map"] = lookup_map
+        return
+    for _, row in df[["id", "lookup_contact"]].iterrows():
+        lookup_map[int(row["id"])] = bool(row.get("lookup_contact", False))
+    st.session_state["wf_contact_lookup_map"] = lookup_map
+
+
+def _sync_keep_state(df: pd.DataFrame, *, state_key: str = "wf_keep_map") -> None:
     if df.empty or not {"id", "keep"}.issubset(df.columns):
         return
     keep_updates = {
         int(row["id"]): bool(row["keep"])
         for _, row in df[["id", "keep"]].iterrows()
     }
-    st.session_state["wf_keep_map"] = {
-        **st.session_state.get("wf_keep_map", {}),
+    st.session_state[state_key] = {
+        **st.session_state.get(state_key, {}),
         **keep_updates,
     }
 
 
-def _kept_ids_from_full_df(df: pd.DataFrame) -> list[int]:
+def _kept_ids_from_full_df(
+    df: pd.DataFrame,
+    *,
+    state_key: str = "wf_keep_map",
+) -> list[int]:
     if df.empty or "id" not in df.columns:
         return []
-    keep_map = st.session_state.get("wf_keep_map", {})
+    keep_map = st.session_state.get(state_key, {})
     return [
         int(row["id"])
         for _, row in df.iterrows()
@@ -779,9 +964,9 @@ def step1_fetch() -> None:
             with col2:
                 sources = st.multiselect(
                     "Sources",
-                    options=["serpapi", "francetravail"],
-                    default=["serpapi", "francetravail"],
-                    help="SerpApi consomme un crédit par page. France Travail est gratuit.",
+                    options=["serpapi", "francetravail", "welcometothejungle"],
+                    default=["serpapi", "francetravail", "welcometothejungle"],
+                    help="SerpApi consomme un crédit par page. France Travail est gratuit. WTTJ lit tes matches personnalisés.",
                 )
                 date_posted = st.selectbox(
                     "Fraîcheur des offres",
@@ -798,6 +983,36 @@ def step1_fetch() -> None:
                 )
             with col3:
                 max_per_source = st.slider("Résultats/source", 5, 300, 15)
+                unlimited_source_options = [
+                    src for src in sources if src != "serpapi"
+                ]
+                unlimited_sources = (
+                    st.multiselect(
+                        "Sources sans limite",
+                        options=unlimited_source_options,
+                        default=(
+                            ["welcometothejungle"]
+                            if "welcometothejungle" in unlimited_source_options
+                            else []
+                        ),
+                        help=(
+                            "Passe max_results=None aux sources sélectionnées. "
+                            "SerpApi est volontairement exclu pour éviter des "
+                            "coûts de pagination."
+                        ),
+                    )
+                    if unlimited_source_options
+                    else []
+                )
+                if unlimited_sources:
+                    unlimited_caption = "Sans limite: " + ", ".join(unlimited_sources)
+                    if "welcometothejungle" in unlimited_sources:
+                        unlimited_caption += (
+                            ". WTTJ utilise "
+                            f"{settings.wttj_pages} page(s) / "
+                            f"{settings.wttj_per_page} offre(s)/page."
+                        )
+                    st.caption(unlimited_caption)
                 if "serpapi" in sources:
                     st.caption(
                         _serpapi_effective_config(
@@ -827,8 +1042,8 @@ def step1_fetch() -> None:
             with a2:
                 auto_sources = st.multiselect(
                     "Sources autopilot",
-                    options=["serpapi", "francetravail", "manual"],
-                    default=["serpapi", "francetravail"],
+                    options=["serpapi", "francetravail", "welcometothejungle", "manual"],
+                    default=["serpapi", "francetravail", "welcometothejungle"],
                     key="wf_auto_sources",
                 )
                 auto_date = st.selectbox(
@@ -927,11 +1142,14 @@ def step1_fetch() -> None:
                                 date_posted=date_posted,
                                 serpapi_hl=SERPAPI_LANGUAGE_OPTIONS[serpapi_language_label],
                             )
+                            source_max_results = (
+                                None if src in unlimited_sources else int(max_per_source)
+                            )
                             report = p.ingest(
                                 src,
                                 query,
                                 location,
-                                max_results=max_per_source,
+                                max_results=source_max_results,
                                 **kwargs,
                             )
                             summary_bits = [f"{report.inserted} nouvelle(s)"]
@@ -1025,6 +1243,14 @@ def step1_fetch() -> None:
     k2.metric("Nouvelles", new_count)
     k3.metric("Déjà filtrées", filtered_count)
 
+    render_section_header(
+        "Vivier de départ",
+        "Construis le lot qui partira au scoring. Les offres non gardées ici restent disponibles.",
+        badges=[
+            (f"{len(df)} affichées", "blue"),
+            (f"{filtered_count} déjà filtrées", "neutral" if filtered_count else "blue"),
+        ],
+    )
     st.markdown("<div class='sa-toolbar'>", unsafe_allow_html=True)
     search_text = st.text_input(
         "Rechercher dans les offres",
@@ -1060,10 +1286,17 @@ def step1_fetch() -> None:
         if bool(all_keep_map.get(int(row["id"]), bool(row["keep"])))
     ]
 
-    st.markdown(
-        f"{_status_pill(str(len(full_kept_ids)) + ' gardée(s)', 'good')} "
-        f"{_status_pill(str(len(df) - len(full_kept_ids)) + ' retirée(s)', 'warn')}",
-        unsafe_allow_html=True,
+    _render_action_strip(
+        kicker="Sélection active",
+        title=f"{len(full_kept_ids)} offre(s) prêtes pour le scoring",
+        message=(
+            "Les offres retirées de cette sélection ne sont pas supprimées ; "
+            "elles peuvent revenir dans un autre lot."
+        ),
+        badges=[
+            (f"{len(full_kept_ids)} gardée(s)", "good"),
+            (f"{len(df) - len(full_kept_ids)} non cochée(s)", "warn"),
+        ],
     )
     _render_compact_job_cards(df, full_kept_ids)
 
@@ -1115,6 +1348,16 @@ def step2_score() -> None:
     )
 
     ids_to_score = list(st.session_state.get("wf_selected_for_scoring", []))
+    selected_rejected_score_ids = _render_filter_rejected_picker(
+        state_key="wf_rejected_score_map",
+        editor_key="wf_step2_rejected_score_editor",
+        title="Offres rejetées par le filtre à ajouter au scoring",
+        checkbox_label="Scorer",
+        caption=(
+            "Ces offres avaient été archivées par le filtre local ou le dédoublonnage. "
+            "Coche celles que tu veux réinjecter dans ce run de scoring."
+        ),
+    )
     if not ids_to_score:
         pending_df = _pending_jobs_df(
             keep_map=st.session_state.get("wf_keep_map", {}),
@@ -1122,7 +1365,7 @@ def step2_score() -> None:
         )
         if pending_df.empty:
             ranked_resume = _ranked_jobs_df(st.session_state.get("wf_ranked_ids") or None)
-            if ranked_resume.empty:
+            if ranked_resume.empty and not selected_rejected_score_ids:
                 st.warning("Aucune offre à scorer. Retourne à la recherche.")
                 if st.button("Retourner à la recherche", key="wf_step2_empty_back"):
                     st.session_state["wf_step"] = 1
@@ -1145,11 +1388,19 @@ def step2_score() -> None:
             ids_to_score = _kept_ids_from_full_df(pending_df)
             st.session_state["wf_selected_for_scoring"] = ids_to_score
 
+    if selected_rejected_score_ids:
+        ids_to_score = list(dict.fromkeys([*ids_to_score, *selected_rejected_score_ids]))
+        st.session_state["wf_selected_for_scoring"] = ids_to_score
+
     if ids_to_score:
         s1, s2 = st.columns(2)
         s1.metric("À scorer", len(ids_to_score))
         s2.metric("Embeddings", settings.openai_model_embed)
-        override_ids = sorted(_filter_override_ids().intersection(ids_to_score))
+        override_ids = sorted(
+            _filter_override_ids()
+            .union(selected_rejected_score_ids)
+            .intersection(ids_to_score)
+        )
         if override_ids:
             st.caption(
                 f"{len(override_ids)} offre(s) réactivée(s) manuellement peuvent passer le filtre local."
@@ -1179,6 +1430,21 @@ def step2_score() -> None:
             top_k_ranked = 1
             st.caption("Une seule offre à scorer — Top-K = 1.")
 
+        _render_action_strip(
+            kicker="Scoring",
+            title=f"{len(ids_to_score)} offre(s) dans le run",
+            message=(
+                f"Le top-K précochera {int(top_k_ranked)} offre(s) pour l'analyse. "
+                "Les autres restent scorées et disponibles pour une autre sélection."
+            ),
+            badges=[
+                (f"Top-K {int(top_k_ranked)}", "purple"),
+                (f"{len(selected_rejected_score_ids)} restaurée(s)", "warn")
+                if selected_rejected_score_ids
+                else ("Aucune restauration", "neutral"),
+            ],
+        )
+
         run_col, back_col = st.columns([2, 1])
         with run_col:
             run_ranking = st.button(
@@ -1197,6 +1463,15 @@ def step2_score() -> None:
             progress = st.progress(0.0, text="Filtrage et ranking...")
             with st.spinner("Filtrage local + scoring sémantique en cours..."):
                 try:
+                    restored_ids = _restore_archived_jobs_for_manual_flow(
+                        selected_rejected_score_ids
+                    )
+                    if restored_ids:
+                        ids_to_score = list(dict.fromkeys([*ids_to_score, *restored_ids]))
+                        st.session_state["wf_selected_for_scoring"] = ids_to_score
+                        override_ids = sorted(
+                            _filter_override_ids().intersection(ids_to_score)
+                        )
                     progress.progress(0.35, text="Filtrage local...")
                     report = pipeline_singleton().rank_pending(
                         top_k_ranked=int(top_k_ranked),
@@ -1234,7 +1509,14 @@ def step2_score() -> None:
         st.info("Lance le scoring pour afficher la shortlist triée.")
         return
 
-    st.write("**Shortlist scorée.** Coche uniquement les offres à envoyer à l'analyse IA.")
+    render_section_header(
+        "Shortlist scorée",
+        "Le top-K est précoché, mais tu gardes la main sur chaque offre à envoyer à l'analyse.",
+        badges=[
+            (f"{len(ranked_df)} scorée(s)", "blue"),
+            (f"{len(st.session_state.get('wf_selected_for_analysis', []))} sélectionnée(s)", "good"),
+        ],
+    )
     rank_search = st.text_input(
         "Rechercher dans la shortlist scorée",
         placeholder="Entreprise, poste, ville, raison, score...",
@@ -1315,14 +1597,75 @@ def step3_analyze() -> None:
         """
         <div class="sa-panel">
           <h3 style="margin:0;">Étape 3 · Analyse IA</h3>
-          <div class="sa-muted">Analyse uniquement les offres cochées après le scoring. Rien n'est envoyé automatiquement.</div>
+          <div class="sa-muted">Choisis dans les offres scorées disponibles, avec le top-K précoché et la possibilité de restaurer des offres filtrées.</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
-    ids_to_analyze = st.session_state["wf_selected_for_analysis"]
+    ids_to_analyze: list[int] = []
     resume_mode = False
     analysis_attempted = False
+    selected_rejected_analysis_ids = _render_filter_rejected_picker(
+        state_key="wf_rejected_analysis_map",
+        editor_key="wf_step3_rejected_analysis_editor",
+        title="Offres rejetées par le filtre à ajouter à l'analyse",
+        checkbox_label="Analyser",
+        caption=(
+            "Tu peux forcer l'analyse IA d'une offre rejetée par le filtre. "
+            "Elle sera restaurée au lancement de l'analyse."
+        ),
+    )
+
+    candidate_df = _ranked_jobs_df()
+    if not candidate_df.empty:
+        render_section_header(
+            "Offres scorées disponibles",
+            "Le top-K est précoché ; ajoute ou retire des offres avant l'appel IA.",
+            badges=[
+                (f"{len(candidate_df)} disponible(s)", "blue"),
+                ("Top-K précoché", "purple"),
+            ],
+        )
+        candidate_search = st.text_input(
+            "Rechercher dans les offres disponibles pour analyse",
+            placeholder="Entreprise, poste, ville, raison, score...",
+            key="wf_step3_candidate_search",
+        )
+        visible_candidate_df = _filter_table(candidate_df, candidate_search)
+        edited_candidates = st.data_editor(
+            visible_candidate_df,
+            column_config={
+                "analyze": st.column_config.CheckboxColumn("Analyser", default=True),
+                "id": st.column_config.NumberColumn("id", disabled=True, width="small"),
+                "title": st.column_config.TextColumn("Titre", disabled=True, width="large"),
+                "company": st.column_config.TextColumn("Entreprise", disabled=True, width="medium"),
+                "location": st.column_config.TextColumn("Lieu", disabled=True, width="small"),
+                "contract": st.column_config.TextColumn("Contrat", disabled=True, width="small"),
+                "source": st.column_config.TextColumn("Source", disabled=True, width="small"),
+                "status": st.column_config.TextColumn("Statut", disabled=True, width="small"),
+                "score": st.column_config.NumberColumn("Score final", disabled=True, format="%.3f", width="small"),
+                "semantic": st.column_config.NumberColumn("Sémantique", disabled=True, format="%.3f", width="small"),
+                "skills": st.column_config.NumberColumn("Skills", disabled=True, format="%.3f", width="small"),
+                "seniority_score": st.column_config.NumberColumn("Seniorité", disabled=True, format="%.3f", width="small"),
+                "location_score": st.column_config.NumberColumn("Lieu score", disabled=True, format="%.3f", width="small"),
+                "reasons": st.column_config.TextColumn("Raisons", disabled=True, width="large"),
+                "preview": st.column_config.TextColumn("Aperçu", disabled=True, width="large"),
+                "url": st.column_config.LinkColumn("URL", disabled=True, width="small"),
+            },
+            hide_index=True,
+            width="stretch",
+            key="wf_step3_candidate_editor",
+        )
+        _sync_analysis_keep_state(edited_candidates)
+        ids_to_analyze = _selected_analysis_ids_from_df(candidate_df)
+
+    if selected_rejected_analysis_ids:
+        ids_to_analyze = list(
+            dict.fromkeys([*ids_to_analyze, *selected_rejected_analysis_ids])
+        )
+
+    st.session_state["wf_selected_for_analysis"] = ids_to_analyze
+
     if not ids_to_analyze:
         existing_df = _analyzed_jobs_df()
         if existing_df.empty:
@@ -1348,11 +1691,32 @@ def step3_analyze() -> None:
     a2.metric("Parallélisme IA", settings.llm_max_concurrent)
     a3.metric("Analyse IA", settings.openai_model_cheap)
 
+    if not resume_mode:
+        _render_action_strip(
+            kicker="Analyse IA",
+            title=f"{len(ids_to_analyze)} offre(s) sélectionnée(s)",
+            message=(
+                "L'appel IA ne part que sur cette sélection. Les offres non cochées "
+                "restent scorées et réutilisables."
+            ),
+            badges=[
+                (f"{len(selected_rejected_analysis_ids)} restaurée(s)", "warn")
+                if selected_rejected_analysis_ids
+                else ("Aucune restauration", "neutral"),
+                (f"Modèle {settings.openai_model_cheap}", "blue"),
+            ],
+        )
+
     run_analysis = False
     if not resume_mode:
         run_col, stop_col = st.columns([2, 1])
         with run_col:
-            run_analysis = st.button("Lancer l'analyse IA", type="primary", width="stretch")
+            run_analysis = st.button(
+                "Lancer l'analyse IA",
+                type="primary",
+                width="stretch",
+                disabled=not ids_to_analyze,
+            )
         with stop_col:
             if st.button("Arrêter", key="wf_stop_analysis", width="stretch"):
                 st.session_state["wf_stop_requested"] = True
@@ -1363,6 +1727,11 @@ def step3_analyze() -> None:
 
     if run_analysis:
         analysis_attempted = True
+        restored_ids = _restore_archived_jobs_for_manual_flow(
+            selected_rejected_analysis_ids
+        )
+        if restored_ids:
+            ids_to_analyze = list(dict.fromkeys([*ids_to_analyze, *restored_ids]))
         st.session_state["wf_selected_for_analysis"] = ids_to_analyze
         _begin_run("analyse IA")
         progress = st.progress(0.0, text="Analyse IA...")
@@ -1431,10 +1800,16 @@ def step3_analyze() -> None:
         st.info("Aucune offre analysée. Retour au scoring pour ajuster la shortlist.")
         return
 
-    st.write(f"**{len(analyzed_ids)} offre(s) analysée(s).** Sélectionne celles pour lesquelles tu veux générer une candidature :")
-
     # Build a richer view with LLM analysis data
     df = _analyzed_jobs_df(analyzed_ids)
+    render_section_header(
+        "Offres analysées",
+        "Sélectionne les candidatures à générer, avec contact manuel optionnel.",
+        badges=[
+            (f"{len(analyzed_ids)} analysée(s)", "blue"),
+            (f"{len(st.session_state.get('wf_selected_for_apply', []))} vers génération", "good"),
+        ],
+    )
 
     analyze_search = st.text_input(
         "Rechercher dans les offres analysées",
@@ -1470,8 +1845,8 @@ def step3_analyze() -> None:
         key="wf_step2_editor",
     )
     _sync_manual_contacts(edited)
-    _sync_keep_state(edited)
-    selected = _kept_ids_from_full_df(df)
+    _sync_keep_state(edited, state_key="wf_apply_keep_map")
+    selected = _kept_ids_from_full_df(df, state_key="wf_apply_keep_map")
 
     st.write(f"→ **{len(selected)} offre(s) à transformer en candidature**")
 
@@ -1501,13 +1876,13 @@ def step4_generate() -> None:
         """
         <div class="sa-panel">
           <h3 style="margin:0;">Étape 4 · Génération des candidatures</h3>
-          <div class="sa-muted">Le système génère un CV PDF/DOCX, une lettre et un email. Tu peux ajouter un contact manuel et arrêter proprement entre deux offres.</div>
+          <div class="sa-muted">Le système génère un CV PDF/DOCX, une lettre, un email et peut rechercher un contact fiable si Anymail est configuré.</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
     seed_ids = list(st.session_state["wf_selected_for_apply"])
-    resume_df = _analyzed_jobs_df(seed_ids or None)
+    resume_df = _analyzed_jobs_df()
     if resume_df.empty:
         st.warning("Aucune offre sélectionnée et aucune offre analysée disponible pour génération.")
         col_back, col_analyze = st.columns(2)
@@ -1522,7 +1897,66 @@ def step4_generate() -> None:
         return
 
     st.info(
-        "Sélectionne les offres à générer. Le contact manuel est optionnel : si tu le renseignes, l'EML/Gmail utilisera cet email."
+        "Sélectionne les offres à générer. Le contact manuel est prioritaire ; "
+        "coche ensuite les offres pour lesquelles Anymail doit chercher un email."
+    )
+    seed_signature = sorted(int(job_id) for job_id in seed_ids)
+    if seed_signature and st.session_state.get("wf_generate_seed_ids") != seed_signature:
+        seed_set = set(seed_signature)
+        st.session_state["wf_generate_keep_map"] = {
+            int(job_id): int(job_id) in seed_set
+            for job_id in resume_df["id"]
+        }
+        st.session_state["wf_generate_seed_ids"] = seed_signature
+    generate_keep_map = {
+        int(k): bool(v)
+        for k, v in st.session_state.get("wf_generate_keep_map", {}).items()
+    }
+    if generate_keep_map:
+        resume_df = resume_df.copy()
+        resume_df["keep"] = [
+            bool(generate_keep_map.get(int(job_id), bool(row_keep)))
+            for job_id, row_keep in zip(resume_df["id"], resume_df["keep"], strict=True)
+        ]
+    contact_lookup_default = st.checkbox(
+        "Précocher la recherche contact pour les offres affichées",
+        disabled=not bool(settings.anymailfinder_api_key),
+        key="wf_use_contact_lookup",
+        help=(
+            "Cette option ne lance rien toute seule. Elle préremplit la colonne "
+            "'Chercher contact' ; le contact manuel reste prioritaire."
+        ),
+    )
+    if not settings.anymailfinder_api_key:
+        st.caption("ANYMAILFINDER_API_KEY non configurée : recherche automatique désactivée.")
+
+    lookup_map = {
+        int(k): bool(v)
+        for k, v in st.session_state.get("wf_contact_lookup_map", {}).items()
+    }
+    previous_bulk_value = st.session_state.get("wf_contact_lookup_bulk_value")
+    if previous_bulk_value is None or bool(previous_bulk_value) != bool(contact_lookup_default):
+        lookup_map.update(
+            {
+                int(job_id): bool(contact_lookup_default)
+                for job_id in resume_df["id"]
+            }
+        )
+        st.session_state["wf_contact_lookup_map"] = lookup_map
+        st.session_state["wf_contact_lookup_bulk_value"] = bool(contact_lookup_default)
+    resume_df = resume_df.copy()
+    resume_df["lookup_contact"] = [
+        bool(settings.anymailfinder_api_key)
+        and lookup_map.get(int(job_id), bool(contact_lookup_default))
+        for job_id in resume_df["id"]
+    ]
+    render_section_header(
+        "Dossiers à générer",
+        "Toutes les offres analysées restent accessibles ; la sélection précédente est seulement précochée.",
+        badges=[
+            (f"{len(resume_df)} analysée(s)", "blue"),
+            ("Contact manuel prioritaire", "good"),
+        ],
     )
     resume_search = st.text_input(
         "Rechercher dans les offres analysées",
@@ -1539,6 +1973,15 @@ def step4_generate() -> None:
         visible_resume_df,
         column_config={
             "keep": st.column_config.CheckboxColumn("Générer", default=True),
+            "lookup_contact": st.column_config.CheckboxColumn(
+                "Chercher contact",
+                default=bool(contact_lookup_default),
+                help=(
+                    "Appelle Anymail uniquement pour cette offre si aucun contact "
+                    "manuel n'est renseigné."
+                ),
+                disabled=not bool(settings.anymailfinder_api_key),
+            ),
             "id": st.column_config.NumberColumn("id", disabled=True, width="small"),
             "title": st.column_config.TextColumn("Titre", disabled=True, width="large"),
             "company": st.column_config.TextColumn("Entreprise", disabled=True, width="medium"),
@@ -1562,17 +2005,45 @@ def step4_generate() -> None:
         key="wf_step3_resume_editor",
     )
     _sync_manual_contacts(edited_resume)
-    _sync_keep_state(edited_resume)
-    ids = _kept_ids_from_full_df(resume_df)
+    _sync_contact_lookup_state(edited_resume)
+    _sync_keep_state(edited_resume, state_key="wf_generate_keep_map")
+    ids = _kept_ids_from_full_df(resume_df, state_key="wf_generate_keep_map")
     st.session_state["wf_selected_for_apply"] = ids
     if not ids:
         st.warning("Sélectionne au moins une offre analysée pour générer une candidature.")
         return
 
+    manual_contacts = st.session_state.get("wf_manual_contacts", {})
+    lookup_map = {
+        int(k): bool(v)
+        for k, v in st.session_state.get("wf_contact_lookup_map", {}).items()
+    }
+    selected_lookup_count = sum(
+        1
+        for job_id in ids
+        if bool(settings.anymailfinder_api_key)
+        and bool(lookup_map.get(int(job_id), bool(contact_lookup_default)))
+        and not manual_contacts.get(int(job_id))
+    )
     g1, g2, g3 = st.columns(3)
     g1.metric("À générer", len(ids))
     g2.metric("Déjà générées", len(st.session_state.get("wf_generated_app_ids", [])))
-    g3.metric("Mode", "Manuel contrôlé")
+    g3.metric("Contacts à chercher", selected_lookup_count)
+
+    _render_action_strip(
+        kicker="Génération",
+        title=f"{len(ids)} dossier(s) dans le lot",
+        message=(
+            "Le bouton génère CV, lettre, email et EML pour les offres cochées. "
+            "Anymail ne part que sur les lignes marquées 'Chercher contact'."
+        ),
+        badges=[
+            (f"{selected_lookup_count} contact(s)", "purple")
+            if selected_lookup_count
+            else ("Recherche contact désactivée", "neutral"),
+            ("Brouillon Gmail non créé ici", "blue"),
+        ],
+    )
 
     c_run, c_stop = st.columns([2, 1])
     with c_run:
@@ -1587,6 +2058,10 @@ def step4_generate() -> None:
         generated_ids: list[int] = []
         p = pipeline_singleton()
         manual_contacts = st.session_state.get("wf_manual_contacts", {})
+        lookup_map = {
+            int(k): bool(v)
+            for k, v in st.session_state.get("wf_contact_lookup_map", {}).items()
+        }
         for i, job_id in enumerate(ids, start=1):
             if _stop_requested():
                 st.warning("Génération arrêtée avant la candidature suivante.")
@@ -1596,11 +2071,24 @@ def step4_generate() -> None:
                 text=f"Candidature {i}/{len(ids)} (job_id={job_id})...",
             )
             try:
-                report = p.apply_to(
-                    job_id,
-                    contact_email=manual_contacts.get(int(job_id)),
-                    create_gmail_draft=False,
+                manual_contact = manual_contacts.get(int(job_id))
+                should_lookup_contact = (
+                    bool(lookup_map.get(int(job_id), bool(contact_lookup_default)))
+                    and not manual_contact
+                    and bool(settings.anymailfinder_api_key)
                 )
+                if should_lookup_contact:
+                    report = p.apply_to_autopilot(
+                        job_id,
+                        create_gmail_draft=False,
+                        require_quality_gate=False,
+                    )
+                else:
+                    report = p.apply_to(
+                        job_id,
+                        contact_email=manual_contact,
+                        create_gmail_draft=False,
+                    )
                 if report.application_id:
                     generated_ids.append(report.application_id)
             except Exception as e:
@@ -2167,7 +2655,7 @@ def _render_gmail_dry_run_preview(row: dict[str, Any]) -> None:
 
 def _create_gmail_draft(row: dict[str, Any]) -> None:
     from smartapply.email_agent import export_eml
-    from smartapply.email_agent.gmail_draft import GmailDraftError, create_draft
+    from smartapply.email_agent.gmail_draft import create_draft_result
     from smartapply.profile import get_profile
 
     subject = str(row.get("subject") or "").strip()
@@ -2223,20 +2711,16 @@ def _create_gmail_draft(row: dict[str, Any]) -> None:
                 app.eml_path = eml_path
                 upsert_document(s, app.id, doc_type="eml", path=eml_path)
 
-    try:
-        draft_id = create_draft(
-            subject=subject,
-            body=body,
-            recipient=recipient,
-            cc_recipient=cc_recipient,
-            sender=sender,
-            attachment_paths=attachments,
-        )
-    except GmailDraftError as e:
-        st.error(str(e))
-        return
-    except Exception as e:
-        st.error(f"Échec Gmail : {e}")
+    result = create_draft_result(
+        subject=subject,
+        body=body,
+        recipient=recipient,
+        cc_recipient=cc_recipient,
+        sender=sender,
+        attachment_paths=attachments,
+    )
+    if result.status != "draft_created" or not result.draft_id:
+        st.error(result.error or "Gmail n'a pas renvoyé d'identifiant de brouillon.")
         return
 
     # Persist the draft_id and bump status
@@ -2245,11 +2729,11 @@ def _create_gmail_draft(row: dict[str, Any]) -> None:
         if app is not None:
             app.email_subject = subject
             app.email_body = body
-            app.gmail_draft_id = draft_id
+            app.gmail_draft_id = result.draft_id
             app.status = JobStatus.DRAFT_CREATED
             if app.job is not None:
                 app.job.status = JobStatus.DRAFT_CREATED
-    st.success(f"✓ Brouillon Gmail créé : {draft_id}")
+    st.success(f"✓ Brouillon Gmail créé : {result.draft_id}")
 
 
 # ============================================================

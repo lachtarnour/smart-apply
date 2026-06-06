@@ -100,7 +100,7 @@ with col_status:
 with col_source:
     source_filter = st.selectbox(
         "Source",
-        options=["(tous)", "serpapi", "francetravail", "manual"],
+        options=["(tous)", "serpapi", "francetravail", "welcometothejungle", "manual"],
         format_func=lambda value: "Toutes" if value == "(tous)" else value,
     )
 with col_score:

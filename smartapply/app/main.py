@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from html import escape
 from typing import Any
 
 import pandas as pd
@@ -11,6 +12,7 @@ from sqlalchemy import select
 from smartapply.app._helpers import (
     apply_app_style,
     jobs_per_status,
+    render_section_header,
     status_label,
     total_jobs,
 )
@@ -117,44 +119,148 @@ snapshot = _dashboard_snapshot()
 next_title, next_caption, next_page = _recommended_action(status_counts, snapshot)
 settings = get_settings()
 
-st.title("SmartApply")
-st.caption("Cockpit minimal pour savoir quoi faire maintenant et accéder vite aux bons outils.")
-
-m1, m2, m3, m4 = st.columns(4)
-m1.metric("Offres", total_jobs())
-m2.metric("À traiter", snapshot["pending"])
-m3.metric("Dossiers prêts", snapshot["ready"])
-m4.metric("Brouillons Gmail", snapshot["drafts"])
-st.caption(
-    f"Analyse IA : `{settings.openai_model_cheap}`"
+total_job_count = total_jobs()
+st.markdown(
+    f"""
+    <div class="sa-home-layout">
+      <div class="sa-home-hero">
+        <div class="sa-home-eyebrow">Mode manuel contrôlé</div>
+        <div class="sa-home-title">SmartApply</div>
+        <div class="sa-home-copy">
+          Un cockpit sobre pour collecter les offres, choisir les bons lots,
+          générer des dossiers propres et garder le contrôle sur chaque envoi.
+        </div>
+        <div class="sa-pill-row">
+          <span class="sa-pill sa-pill-good">Aucun envoi automatique</span>
+          <span class="sa-pill sa-pill-blue">Analyse IA {escape(settings.openai_model_cheap)}</span>
+          <span class="sa-pill sa-pill-neutral">Contacts contrôlés</span>
+        </div>
+      </div>
+      <div class="sa-home-panel">
+        <div class="sa-focus-kicker">Prochaine action</div>
+        <div class="sa-home-next-title">{escape(next_title)}</div>
+        <div class="sa-home-next-copy">{escape(next_caption)}</div>
+      </div>
+    </div>
+    <div class="sa-custom-metrics">
+      <div class="sa-custom-metric" style="--metric-accent:#78A9FF;">
+        <div class="sa-custom-metric-label">Offres</div>
+        <div class="sa-custom-metric-value">{total_job_count}</div>
+        <div class="sa-custom-metric-note">Total collecté</div>
+      </div>
+      <div class="sa-custom-metric" style="--metric-accent:#A8A8A8;">
+        <div class="sa-custom-metric-label">A traiter</div>
+        <div class="sa-custom-metric-value">{snapshot["pending"]}</div>
+        <div class="sa-custom-metric-note">Dans le vivier actif</div>
+      </div>
+      <div class="sa-custom-metric" style="--metric-accent:#D0E2FF;">
+        <div class="sa-custom-metric-label">Dossiers prêts</div>
+        <div class="sa-custom-metric-value">{snapshot["ready"]}</div>
+        <div class="sa-custom-metric-note">A relire ou finaliser</div>
+      </div>
+      <div class="sa-custom-metric" style="--metric-accent:#FFB3B8;">
+        <div class="sa-custom-metric-label">Brouillons Gmail</div>
+        <div class="sa-custom-metric-value">{snapshot["drafts"]}</div>
+        <div class="sa-custom-metric-note">Créés, jamais envoyés</div>
+      </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
 )
 
-st.divider()
+_, continue_col = st.columns([3.2, 1])
+with continue_col:
+    if st.button(
+        "Continuer",
+        icon=":material/arrow_forward:",
+        type="primary",
+        use_container_width=True,
+        key="home_continue",
+    ):
+        st.switch_page(next_page)
 
-left, right = st.columns([1.25, 1])
-with left, st.container(border=True):
-    st.caption("Prochaine action")
-    st.subheader(next_title)
-    st.write(next_caption)
-    st.page_link(next_page, label="Continuer", icon="➡️")
+render_section_header(
+    "Accès rapide",
+    "Les six vues utiles pour piloter sans chercher dans les menus.",
+)
 
-with right, st.container(border=True):
-    st.caption("Raccourcis")
-    c1, c2 = st.columns(2)
-    with c1:
-        st.page_link("pages/0_Workflow.py", label="Workflow", icon="🧭")
-        st.page_link("pages/1_Offres.py", label="Offres", icon="📋")
-        st.page_link("pages/2_Candidatures.py", label="Candidatures", icon="📝")
-    with c2:
-        st.page_link("pages/5_Autopilot.py", label="Autopilot", icon="🚀")
-        st.page_link("pages/4_Stats.py", label="Stats", icon="📊")
-        st.page_link("pages/3_Profil.py", label="Profil", icon="👤")
+quick_actions = [
+    (
+        "Workflow",
+        "Collecter, scorer, analyser et générer depuis un flux guidé.",
+        "pages/0_Workflow.py",
+        ":material/account_tree:",
+    ),
+    (
+        "Offres",
+        "Inspecter les offres, scores, filtres et rejets.",
+        "pages/1_Offres.py",
+        ":material/view_list:",
+    ),
+    (
+        "Candidatures",
+        "Relire les emails, brouillons et dossiers prêts.",
+        "pages/2_Candidatures.py",
+        ":material/outgoing_mail:",
+    ),
+    (
+        "Autopilot",
+        "Lancer un run haut volume avec garde-fous.",
+        "pages/5_Autopilot.py",
+        ":material/rocket_launch:",
+    ),
+    (
+        "Stats",
+        "Suivre volume, pipeline, statuts et coûts.",
+        "pages/4_Stats.py",
+        ":material/monitoring:",
+    ),
+    (
+        "Profil",
+        "Vérifier les paramètres utilisés pour générer les dossiers.",
+        "pages/3_Profil.py",
+        ":material/manage_accounts:",
+    ),
+]
+quick_cols = st.columns(3)
+nav_accents = [
+    ("01", "#78A9FF", "#28384E"),
+    ("02", "#C6C6C6", "#393939"),
+    ("03", "#D2B36A", "#3A321F"),
+    ("04", "#82CFFF", "#253946"),
+    ("05", "#A8A8A8", "#393939"),
+    ("06", "#FFB3B8", "#3A2425"),
+]
+for idx, (label, copy, page, icon) in enumerate(quick_actions):
+    number, accent, soft = nav_accents[idx]
+    with quick_cols[idx % 3]:
+        st.markdown(
+            f"""
+            <div class="sa-nav-card" style="--nav-accent:{accent};--nav-soft:{soft};">
+              <div class="sa-nav-top">
+                <div>
+                  <h4>{escape(label)}</h4>
+                </div>
+                <div class="sa-nav-icon">{number}</div>
+              </div>
+              <p>{escape(copy)}</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.button(
+            f"Ouvrir {label}",
+            icon=icon,
+            use_container_width=True,
+            key=f"home_open_{label.lower()}",
+        ):
+            st.switch_page(page)
 
 st.divider()
 
 col_jobs, col_apps = st.columns(2)
 with col_jobs:
-    st.subheader("Offres récentes")
+    render_section_header("Offres récentes", "Dernières entrées collectées.")
     if snapshot["recent_jobs"]:
         st.dataframe(
             pd.DataFrame(snapshot["recent_jobs"]),
@@ -166,7 +272,7 @@ with col_jobs:
         st.info("Aucune offre collectée.")
 
 with col_apps:
-    st.subheader("Candidatures à suivre")
+    render_section_header("Candidatures à suivre", "Dossiers récents et prochaine action.")
     if snapshot["recent_apps"]:
         st.dataframe(
             pd.DataFrame(snapshot["recent_apps"]),
