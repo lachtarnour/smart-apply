@@ -8,6 +8,7 @@ shortlist with the cheap model.
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import timezone
 
 from smartapply.config import get_settings
 from smartapply.database import session_scope
@@ -125,7 +126,8 @@ class Processor:
         lets ``filter_pending`` and ``process_pending`` cooperate cleanly.
         """
         with session_scope() as s:
-            pending = list(list_pending_processing(s))
+            active_jobs = list(list_pending_processing(s))
+            pending = list(active_jobs)
             if job_ids is not None:
                 selected_ids = set(job_ids)
                 pending = [job for job in pending if job.id in selected_ids]
@@ -134,10 +136,7 @@ class Processor:
                 return ProcessReport(0, 0, 0, 0, 0)
 
             override_ids = set(local_filter_override_ids or [])
-            # Only dedup jobs not yet filtered — duplicates among already-kept
-            # jobs would have been caught in the earlier pass.
-            to_dedup = [j for j in pending if j.filtered_at is None]
-            duplicate_ids = self._mark_duplicates(s, to_dedup)
+            duplicate_ids = self._mark_duplicates(s, active_jobs)
             unique_jobs = [j for j in pending if j.id not in duplicate_ids]
 
             to_filter = [j for j in unique_jobs if j.filtered_at is None]
@@ -199,7 +198,8 @@ class Processor:
     ) -> RankingReport:
         """Run dedup, local filter and ranking without calling the LLM."""
         with session_scope() as s:
-            pending = list(list_pending_processing(s))
+            active_jobs = list(list_pending_processing(s))
+            pending = list(active_jobs)
             if job_ids is not None:
                 selected_ids = set(job_ids)
                 pending = [job for job in pending if job.id in selected_ids]
@@ -207,8 +207,7 @@ class Processor:
                 return RankingReport(0, 0, 0, 0, 0, [], [])
 
             override_ids = set(local_filter_override_ids or [])
-            to_dedup = [j for j in pending if j.filtered_at is None]
-            duplicate_ids = self._mark_duplicates(s, to_dedup)
+            duplicate_ids = self._mark_duplicates(s, active_jobs)
             unique_jobs = [j for j in pending if j.id not in duplicate_ids]
 
             to_filter = [j for j in unique_jobs if j.filtered_at is None]
@@ -268,10 +267,13 @@ class Processor:
 
     def _mark_duplicates(self, session, pending: list[Job]) -> set[int]:
         report = self.deduplicator.deduplicate(pending)
-        duplicate_ids = {j.id for group in report.duplicate_groups for j in group[1:]}
+        duplicate_ids: set[int] = set()
         for group in report.duplicate_groups:
-            root = group[0]
-            for duplicate in group[1:]:
+            root = self._dedup_root(group)
+            for duplicate in group:
+                if duplicate.id == root.id:
+                    continue
+                duplicate_ids.add(int(duplicate.id))
                 reasons = [
                     f"duplicate_of:{root.id}",
                     f"duplicate_reference:{root.company} — {root.title}",
@@ -291,6 +293,35 @@ class Processor:
                 )
                 mark_archived(session, duplicate.id)
         return duplicate_ids
+
+    @staticmethod
+    def _dedup_root(group: list[Job]) -> Job:
+        """Keep the most advanced active job when several rows are duplicates."""
+
+        def scraped_timestamp(job: Job) -> float:
+            if job.scraped_at is None:
+                return float("inf")
+            scraped_at = job.scraped_at
+            if scraped_at.tzinfo is None:
+                scraped_at = scraped_at.replace(tzinfo=timezone.utc)
+            return scraped_at.timestamp()
+
+        def priority(job: Job) -> tuple[int, int, float, int]:
+            progress = 0
+            if job.filtered_at is not None:
+                progress += 1
+            if job.ranked_at is not None:
+                progress += 1
+            if job.analysis is not None or job.analyzed_at is not None:
+                progress += 1
+            return (
+                -progress,
+                0 if job.application is not None else 1,
+                scraped_timestamp(job),
+                int(job.id),
+            )
+
+        return min(group, key=priority)
 
     def _apply_local_filter(
         self,
@@ -408,18 +439,26 @@ class Processor:
         instead of re-filtering or seeing nothing pending.
         """
         with session_scope() as s:
-            pending = list(list_pending_processing(s))
-            pending = [j for j in pending if j.filtered_at is None]
+            active_jobs = list(list_pending_processing(s))
+            pending = [j for j in active_jobs if j.filtered_at is None]
             if job_ids is not None:
                 selected_ids = set(job_ids)
                 pending = [job for job in pending if job.id in selected_ids]
             if not pending:
                 return LocalFilterReport(0, 0, 0, 0, [], [])
 
-            duplicate_ids = self._mark_duplicates(s, pending)
+            dedup_scope_by_id = {int(job.id): job for job in active_jobs}
+            for job in pending:
+                dedup_scope_by_id[int(job.id)] = job
+            duplicate_ids = self._mark_duplicates(s, list(dedup_scope_by_id.values()))
             unique_jobs = [j for j in pending if j.id not in duplicate_ids]
             kept_ids: list[int] = []
-            rejected_ids: list[int] = list(duplicate_ids)
+            pending_ids = {int(job.id) for job in pending}
+            rejected_ids: list[int] = [
+                int(job_id)
+                for job_id in duplicate_ids
+                if int(job_id) in pending_ids
+            ]
 
             for job in unique_jobs:
                 res = self.filter.evaluate(job)
