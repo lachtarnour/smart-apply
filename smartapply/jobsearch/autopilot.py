@@ -78,7 +78,7 @@ class AutopilotRunner:
         date_posted: str | None = None,
         serpapi_hl: str | None = None,
     ) -> AutopilotReport:
-        sources = sources or ["serpapi", "francetravail", "manual"]
+        sources = sources or ["serpapi", "francetravail", "welcometothejungle", "manual"]
         target = target_drafts or self.settings.autopilot_target_drafts
         max_results = max_per_source or max(target, 25)
         report = AutopilotReport(query=query, location=location, target_drafts=target)

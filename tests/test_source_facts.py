@@ -10,6 +10,7 @@ from smartapply.filtering.source_facts import (
     build_filter_facts,
     build_francetravail_filter_facts,
     build_serpapi_filter_facts,
+    build_wttj_filter_facts,
 )
 from smartapply.profile import get_profile
 
@@ -258,6 +259,84 @@ def test_serpapi_schedule_type_internship_is_rejected() -> None:
         reason.startswith("blocked_contract_structured:internship")
         for reason in result.reasons
     )
+
+
+def test_wttj_full_time_contract_and_hybrid_remote_are_extracted() -> None:
+    facts = build_wttj_filter_facts(
+        {
+            "matches_api": {
+                "contract_type": "full_time",
+                "remote": "partial",
+                "office": {"city": "Paris", "country_code": "FR"},
+            },
+            "_smartapply_search": {"source_mode": "personalized_matches", "pages": 5},
+        }
+    )
+
+    assert facts.structured_contract_type == "Full-time"
+    assert facts.structured_contract_source == (
+        "welcometothejungle:matches_api.contract_type"
+    )
+    assert facts.structured_remote_policy == "hybrid"
+    assert facts.structured_location == "Paris, FR"
+    assert facts.structured_search_origin == "personalized_matches"
+    assert facts.structured_search_chips == "pages=5"
+
+
+def test_wttj_workplace_has_priority_over_api_office() -> None:
+    facts = build_wttj_filter_facts(
+        {
+            "workplace": "83 Boulevard de Sébastopol 75002 Paris",
+            "matches_api": {"office": {"city": "Berlin", "country_code": "DE"}},
+        }
+    )
+
+    assert facts.structured_location == "83 Boulevard de Sébastopol 75002 Paris"
+    assert facts.structured_location_source == "welcometothejungle:workplace"
+
+
+def test_wttj_internship_contract_is_rejected_from_structured_facts() -> None:
+    job = FakeJob(
+        source="welcometothejungle",
+        contract_type=None,
+        source_data={
+            "matches_api": {
+                "contract_type": "internship",
+                "office": {"city": "Paris", "country_code": "FR"},
+            },
+        },
+    )
+
+    result = _real_filter().evaluate(job)
+
+    assert not result.kept
+    assert any(
+        reason.startswith("blocked_contract_structured:internship")
+        for reason in result.reasons
+    )
+
+
+def test_wttj_high_experience_level_is_rejected_from_structured_facts() -> None:
+    job = FakeJob(
+        source="welcometothejungle",
+        contract_type="Full-time",
+        source_data={
+            "experience_level": "5_TO_10_YEARS",
+            "matches_api": {
+                "contract_type": "full_time",
+                "office": {"city": "Paris", "country_code": "FR"},
+            },
+        },
+    )
+
+    result = _real_filter().evaluate(job)
+
+    assert not result.kept
+    assert any(
+        reason.startswith("experience_structured_welcometothejungle:5")
+        for reason in result.reasons
+    )
+    assert any("experience_required_too_high:5+ years" in reason for reason in result.reasons)
 
 
 def test_serpapi_schedule_type_part_time_is_rejected_when_not_accepted() -> None:

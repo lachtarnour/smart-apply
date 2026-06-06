@@ -6,6 +6,7 @@ import re
 from collections.abc import Callable
 from typing import Any
 
+from smartapply.config import get_settings
 from smartapply.email_agent.contact_providers import (
     classify_application_domain,
     domain_from_url,
@@ -60,6 +61,85 @@ def build_francetravail_source_metadata(source_data: dict[str, Any] | None) -> s
     if fact_lines:
         sections.append("STRUCTURED_JOB_FACTS:\n" + "\n".join(fact_lines))
     return "\n\n".join(sections)
+
+
+def build_wttj_source_metadata(
+    source_data: dict[str, Any] | None,
+    *,
+    fields: set[str] | None = None,
+) -> str:
+    """Build a compact WTTJ metadata block for analyzer prompts."""
+    if not isinstance(source_data, dict):
+        return ""
+
+    enabled = fields or _wttj_metadata_fields_from_settings()
+    contact_lines = _wttj_contact_lines(source_data, enabled)
+    fact_lines = _wttj_fact_lines(source_data, enabled)
+    if not contact_lines and not fact_lines:
+        return ""
+
+    sections: list[str] = []
+    if contact_lines:
+        sections.append("CONTACT_AND_APPLICATION_METADATA:\n" + "\n".join(contact_lines))
+    if fact_lines:
+        sections.append("STRUCTURED_JOB_FACTS:\n" + "\n".join(fact_lines))
+    return "\n\n".join(sections)
+
+
+def _wttj_contact_lines(source_data: dict[str, Any], enabled: set[str]) -> list[str]:
+    lines = ["source: welcometothejungle"]
+    if "company_domain" in enabled:
+        _append_scalar(lines, "company_domain", source_data.get("company_domain"))
+    if "company_profile_url" in enabled:
+        _append_scalar(lines, "company_profile_url", source_data.get("company_profile_url"))
+
+    urls: list[dict[str, str]] = []
+    if "company_website" in enabled:
+        _add_url(urls, source_data.get("company_website"), "company_website")
+    for item in urls[:_MAX_URLS]:
+        line = (
+            f"url: source_field={item['source_field']} | url={item['url']} | "
+            f"domain={item['domain']} | url_kind={item['url_kind']}"
+        )
+        if item.get("company_domain_candidate"):
+            line += f" | company_domain_candidate={item['company_domain_candidate']}"
+        lines.append(line)
+    return lines
+
+
+def _wttj_fact_lines(source_data: dict[str, Any], enabled: set[str]) -> list[str]:
+    lines: list[str] = []
+    matches_api = _dict(source_data.get("matches_api"))
+    company_profile = _dict(source_data.get("company_profile"))
+
+    if "contract_type" in enabled:
+        _append_scalar(lines, "matches_api.contract_type", matches_api.get("contract_type"))
+        _append_scalar(lines, "employment_type", source_data.get("employment_type"))
+    if "remote" in enabled:
+        _append_scalar(lines, "matches_api.remote", matches_api.get("remote"))
+        _append_scalar(lines, "remote_text", source_data.get("remote_text"))
+    if "published_at" in enabled:
+        _append_scalar(lines, "matches_api.published_at", matches_api.get("published_at"))
+        _append_scalar(lines, "valid_through", source_data.get("valid_through"))
+    if "experience_level" in enabled:
+        _append_scalar(lines, "experience_level", source_data.get("experience_level"))
+    if "salary" in enabled:
+        _append_scalar(lines, "salary", _compact_mapping(source_data.get("salary")))
+    if "workplace" in enabled:
+        _append_scalar(lines, "workplace", source_data.get("workplace"))
+    if "skills" in enabled:
+        _append_scalar(lines, "skills", _short_list(source_data.get("skills")))
+    if "sectors" in enabled:
+        _append_scalar(lines, "company_profile.sectors", company_profile.get("sectors"))
+    if "offices" in enabled:
+        _append_scalar(lines, "company_profile.offices", company_profile.get("offices"))
+    if "company_stats" in enabled:
+        _append_scalar(lines, "company_profile.stats", _compact_mapping(company_profile.get("stats")))
+    if "company_summary" in enabled:
+        _append_scalar(lines, "company_summary", source_data.get("company_summary"))
+    if "company_presentation" in enabled:
+        _append_scalar(lines, "company_profile.presentation", company_profile.get("presentation"))
+    return lines
 
 
 def _contact_and_application_lines(source_data: dict[str, Any]) -> list[str]:
@@ -177,6 +257,18 @@ def _compact_mapping(value: Any) -> str:
     return "; ".join(parts)
 
 
+def _short_list(value: Any) -> str:
+    if not isinstance(value, list):
+        return _short(value)
+    parts = [_short(item) for item in value[:_MAX_LIST_ITEMS] if _short(item)]
+    return "; ".join(parts)
+
+
+def _wttj_metadata_fields_from_settings() -> set[str]:
+    raw = get_settings().wttj_analyzer_metadata_fields
+    return {field.strip() for field in raw.split(",") if field.strip()}
+
+
 def _short(value: Any) -> str:
     text = " ".join(str(value or "").split())
     return text[:_MAX_LINE]
@@ -245,3 +337,4 @@ def _can_be_company_domain(domain: str) -> bool:
 
 
 register_source_metadata_builder("francetravail", build_francetravail_source_metadata)
+register_source_metadata_builder("welcometothejungle", build_wttj_source_metadata)

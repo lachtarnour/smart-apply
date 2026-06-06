@@ -19,6 +19,7 @@ from smartapply.scrapers.serpapi import (
     SERPAPI_DATE_POSTED_OPTIONS,
     SerpApiGoogleJobsScraper,
 )
+from smartapply.scrapers.welcometothejungle import WelcomeToTheJungleScraper
 
 __all__ = [
     "FranceTravailScraper",
@@ -30,6 +31,7 @@ __all__ = [
     "SERPAPI_DATE_POSTED_LABELS",
     "SERPAPI_DATE_POSTED_OPTIONS",
     "SerpApiGoogleJobsScraper",
+    "WelcomeToTheJungleScraper",
     "available_scrapers",
     "get_active_scrapers",
     "get_scraper",

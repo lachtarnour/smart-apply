@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
+from dataclasses import asdict
 from pathlib import Path
 
 import click
@@ -27,6 +28,10 @@ from smartapply.logging_setup import setup_logging
 from smartapply.scrapers import SERPAPI_DATE_POSTED_OPTIONS
 
 DATE_POSTED_CHOICE = click.Choice(list(SERPAPI_DATE_POSTED_OPTIONS))
+SCRAPER_SOURCE_CHOICE = click.Choice(["serpapi", "francetravail", "welcometothejungle"])
+AUTOPILOT_SOURCE_CHOICE = click.Choice(
+    ["serpapi", "francetravail", "welcometothejungle", "manual"]
+)
 
 
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})
@@ -43,7 +48,7 @@ def init_db_command() -> None:
 
 
 @cli.command("ingest")
-@click.option("--source", required=True, type=click.Choice(["serpapi", "francetravail"]))
+@click.option("--source", required=True, type=SCRAPER_SOURCE_CHOICE)
 @click.option("--query", "-q", required=True)
 @click.option("--location", "-l", default=None)
 @click.option("--max-results", type=int, default=20)
@@ -136,9 +141,23 @@ def apply_command(
     click.echo(json.dumps(report.__dict__, indent=2, default=str))
 
 
+@cli.command("gmail-check")
+def gmail_check_command() -> None:
+    """Check local Gmail OAuth setup without creating a draft."""
+    from smartapply.email_agent import check_gmail_setup
+
+    status = check_gmail_setup()
+    click.echo(json.dumps(asdict(status), indent=2, default=str))
+    if not status.ready_for_auth:
+        raise click.ClickException(
+            "Gmail is not ready yet. Install the gmail extras and configure "
+            "GMAIL_CREDENTIALS_PATH."
+        )
+
+
 @cli.command("pipeline")
 @click.option("--source", "sources", multiple=True, required=True,
-              type=click.Choice(["serpapi", "francetravail"]))
+              type=SCRAPER_SOURCE_CHOICE)
 @click.option("--query", "-q", required=True)
 @click.option("--location", "-l", default=None)
 @click.option("--max-per-source", type=int, default=20)
@@ -184,8 +203,8 @@ def pipeline_command(
     "--source",
     "sources",
     multiple=True,
-    type=click.Choice(["serpapi", "francetravail", "manual"]),
-    default=("serpapi", "francetravail", "manual"),
+    type=AUTOPILOT_SOURCE_CHOICE,
+    default=("serpapi", "francetravail", "welcometothejungle", "manual"),
     show_default=True,
 )
 @click.option("--max-per-source", type=int, default=None)

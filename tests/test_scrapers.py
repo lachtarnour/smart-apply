@@ -18,6 +18,7 @@ from smartapply.scrapers import (
     RawJob,
     ScraperConfigError,
     SerpApiGoogleJobsScraper,
+    WelcomeToTheJungleScraper,
     available_scrapers,
     get_scraper,
     make_external_id,
@@ -51,6 +52,13 @@ def test_registry_lists_available_scrapers() -> None:
     names = available_scrapers()
     assert "serpapi" in names
     assert "francetravail" in names
+    assert "welcometothejungle" in names
+
+
+def test_get_scraper_returns_wttj_scraper() -> None:
+    scraper = get_scraper("welcometothejungle")
+
+    assert isinstance(scraper, WelcomeToTheJungleScraper)
 
 
 def test_get_scraper_unknown_raises() -> None:

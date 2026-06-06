@@ -24,6 +24,7 @@ from smartapply.llm.prompts import job_analysis
 from smartapply.llm.source_metadata import (
     build_analyzer_source_metadata,
     build_francetravail_source_metadata,
+    build_wttj_source_metadata,
     register_source_metadata_builder,
 )
 
@@ -187,6 +188,86 @@ def test_francetravail_source_metadata_extracts_visible_company_url_from_descrip
     assert "domain=ippon.fr" in line
     assert "url_kind=company_url" in line
     assert "company_domain_candidate=ippon.fr" in line
+
+
+def test_wttj_source_metadata_includes_contact_and_company_facts() -> None:
+    metadata = build_wttj_source_metadata(
+        {
+            "company_website": "https://www.phagos.org",
+            "company_domain": "phagos.org",
+            "company_profile_url": "https://www.welcometothejungle.com/fr/companies/phagos-1",
+            "company_summary": "Phagos développe des thérapies contre les infections bactériennes.",
+            "workplace": "Suresnes, France",
+            "skills": ["Python", "SQL", "Machine Learning"],
+            "employment_type": "FULL_TIME",
+            "remote_text": "Télétravail fréquent",
+            "valid_through": "2026-08-25T22:01:01.000Z",
+            "experience_level": "3_TO_4_YEARS",
+            "salary": {"min": 45000, "max": 50000, "currency": "EUR", "period": "yearly"},
+            "matches_api": {
+                "contract_type": "full_time",
+                "remote": "partial",
+                "published_at": "2026-06-01T10:00:00Z",
+            },
+            "company_profile": {
+                "sectors": "Intelligence artificielle / Machine Learning, Santé",
+                "offices": "Paris",
+                "stats": {"employees": "50", "founded": "2021"},
+                "presentation": "Phagos travaille sur les phages.",
+            },
+        }
+    )
+
+    assert "CONTACT_AND_APPLICATION_METADATA" in metadata
+    assert "source: welcometothejungle" in metadata
+    assert "company_domain: phagos.org" in metadata
+    assert "source_field=company_website" in metadata
+    assert "domain=phagos.org" in metadata
+    assert "url_kind=company_url" in metadata
+    assert "STRUCTURED_JOB_FACTS" in metadata
+    assert "matches_api.contract_type: full_time" in metadata
+    assert "matches_api.remote: partial" in metadata
+    assert "experience_level: 3_TO_4_YEARS" in metadata
+    assert "salary: currency=EUR; max=50000; min=45000; period=yearly" in metadata
+    assert "workplace: Suresnes, France" in metadata
+    assert "skills: Python; SQL; Machine Learning" in metadata
+    assert "company_profile.sectors: Intelligence artificielle / Machine Learning, Santé" in metadata
+    assert "company_profile.stats: employees=50; founded=2021" in metadata
+    assert '"matches_api"' not in metadata
+
+
+def test_wttj_source_metadata_fields_are_configurable() -> None:
+    metadata = build_wttj_source_metadata(
+        {
+            "company_website": "https://www.phagos.org",
+            "company_domain": "phagos.org",
+            "skills": ["Python"],
+            "company_profile": {"presentation": "Do not include this."},
+        },
+        fields={"company_domain", "skills"},
+    )
+
+    assert "company_domain: phagos.org" in metadata
+    assert "skills: Python" in metadata
+    assert "company_website" not in metadata
+    assert "Do not include this." not in metadata
+
+
+def test_analyzer_source_metadata_uses_wttj_builder() -> None:
+    job = SimpleNamespace(
+        source="welcometothejungle",
+        source_data={
+            "company_domain": "okeiro.com",
+            "skills": ["Python"],
+            "company_profile": {"sectors": "SaaS / Cloud Services, Santé"},
+        },
+    )
+
+    metadata = build_analyzer_source_metadata(job)
+
+    assert "source: welcometothejungle" in metadata
+    assert "company_domain: okeiro.com" in metadata
+    assert "company_profile.sectors: SaaS / Cloud Services, Santé" in metadata
 
 
 def test_analyzer_source_metadata_unknown_source_returns_empty() -> None:

@@ -71,6 +71,22 @@ class Settings(BaseSettings):
     francetravail_client_secret: str = Field(default="")
     francetravail_scope: str = Field(default="api_offresdemploiv2 o2dsoffre")
 
+    # Welcome to the Jungle personalized matches
+    wttj_cookie: str = Field(default="")
+    wttj_pages: int = Field(default=5, ge=1, le=50)
+    wttj_per_page: int = Field(default=10, ge=1, le=100)
+    wttj_include_company_profile: bool = Field(default=True)
+    wttj_skip_failed_jobs: bool = Field(default=True)
+    wttj_timeout: int = Field(default=30, ge=1, le=120)
+    wttj_delay_seconds: float = Field(default=0.5, ge=0.0, le=10.0)
+    wttj_analyzer_metadata_fields: str = Field(
+        default=(
+            "company_website,company_domain,company_profile_url,sectors,offices,"
+            "company_stats,company_summary,company_presentation,skills,workplace,"
+            "remote,contract_type,experience_level,salary,published_at"
+        )
+    )
+
     # Contact enrichment (Anymail Finder)
     anymailfinder_api_key: str = Field(default="")
     anymailfinder_timeout: int = Field(default=180, ge=1, le=300)
