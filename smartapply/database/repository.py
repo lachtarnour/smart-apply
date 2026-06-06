@@ -23,7 +23,6 @@ from smartapply.database.models import (
     LLMUsage,
 )
 
-
 # -------------------------- Jobs --------------------------
 
 def upsert_job(session: Session, *, external_id: str, **fields: Any) -> Job:
@@ -405,11 +404,10 @@ def update_application_tracking(
         app.email_sent_at = now
     if form_submitted:
         app.form_submitted_at = now
-    if email_sent or form_submitted:
-        if _strategy_complete(app):
-            app.status = JobStatus.SENT
-            if app.job is not None:
-                app.job.status = JobStatus.SENT
+    if (email_sent or form_submitted) and _strategy_complete(app):
+        app.status = JobStatus.SENT
+        if app.job is not None:
+            app.job.status = JobStatus.SENT
     return app
 
 

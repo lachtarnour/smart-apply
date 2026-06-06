@@ -18,7 +18,6 @@ from bs4 import BeautifulSoup
 
 from smartapply.scrapers.base import RawJob, make_external_id
 
-
 _DEFAULT_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "

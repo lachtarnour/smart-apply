@@ -22,7 +22,6 @@ from unidecode import unidecode
 
 from smartapply.config import get_settings
 
-
 _COMPANY_SUFFIXES = re.compile(
     r"\b(s\.?a\.?s\.?|s\.?a\.?|sarl|s\.a\.r\.l\.|ltd\.?|inc\.?|llc|gmbh|b\.?v\.?|n\.?v\.?|plc|co\.?|corp\.?|corporation|company)\b",
     flags=re.IGNORECASE,

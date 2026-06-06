@@ -15,7 +15,6 @@ from typing import Any
 from smartapply.config import get_settings
 from smartapply.profile.schema import Profile
 
-
 REQUIRED_FILES = {
     "identity": "identity.json",
     "preferences": "preferences.json",

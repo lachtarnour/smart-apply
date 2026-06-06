@@ -14,10 +14,9 @@ from __future__ import annotations
 import re
 
 from smartapply.cv.constants import NON_DISPLAY_DOMAIN_TERMS
+from smartapply.llm.prompts.skill_profiles import format_skill_profiles
 from smartapply.llm.schemas import JobAnalysis
 from smartapply.profile import Bullet, Experience, Profile, Project
-from smartapply.llm.prompts.skill_profiles import format_skill_profiles
-
 
 SYSTEM = """You adapt a candidate's CV to a job offer WITHOUT inventing anything.
 

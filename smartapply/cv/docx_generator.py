@@ -9,8 +9,8 @@ Layout:
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from docx import Document
 from docx.document import Document as DocxDocument
@@ -28,7 +28,6 @@ from smartapply.profile import (
     Project,
     TemplateStyle,
 )
-
 
 # -------------------- XML helpers --------------------
 

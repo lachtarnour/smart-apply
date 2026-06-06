@@ -16,7 +16,6 @@ from typing import Final
 
 from smartapply.llm.schemas import JobAnalysis
 
-
 RoleFamily = str
 
 OTHER: Final[RoleFamily] = "other"

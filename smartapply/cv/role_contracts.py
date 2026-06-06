@@ -30,7 +30,6 @@ from typing import Any
 from smartapply.cv.role_family import KNOWN_ROLE_FAMILIES, classify, has_data_scientist_ia_signal
 from smartapply.llm import AdaptedCV, JobAnalysis, SkillSelectionBlock
 
-
 _CONTRACTS_PATH = Path(__file__).with_name("role_contracts.json")
 
 _DS_IA_EXTRA_SKILLS: tuple[str, ...] = ("NLP", "Transformers", "Hugging Face")

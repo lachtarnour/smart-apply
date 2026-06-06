@@ -15,7 +15,13 @@ import pytest
 
 from smartapply.cv.role_contracts import apply_contract, load_contracts
 from smartapply.cv.role_family import KNOWN_ROLE_FAMILIES, classify, has_data_scientist_ia_signal
-from smartapply.llm import AdaptedBullet, AdaptedCV, AdaptedExperience, JobAnalysis, SkillSelectionBlock
+from smartapply.llm import (
+    AdaptedBullet,
+    AdaptedCV,
+    AdaptedExperience,
+    JobAnalysis,
+    SkillSelectionBlock,
+)
 from smartapply.profile import get_profile
 
 

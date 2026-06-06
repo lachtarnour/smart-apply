@@ -13,7 +13,6 @@ from html import unescape
 
 from bs4 import BeautifulSoup
 
-
 # Lines that match any of these patterns get dropped entirely.
 BOILERPLATE_LINE_PATTERNS = [
     r"equal[- ]opportunity employer",

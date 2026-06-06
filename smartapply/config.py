@@ -28,9 +28,6 @@ class Settings(BaseSettings):
     # Job analysis prompt variant. Production currently supports the audited
     # long prompt; keeping it configurable makes the active setup visible.
     prompt: str = Field(default="long")
-    anthropic_api_key: str = Field(default="")
-    anthropic_model_cheap: str = Field(default="claude-haiku-4-5")
-    anthropic_model_smart: str = Field(default="claude-sonnet-4-6")
 
     # Embeddings
     embeddings_provider: str = Field(default="openai")

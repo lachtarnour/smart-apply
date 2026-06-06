@@ -11,7 +11,6 @@ from smartapply.scrapers.francetravail import FranceTravailScraper
 from smartapply.scrapers.manual import ManualScraper
 from smartapply.scrapers.registry import (
     available_scrapers,
-    get_active_scrapers,
     get_scraper,
 )
 from smartapply.scrapers.serpapi import (
@@ -33,7 +32,6 @@ __all__ = [
     "SerpApiGoogleJobsScraper",
     "WelcomeToTheJungleScraper",
     "available_scrapers",
-    "get_active_scrapers",
     "get_scraper",
     "make_external_id",
 ]

@@ -7,11 +7,11 @@ two-column experience/education rows, then compact skills/projects/languages.
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-import re
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
@@ -19,7 +19,6 @@ from smartapply.cv.links import render_bullet_html
 from smartapply.cv.skill_profile import infer_skill_profile_id
 from smartapply.llm import AdaptedCV, EmailDraft
 from smartapply.profile import Profile
-
 
 TEMPLATES_DIR = Path(__file__).with_name("templates")
 MIN_PROJECTS = 2

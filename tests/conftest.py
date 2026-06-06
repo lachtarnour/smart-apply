@@ -19,6 +19,7 @@ os.environ["FRANCETRAVAIL_CLIENT_SECRET"] = ""
 
 # Clear any cached settings before tests
 from smartapply.config import get_settings as _gs  # noqa: E402
+
 _gs.cache_clear()
 
 

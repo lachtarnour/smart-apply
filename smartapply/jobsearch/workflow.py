@@ -11,7 +11,6 @@ from datetime import datetime, timedelta
 
 from smartapply.database.models import JobStatus
 
-
 APPLICATION_STATUSES = [
     JobStatus.EMAIL_GENERATED,
     JobStatus.DRAFT_CREATED,

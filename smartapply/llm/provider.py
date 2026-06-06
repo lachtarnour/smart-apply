@@ -64,5 +64,4 @@ def get_llm_provider(name: str | None = None) -> LLMProvider:
         return OpenAIProvider()
     if chosen == "mock":
         return MockLLMProvider()
-    # Future: anthropic, azure, etc.
     raise ValueError(f"Unknown LLM provider {chosen!r}")

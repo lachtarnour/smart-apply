@@ -7,7 +7,6 @@ from typing import Any
 from smartapply.llm import AdaptedCV, EmailDraft, JobAnalysis, MotivationLetter
 from smartapply.profile import Profile
 
-
 SYSTEM = """You are a strict job-application reviewer.
 
 Your job is to decide if an automated application is safe to turn into a Gmail draft.

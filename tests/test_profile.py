@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from smartapply.profile import (
     ProfileLoadError,
@@ -43,7 +44,7 @@ def test_email_validation_rejects_invalid_address(tmp_path: Path) -> None:
     identity = json.loads((sample_profile_dir / "identity.json").read_text())
     identity["email"] = "not-an-email"
     (sample_profile_dir / "identity.json").write_text(json.dumps(identity))
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         load_profile(sample_profile_dir)
 
 
@@ -59,7 +60,7 @@ def test_invalid_date_rejected(tmp_path: Path) -> None:
     exps = json.loads((sample / "experiences.json").read_text())
     exps[0]["start_date"] = "2024-Q1"  # invalid
     (sample / "experiences.json").write_text(json.dumps(exps))
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         load_profile(sample)
 
 
@@ -188,7 +189,7 @@ def test_education_end_year_must_be_after_start_year(tmp_path: Path) -> None:
     edu = json.loads((sample / "education.json").read_text())
     edu[0]["start_year"], edu[0]["end_year"] = 2023, 2020
     (sample / "education.json").write_text(json.dumps(edu))
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         load_profile(sample)
 
 
@@ -353,7 +354,7 @@ def test_duplicate_bullet_ids_rejected(tmp_path: Path, sample_profile_files: Pat
     exps = json.loads(exps_path.read_text())
     exps[0]["bullets"].append(exps[0]["bullets"][0])  # duplicate
     exps_path.write_text(json.dumps(exps))
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         load_profile(tmp_path)
 
 
