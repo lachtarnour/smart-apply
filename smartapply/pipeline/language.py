@@ -4,9 +4,6 @@ The CV is always rendered in English. The email/motivation letter, however,
 follows the offer language so recruiters get a culturally-aligned message.
 """
 
-from __future__ import annotations
-
-
 _FRENCH_MARKERS = (
     "vos missions",
     "profil recherché",

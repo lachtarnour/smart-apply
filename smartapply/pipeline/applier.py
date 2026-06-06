@@ -19,8 +19,8 @@ from __future__ import annotations
 import dataclasses
 import json
 import re
-from dataclasses import asdict, dataclass, field
-from typing import Any, Literal
+from dataclasses import asdict
+from typing import Any
 
 from smartapply.config import get_settings
 from smartapply.cv import CvAdapter, CvValidator
@@ -50,8 +50,15 @@ from smartapply.llm import (
 from smartapply.llm.prompts import application_quality_review as quality_prompts
 from smartapply.logging_setup import get_logger
 from smartapply.pipeline.application_renderer import ApplicationDocumentRenderer
+from smartapply.pipeline.apply_specs import (
+    ApplyMode,
+    ApplySpec,
+    ContactProviderKind,
+    apply_spec_for,
+)
 from smartapply.pipeline.contact_service import ContactService
 from smartapply.pipeline.language import detect_offer_language
+from smartapply.pipeline.reports import ApplyReport
 from smartapply.profile import Profile
 from smartapply.utils.strategy import decide_strategy
 
@@ -158,60 +165,7 @@ def _offer_anchors(analysis: JobAnalysis, job_title: str) -> set[str]:
     return {anchor for anchor in anchors if len(anchor) >= 3}
 
 
-ApplyMode = Literal["manual", "autopilot"]
-ContactProviderKind = Literal["chain", "none"]
-
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-
-
-@dataclass(frozen=True)
-class ApplySpec:
-    """The knobs that distinguish manual from autopilot apply."""
-
-    quality_gate: bool
-    contact_provider: ContactProviderKind
-    build_audit: bool
-    default_gmail_draft: bool
-
-
-_PRESETS: dict[ApplyMode, ApplySpec] = {
-    "manual": ApplySpec(
-        quality_gate=False,
-        contact_provider="none",
-        build_audit=False,
-        default_gmail_draft=False,
-    ),
-    "autopilot": ApplySpec(
-        quality_gate=True,
-        contact_provider="chain",
-        build_audit=True,
-        default_gmail_draft=True,
-    ),
-}
-
-
-@dataclass
-class ApplyReport:
-    job_id: int
-    application_id: int | None
-    docx_path: str | None = None
-    cv_html_path: str | None = None
-    cv_pdf_path: str | None = None
-    letter_html_path: str | None = None
-    letter_pdf_path: str | None = None
-    eml_path: str | None = None
-    contact_email: str | None = None
-    contact_cc_email: str | None = None
-    contact_source: str | None = None
-    contact_form_url: str | None = None
-    gmail_draft_id: str | None = None
-    status: str | None = None
-    application_strategy: str = "email_only"
-    company_size: str = "unknown"
-    quality_review: dict[str, Any] | None = None
-    audit: dict[str, Any] | None = None
-    validation_warnings: list[str] = field(default_factory=list)
-    validation_errors: list[str] = field(default_factory=list)
 
 
 class Applier:
@@ -260,7 +214,7 @@ class Applier:
         - ``contact_email`` manually sets the recipient and bypasses provider
           lookup for that application.
         """
-        spec = _PRESETS[mode]
+        spec = apply_spec_for(mode)
         if create_gmail_draft is None:
             create_gmail_draft = spec.default_gmail_draft
         if mode == "autopilot" and require_quality_gate is None:

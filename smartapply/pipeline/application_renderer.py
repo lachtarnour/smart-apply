@@ -17,7 +17,7 @@ from smartapply.logging_setup import get_logger
 from smartapply.profile import Profile
 
 if TYPE_CHECKING:
-    from smartapply.pipeline.applier import ApplyReport  # avoid cycle
+    from smartapply.pipeline.reports import ApplyReport
 
 logger = get_logger(__name__)
 
@@ -34,7 +34,7 @@ class ApplicationDocumentRenderer:
     def render_all(
         self,
         *,
-        report: "ApplyReport",
+        report: ApplyReport,
         adapted,
         letter_draft: MotivationLetter,
         job_title: str,
@@ -86,7 +86,7 @@ class ApplicationDocumentRenderer:
             report.validation_warnings.append(f"pdf_generation_skipped:{exc}")
 
     @staticmethod
-    def attachment_paths(report: "ApplyReport") -> list[str]:
+    def attachment_paths(report: ApplyReport) -> list[str]:
         """Prefer stable PDF attachments, with DOCX as a fallback."""
         paths: list[str] = []
         if report.cv_pdf_path:
@@ -98,7 +98,7 @@ class ApplicationDocumentRenderer:
         return paths
 
     @staticmethod
-    def add_document_rows(session, application_id: int, report: "ApplyReport") -> None:
+    def add_document_rows(session, application_id: int, report: ApplyReport) -> None:
         """Persist every generated artifact in ``generated_documents``."""
         if report.docx_path:
             upsert_document(session, application_id, doc_type="cv_docx", path=report.docx_path)

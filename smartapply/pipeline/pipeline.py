@@ -28,12 +28,13 @@ from smartapply.filtering import JobFilter, ruleset_from_preferences
 from smartapply.llm import get_llm_provider
 from smartapply.logging_setup import get_logger
 from smartapply.pipeline.application_renderer import ApplicationDocumentRenderer
-from smartapply.pipeline.applier import Applier, ApplyReport
+from smartapply.pipeline.applier import Applier
 from smartapply.pipeline.contact_service import ContactService
 from smartapply.pipeline.ingestor import Ingestor, IngestReport
-from smartapply.pipeline.processor import (
+from smartapply.pipeline.processor import Processor
+from smartapply.pipeline.reports import (
     AnalyzeReport,
-    Processor,
+    ApplyReport,
     ProcessReport,
     RankingReport,
 )

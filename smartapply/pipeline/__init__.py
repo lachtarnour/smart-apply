@@ -11,15 +11,17 @@ Internally, ``Pipeline`` is a thin facade composing focused phase modules
 """
 
 from smartapply.pipeline.application_renderer import ApplicationDocumentRenderer
-from smartapply.pipeline.applier import Applier, ApplyMode, ApplyReport
+from smartapply.pipeline.applier import Applier
+from smartapply.pipeline.apply_specs import ApplyMode
 from smartapply.pipeline.contact_service import ContactService
 from smartapply.pipeline.ingestor import Ingestor, IngestReport
 from smartapply.pipeline.language import detect_offer_language
 from smartapply.pipeline.pipeline import Pipeline
-from smartapply.pipeline.processor import (
+from smartapply.pipeline.processor import Processor
+from smartapply.pipeline.reports import (
     AnalyzeReport,
+    ApplyReport,
     LocalFilterReport,
-    Processor,
     ProcessReport,
     RankingReport,
 )

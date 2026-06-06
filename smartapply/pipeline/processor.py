@@ -8,7 +8,6 @@ shortlist with the cheap model.
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
 
 from smartapply.config import get_settings
 from smartapply.database import session_scope
@@ -26,8 +25,15 @@ from smartapply.database.repository import (
 from smartapply.dedup import Deduplicator
 from smartapply.filtering import JobFilter
 from smartapply.llm import JobAnalysis, LLMProvider
+from smartapply.llm.analyzer_input import build_analyzer_input
 from smartapply.llm.prompts import job_analysis as analysis_prompts
 from smartapply.logging_setup import get_logger
+from smartapply.pipeline.reports import (
+    AnalyzeReport,
+    LocalFilterReport,
+    ProcessReport,
+    RankingReport,
+)
 from smartapply.profile import Profile
 from smartapply.ranking import JobScorer
 
@@ -84,44 +90,6 @@ def _should_replace_job_location(current: str | None, extracted: str | None) -> 
     if extracted_norm in current_norm or current_norm in extracted_norm:
         return False
     return current_norm in _GENERIC_LOCATION_MARKERS
-
-
-@dataclass
-class ProcessReport:
-    total: int
-    kept_after_filter: int
-    duplicates_removed: int
-    top_ranked: int
-    analyzed: int
-
-
-@dataclass
-class LocalFilterReport:
-    total: int
-    kept: int
-    rejected: int
-    duplicates_removed: int
-    kept_ids: list[int]
-    rejected_ids: list[int]
-
-
-@dataclass
-class RankingReport:
-    total: int
-    kept_after_filter: int
-    duplicates_removed: int
-    ranked: int
-    shortlisted: int
-    ranked_ids: list[int]
-    shortlisted_ids: list[int]
-
-
-@dataclass
-class AnalyzeReport:
-    requested: int
-    already_analyzed: int
-    analyzed: int
-    skipped_missing: int
 
 
 class Processor:
@@ -393,13 +361,10 @@ class Processor:
             job = s.get(Job, job_id)
             if job is None:
                 return
-            user_prompt = analysis_prompts.build_user_prompt(
+            analyzer_input = build_analyzer_input(job)
+            user_prompt = analysis_prompts.build_user_prompt_from_input(
                 profile=self.profile,
-                job_title=job.title,
-                job_company=job.company,
-                job_location=job.location,
-                application_url=job.application_url,
-                job_description=job.cleaned_description or job.description,
+                analyzer_input=analyzer_input,
             )
             analysis = self.llm.complete_json(
                 system=analysis_prompts.system_for_variant(self.settings.prompt),
