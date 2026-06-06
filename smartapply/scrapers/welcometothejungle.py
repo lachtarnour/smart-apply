@@ -98,6 +98,7 @@ class WelcomeToTheJungleScraper(Scraper):
         self,
         *,
         cookie_header: str | None = None,
+        max_pages: int | None = None,
         pages: int | None = None,
         per_page: int | None = None,
         include_company_profile: bool | None = None,
@@ -107,6 +108,7 @@ class WelcomeToTheJungleScraper(Scraper):
     ) -> None:
         settings = get_settings()
         self.cookie_header = cookie_header if cookie_header is not None else settings.wttj_cookie
+        self.max_pages = max_pages if max_pages is not None else settings.wttj_max_pages
         self.pages = pages if pages is not None else settings.wttj_pages
         self.per_page = per_page if per_page is not None else settings.wttj_per_page
         self.include_company_profile = (
@@ -135,8 +137,10 @@ class WelcomeToTheJungleScraper(Scraper):
     ) -> Iterator[RawJob]:
         if not self.is_available():
             raise ScraperConfigError("WTTJ_COOKIE must be set to use the WTTJ scraper")
+        if max_results is not None and max_results <= 0:
+            return
 
-        pages = int(kwargs.pop("pages", self.pages))
+        pages = min(int(kwargs.pop("pages", self.pages)), int(self.max_pages))
         per_page = kwargs.pop("per_page", self.per_page)
         include_company_profile = bool(
             kwargs.pop("include_company_profile", self.include_company_profile)
@@ -254,6 +258,16 @@ def parse_matches_api_links(payload: dict[str, Any]) -> list[WTTJJobLink]:
             )
         )
     return links
+
+
+def _matches_api_page_count(payload: dict[str, Any]) -> int | None:
+    metadata = payload.get("metadata")
+    if not isinstance(metadata, dict):
+        return None
+    value = metadata.get("page_count")
+    if isinstance(value, int) and value >= 1:
+        return value
+    return None
 
 
 def parse_detail_html(html: str, *, url: str | None = None) -> RawJob:
@@ -503,14 +517,25 @@ def scrape_matches_requests(
     seen: set[str] = set()
     company_cache: dict[str, dict[str, Any]] = {}
     yielded = 0
+    page_count: int | None = None
     for page_number in pages:
-        payload = fetch_matches_api_page(
-            page=page_number,
-            cookie_header=cookie_header,
-            per_page=per_page,
-            timeout=timeout,
-            extra_headers=extra_headers,
-        )
+        if page_count is not None and page_number > page_count:
+            continue
+        try:
+            payload = fetch_matches_api_page(
+                page=page_number,
+                cookie_header=cookie_header,
+                per_page=per_page,
+                timeout=timeout,
+                extra_headers=extra_headers,
+            )
+        except (requests.RequestException, WTTJScraperError) as exc:
+            if not skip_failed_jobs:
+                raise
+            logger.warning("Skipping WTTJ matches page %s: %s", page_number, exc)
+            continue
+
+        page_count = _matches_api_page_count(payload) or page_count
         for link in parse_matches_api_links(payload):
             if link.url in seen:
                 continue

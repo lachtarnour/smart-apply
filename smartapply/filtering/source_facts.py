@@ -103,6 +103,9 @@ _WTTJ_REMOTE_VALUES = {
     "total": "remote",
     "partial": "hybrid",
     "partiel": "hybrid",
+    "punctual": "hybrid",
+    "occasionnel": "hybrid",
+    "occasional": "hybrid",
     "hybrid": "hybrid",
     "hybride": "hybrid",
     "no": "onsite",
@@ -176,6 +179,16 @@ def _extract_wttj_experience(
 ) -> None:
     detail_api = _dict(source_data.get("detail_api"))
     matches_api = _dict(source_data.get("matches_api"))
+    min_years = _coerce_years(matches_api.get("experience_min"))
+    if min_years is not None:
+        facts.experience_min_years = min_years
+        facts.experience_required = True
+        facts.experience_requirement = "experience_min"
+        facts.experience_source = "welcometothejungle:matches_api.experience_min"
+        facts.facts_used.append("experience_requirement:experience_min")
+        facts.facts_used.append(f"experience_min_years:{_format_years(min_years)}")
+        return
+
     level = _clean_text(
         source_data.get("experience_level")
         or detail_api.get("experience_level")
@@ -224,7 +237,7 @@ def _extract_wttj_location(
 ) -> None:
     workplace = _clean_text(source_data.get("workplace"))
     if workplace:
-        facts.structured_location = workplace
+        facts.structured_location = _compact_wttj_french_location(workplace)
         facts.structured_location_source = "welcometothejungle:workplace"
         facts.facts_used.append("structured_location:workplace")
         return
@@ -623,12 +636,26 @@ def _normalize_wttj_remote_value(value: Any) -> str | None:
     return None
 
 
+def _compact_wttj_french_location(value: str) -> str:
+    locations: list[str] = []
+    for raw_location in value.split(";"):
+        parts = [_clean_text(part) for part in raw_location.split(",")]
+        parts = [part for part in parts if part]
+        if len(parts) >= 3 and norm(parts[-1]) in {"fr", "france"}:
+            locations.append(f"{parts[0]}, {parts[-1]}")
+        else:
+            locations.append(", ".join(parts) or _clean_text(raw_location) or "")
+    return "; ".join(location for location in locations if location) or value
+
+
 def _wttj_experience_min_years(value: str | None) -> float | None:
     normalized = norm(value).replace(" ", "_").upper()
     mapping = {
         "NO_EXPERIENCE": 0.0,
         "LESS_THAN_1_YEAR": 0.0,
+        "6_MONTHS_TO_1_YEAR": 0.5,
         "1_TO_2_YEARS": 1.0,
+        "2_TO_3_YEARS": 2.0,
         "3_TO_4_YEARS": 3.0,
         "5_TO_10_YEARS": 5.0,
         "MORE_THAN_10_YEARS": 10.0,

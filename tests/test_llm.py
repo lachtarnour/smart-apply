@@ -203,11 +203,30 @@ def test_wttj_source_metadata_includes_contact_and_company_facts() -> None:
             "remote_text": "Télétravail fréquent",
             "valid_through": "2026-08-25T22:01:01.000Z",
             "experience_level": "3_TO_4_YEARS",
+            "profession": {
+                "category_name": {"fr": "Technologie et ingénierie", "en": "Tech & Engineering"},
+                "sub_category_name": {"fr": "Données/Business Intelligence", "en": "Data / Business Intelligence"},
+            },
             "salary": {"min": 45000, "max": 50000, "currency": "EUR", "period": "yearly"},
+            "detail_api": {
+                "apply_url": "https://phagos.welcomekit.co/jobs/business-data",
+                "ats": "wkit",
+                "skills": [
+                    {
+                        "name": {
+                            "fr": "Communication",
+                            "en": "Communication skills",
+                        }
+                    }
+                ],
+                "tools": [{"name": "Python"}, {"name": "SQL"}],
+            },
             "matches_api": {
                 "contract_type": "full_time",
                 "remote": "partial",
                 "published_at": "2026-06-01T10:00:00Z",
+                "experience_min": 3.0,
+                "experience_max": 4.0,
             },
             "company_profile": {
                 "sectors": "Intelligence artificielle / Machine Learning, Santé",
@@ -221,19 +240,41 @@ def test_wttj_source_metadata_includes_contact_and_company_facts() -> None:
     assert "CONTACT_AND_APPLICATION_METADATA" in metadata
     assert "source: welcometothejungle" in metadata
     assert "company_domain: phagos.org" in metadata
+    assert "detail_api.ats: wkit" in metadata
     assert "source_field=company_website" in metadata
     assert "domain=phagos.org" in metadata
     assert "url_kind=company_url" in metadata
+    assert "source_field=detail_api.apply_url" in metadata
+    assert "domain=welcomekit.co" in metadata
     assert "STRUCTURED_JOB_FACTS" in metadata
     assert "matches_api.contract_type: full_time" in metadata
     assert "matches_api.remote: partial" in metadata
     assert "experience_level: 3_TO_4_YEARS" in metadata
+    assert "matches_api.experience_min: 3.0" in metadata
+    assert "matches_api.experience_max: 4.0" in metadata
     assert "salary: currency=EUR; max=50000; min=45000; period=yearly" in metadata
     assert "workplace: Suresnes, France" in metadata
-    assert "skills: Python; SQL; Machine Learning" in metadata
+    assert "skills: Communication" in metadata
+    assert "tools: Python; SQL" in metadata
+    assert "profession: Technologie et ingénierie / Données/Business Intelligence" in metadata
     assert "company_profile.sectors: Intelligence artificielle / Machine Learning, Santé" in metadata
     assert "company_profile.stats: employees=50; founded=2021" in metadata
     assert '"matches_api"' not in metadata
+
+
+def test_wttj_source_metadata_normalizes_localized_skill_dicts() -> None:
+    metadata = build_wttj_source_metadata(
+        {
+            "skills": [
+                "{'cs': 'Komunikační dovednosti', 'en': 'Communication skills', 'fr': 'Communication'}",
+                "Python",
+            ],
+        },
+        fields={"skills"},
+    )
+
+    assert "skills: Communication; Python" in metadata
+    assert "{'cs':" not in metadata
 
 
 def test_wttj_source_metadata_fields_are_configurable() -> None:

@@ -295,6 +295,15 @@ def test_wttj_workplace_has_priority_over_api_office() -> None:
     assert facts.structured_location_source == "welcometothejungle:workplace"
 
 
+def test_wttj_french_department_location_is_compacted_for_filtering() -> None:
+    facts = build_wttj_filter_facts(
+        {"workplace": "Fougères, Ille-et-Vilaine, FR"}
+    )
+
+    assert facts.structured_location == "Fougères, FR"
+    assert facts.structured_location_source == "welcometothejungle:workplace"
+
+
 def test_wttj_internship_contract_is_rejected_from_structured_facts() -> None:
     job = FakeJob(
         source="welcometothejungle",
@@ -337,6 +346,79 @@ def test_wttj_high_experience_level_is_rejected_from_structured_facts() -> None:
         for reason in result.reasons
     )
     assert any("experience_required_too_high:5+ years" in reason for reason in result.reasons)
+
+
+def test_wttj_observed_experience_levels_are_normalized() -> None:
+    low = build_wttj_filter_facts({"experience_level": "6_MONTHS_TO_1_YEAR"})
+    mid = build_wttj_filter_facts({"experience_level": "2_TO_3_YEARS"})
+
+    assert low.experience_min_years == 0.5
+    assert mid.experience_min_years == 2
+
+
+def test_wttj_matches_api_numeric_experience_is_used_first() -> None:
+    facts = build_wttj_filter_facts(
+        {
+            "experience_level": "5_TO_10_YEARS",
+            "matches_api": {"experience_min": 3.0, "experience_max": 4.0},
+        }
+    )
+
+    assert facts.experience_min_years == 3
+    assert facts.experience_requirement == "experience_min"
+    assert facts.experience_source == "welcometothejungle:matches_api.experience_min"
+
+
+def test_wttj_punctual_remote_is_treated_as_hybrid() -> None:
+    facts = build_wttj_filter_facts({"matches_api": {"remote": "punctual"}})
+
+    assert facts.structured_remote_policy == "hybrid"
+    assert facts.structured_remote_source == "welcometothejungle:matches_api.remote"
+
+
+def test_wttj_low_structured_experience_does_not_override_senior_title() -> None:
+    job = FakeJob(
+        title="Senior Machine Learning Engineer",
+        source="welcometothejungle",
+        contract_type="Full-time",
+        remote_policy="hybrid",
+        source_data={
+            "matches_api": {
+                "contract_type": "full_time",
+                "experience_min": 3,
+                "experience_max": 4,
+                "office": {"city": "Paris", "country_code": "FR"},
+                "remote": "partial",
+            },
+        },
+    )
+
+    result = _real_filter().evaluate(job)
+
+    assert not result.kept
+    assert "experience_structured_welcometothejungle:3" in result.reasons
+    assert "seniority_in_title:senior" in result.reasons
+
+
+def test_wttj_senior_title_with_high_structured_experience_stays_rejected() -> None:
+    job = FakeJob(
+        title="Senior Machine Learning Engineer",
+        source="welcometothejungle",
+        contract_type="Full-time",
+        source_data={
+            "matches_api": {
+                "contract_type": "full_time",
+                "experience_min": 5,
+                "experience_max": 10,
+                "office": {"city": "Paris", "country_code": "FR"},
+            },
+        },
+    )
+
+    result = _real_filter().evaluate(job)
+
+    assert not result.kept
+    assert any("experience_required_too_high:5+ years" in r for r in result.reasons)
 
 
 def test_serpapi_schedule_type_part_time_is_rejected_when_not_accepted() -> None:

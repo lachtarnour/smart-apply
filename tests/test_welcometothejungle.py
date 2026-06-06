@@ -26,6 +26,14 @@ def test_wttj_scraper_requires_cookie() -> None:
     assert scraper.is_available() is False
 
 
+def test_wttj_scraper_uses_large_default_pagination() -> None:
+    scraper = WelcomeToTheJungleScraper(cookie_header="wttj_session=abc")
+
+    assert scraper.max_pages == 150
+    assert scraper.pages == 150
+    assert scraper.per_page == 50
+
+
 def test_wttj_scraper_search_adds_audit_metadata(mocker) -> None:  # noqa: ANN001
     raw = mocker.MagicMock()
     raw.source_data = {"company_domain": "acme.com"}
@@ -62,6 +70,41 @@ def test_wttj_scraper_search_adds_audit_metadata(mocker) -> None:  # noqa: ANN00
         "per_page": 10,
         "include_company_profile": True,
     }
+
+
+def test_wttj_scraper_search_caps_pages_to_supported_max(mocker) -> None:  # noqa: ANN001
+    max_pages = 12
+    raw = mocker.MagicMock()
+    raw.source_data = {}
+    scrape = mocker.patch(
+        "smartapply.scrapers.welcometothejungle.scrape_matches_requests",
+        return_value=iter([raw]),
+    )
+
+    scraper = WelcomeToTheJungleScraper(
+        cookie_header="wttj_session=abc",
+        max_pages=max_pages,
+        pages=max_pages + 50,
+        delay_seconds=0,
+    )
+    jobs = list(scraper.search("Data Scientist"))
+
+    assert jobs == [raw]
+    assert scrape.call_args.kwargs["pages"] == range(1, max_pages + 1)
+    assert raw.source_data["_smartapply_search"]["pages"] == max_pages
+
+
+def test_wttj_zero_max_results_returns_no_jobs(mocker) -> None:  # noqa: ANN001
+    scrape = mocker.patch(
+        "smartapply.scrapers.welcometothejungle.scrape_matches_requests"
+    )
+    scraper = WelcomeToTheJungleScraper(
+        cookie_header="wttj_session=abc",
+        delay_seconds=0,
+    )
+
+    assert list(scraper.search("Data Scientist", max_results=0)) == []
+    scrape.assert_not_called()
 
 
 def test_parse_listing_links_deduplicates_job_urls() -> None:
@@ -406,6 +449,44 @@ def test_scrape_matches_requests_uses_cookie_only_for_matches_api(mocker) -> Non
         "Artificial Intelligence / Machine Learning"
     )
     assert jobs[0].source_data["company_profile"]["presentation"] == "Acme builds ML tools."
+
+
+def test_scrape_matches_requests_stops_after_api_page_count(mocker) -> None:  # noqa: ANN001
+    fetch_api = mocker.patch(
+        "smartapply.scrapers.welcometothejungle.fetch_matches_api_page",
+        return_value={"data": [], "metadata": {"page_count": 1}},
+    )
+
+    jobs = list(
+        scrape_matches_requests(
+            pages=[1, 2, 3],
+            cookie_header="wttj_session=abc",
+            include_company_profile=False,
+            delay_seconds=0,
+        )
+    )
+
+    assert jobs == []
+    fetch_api.assert_called_once()
+
+
+def test_scrape_matches_requests_skips_missing_page_by_default(mocker) -> None:  # noqa: ANN001
+    fetch_api = mocker.patch(
+        "smartapply.scrapers.welcometothejungle.fetch_matches_api_page",
+        side_effect=[WTTJScraperError("page missing"), {"data": []}],
+    )
+
+    jobs = list(
+        scrape_matches_requests(
+            pages=[1, 2],
+            cookie_header="wttj_session=abc",
+            include_company_profile=False,
+            delay_seconds=0,
+        )
+    )
+
+    assert jobs == []
+    assert fetch_api.call_count == 2
 
 
 def test_scrape_matches_requests_skips_broken_public_job_by_default(mocker) -> None:  # noqa: ANN001

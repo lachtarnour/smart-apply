@@ -18,6 +18,7 @@ from smartapply.filtering.source_facts import (
     build_filter_facts,
     build_francetravail_filter_facts,
     build_serpapi_filter_facts,
+    build_wttj_filter_facts,
 )
 
 __all__ = [
@@ -33,5 +34,6 @@ __all__ = [
     "build_filter_facts",
     "build_francetravail_filter_facts",
     "build_serpapi_filter_facts",
+    "build_wttj_filter_facts",
     "ruleset_from_preferences",
 ]

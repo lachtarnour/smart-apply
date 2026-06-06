@@ -73,8 +73,9 @@ class Settings(BaseSettings):
 
     # Welcome to the Jungle personalized matches
     wttj_cookie: str = Field(default="")
-    wttj_pages: int = Field(default=5, ge=1, le=50)
-    wttj_per_page: int = Field(default=10, ge=1, le=100)
+    wttj_max_pages: int = Field(default=150, ge=1, le=500)
+    wttj_pages: int = Field(default=150, ge=1, le=500)
+    wttj_per_page: int = Field(default=50, ge=1, le=100)
     wttj_include_company_profile: bool = Field(default=True)
     wttj_skip_failed_jobs: bool = Field(default=True)
     wttj_timeout: int = Field(default=30, ge=1, le=120)
@@ -82,8 +83,9 @@ class Settings(BaseSettings):
     wttj_analyzer_metadata_fields: str = Field(
         default=(
             "company_website,company_domain,company_profile_url,sectors,offices,"
-            "company_stats,company_summary,company_presentation,skills,workplace,"
-            "remote,contract_type,experience_level,salary,published_at"
+            "company_stats,company_summary,skills,workplace,"
+            "remote,contract_type,experience_level,salary,published_at,profession,"
+            "apply_url"
         )
     )
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from ast import literal_eval
 from collections.abc import Callable
 from typing import Any
 
@@ -88,14 +89,19 @@ def build_wttj_source_metadata(
 
 def _wttj_contact_lines(source_data: dict[str, Any], enabled: set[str]) -> list[str]:
     lines = ["source: welcometothejungle"]
+    detail_api = _dict(source_data.get("detail_api"))
     if "company_domain" in enabled:
         _append_scalar(lines, "company_domain", source_data.get("company_domain"))
     if "company_profile_url" in enabled:
         _append_scalar(lines, "company_profile_url", source_data.get("company_profile_url"))
+    if "apply_url" in enabled:
+        _append_scalar(lines, "detail_api.ats", detail_api.get("ats"))
 
     urls: list[dict[str, str]] = []
     if "company_website" in enabled:
         _add_url(urls, source_data.get("company_website"), "company_website")
+    if "apply_url" in enabled:
+        _add_url(urls, detail_api.get("apply_url"), "detail_api.apply_url")
     for item in urls[:_MAX_URLS]:
         line = (
             f"url: source_field={item['source_field']} | url={item['url']} | "
@@ -110,6 +116,7 @@ def _wttj_contact_lines(source_data: dict[str, Any], enabled: set[str]) -> list[
 def _wttj_fact_lines(source_data: dict[str, Any], enabled: set[str]) -> list[str]:
     lines: list[str] = []
     matches_api = _dict(source_data.get("matches_api"))
+    detail_api = _dict(source_data.get("detail_api"))
     company_profile = _dict(source_data.get("company_profile"))
 
     if "contract_type" in enabled:
@@ -123,12 +130,22 @@ def _wttj_fact_lines(source_data: dict[str, Any], enabled: set[str]) -> list[str
         _append_scalar(lines, "valid_through", source_data.get("valid_through"))
     if "experience_level" in enabled:
         _append_scalar(lines, "experience_level", source_data.get("experience_level"))
+        _append_scalar(lines, "matches_api.experience_min", matches_api.get("experience_min"))
+        _append_scalar(lines, "matches_api.experience_max", matches_api.get("experience_max"))
     if "salary" in enabled:
         _append_scalar(lines, "salary", _compact_mapping(source_data.get("salary")))
     if "workplace" in enabled:
         _append_scalar(lines, "workplace", source_data.get("workplace"))
     if "skills" in enabled:
-        _append_scalar(lines, "skills", _short_list(source_data.get("skills")))
+        fallback_skills = (
+            None
+            if detail_api.get("skills") or detail_api.get("tools")
+            else source_data.get("skills")
+        )
+        _append_scalar(lines, "skills", _wttj_names(detail_api.get("skills"), fallback_skills))
+        _append_scalar(lines, "tools", _wttj_names(detail_api.get("tools")))
+    if "profession" in enabled:
+        _append_scalar(lines, "profession", _wttj_profession_summary(source_data.get("profession")))
     if "sectors" in enabled:
         _append_scalar(lines, "company_profile.sectors", company_profile.get("sectors"))
     if "offices" in enabled:
@@ -262,6 +279,56 @@ def _short_list(value: Any) -> str:
         return _short(value)
     parts = [_short(item) for item in value[:_MAX_LIST_ITEMS] if _short(item)]
     return "; ".join(parts)
+
+
+def _wttj_names(*values: Any) -> str:
+    names: list[str] = []
+    for value in values:
+        items = value if isinstance(value, list) else [value]
+        for item in items:
+            name = _wttj_item_name(item)
+            if name and name not in names:
+                names.append(name)
+    return "; ".join(names[:_MAX_LIST_ITEMS])
+
+
+def _wttj_item_name(item: Any) -> str:
+    if isinstance(item, dict):
+        return _wttj_localized_text(
+            item.get("name") or item.get("title") or item.get("label")
+        )
+    return _wttj_localized_text(item)
+
+
+def _wttj_localized_text(value: Any) -> str:
+    if isinstance(value, dict):
+        for key in ("fr", "en"):
+            text = _short(value.get(key))
+            if text:
+                return text
+        for raw in value.values():
+            text = _short(raw)
+            if text:
+                return text
+        return ""
+    text = str(value or "").strip()
+    if text.startswith("{") and text.endswith("}"):
+        try:
+            parsed = literal_eval(text)
+        except (ValueError, SyntaxError):
+            parsed = None
+        if isinstance(parsed, dict):
+            return _wttj_localized_text(parsed)
+    return _short(text)
+
+
+def _wttj_profession_summary(value: Any) -> str:
+    data = _dict(value)
+    parts = [
+        _wttj_localized_text(data.get("category_name")),
+        _wttj_localized_text(data.get("sub_category_name")),
+    ]
+    return " / ".join(part for part in parts if part)
 
 
 def _wttj_metadata_fields_from_settings() -> set[str]:

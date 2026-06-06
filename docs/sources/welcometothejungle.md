@@ -20,7 +20,8 @@ gardés dans `_smartapply_search` pour audit.
 | Variable | Rôle |
 | --- | --- |
 | `WTTJ_COOKIE` | Cookie d'une session WTTJ connectée. |
-| `WTTJ_PAGES`, `WTTJ_PER_PAGE` | Pagination du feed matches. |
+| `WTTJ_MAX_PAGES` | Cap de sécurité configurable pour la pagination WTTJ ; défaut `150`. |
+| `WTTJ_PAGES`, `WTTJ_PER_PAGE` | Pagination demandée du feed matches ; défaut `150` pages et `50` offres/page, avec arrêt plus tôt si l'API annonce moins de pages. |
 | `WTTJ_INCLUDE_COMPANY_PROFILE` | Enrichit avec la page entreprise WTTJ. |
 | `WTTJ_SKIP_FAILED_JOBS` | Ignore une offre retirée/non parsable. |
 | `WTTJ_ANALYZER_METADATA_FIELDS` | Champs transmis au LLM. |
