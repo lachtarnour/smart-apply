@@ -344,6 +344,46 @@ def test_ingestor_allows_unbounded_max_results(monkeypatch: pytest.MonkeyPatch) 
     assert report.persisted == 7
 
 
+def test_ingestor_does_not_split_wttj_personalized_matches(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from smartapply.pipeline.ingestor import Ingestor
+
+    calls: list[tuple[str, int | None]] = []
+
+    class FakeScraper:
+        name = "welcometothejungle"
+
+        def is_available(self) -> bool:
+            return True
+
+        def search(self, query, location=None, *, max_results=None, **kwargs):  # noqa: ANN001, ARG002
+            calls.append((query, max_results))
+            yield RawJob(
+                external_id="welcometothejungle:job-1",
+                title="Data Scientist",
+                company="Acme",
+                location="Paris",
+                description="Build ML systems.",
+                source="welcometothejungle",
+            )
+
+    monkeypatch.setattr(
+        "smartapply.pipeline.ingestor.get_scraper",
+        lambda source: FakeScraper(),
+    )
+
+    report = Ingestor().from_source(
+        "welcometothejungle",
+        "Data Scientist OR Machine Learning Engineer",
+        max_results=5,
+    )
+
+    assert calls == [("Data Scientist OR Machine Learning Engineer", 50)]
+    assert report.fetched == 1
+    assert report.persisted == 1
+
+
 def test_collect_skips_known_external_ids_and_finds_genuinely_new(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

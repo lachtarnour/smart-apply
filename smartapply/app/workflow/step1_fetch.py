@@ -453,11 +453,7 @@ def step1_fetch() -> None:
                     st.multiselect(
                         "Sources sans limite",
                         options=unlimited_source_options,
-                        default=(
-                            ["welcometothejungle"]
-                            if "welcometothejungle" in unlimited_source_options
-                            else []
-                        ),
+                        default=[],
                         help=(
                             "Passe max_results=None aux sources sélectionnées. "
                             "SerpApi est volontairement exclu pour éviter des "
@@ -797,5 +793,4 @@ def step1_fetch() -> None:
 # ============================================================
 # STEP 2 — Score + shortlist
 # ============================================================
-
 

@@ -25,6 +25,7 @@ from smartapply.scrapers.base import RawJob
 logger = get_logger(__name__)
 
 OR_SPLIT_RE = re.compile(r"\s+\bOR\b\s+", flags=re.IGNORECASE)
+QUERY_AGNOSTIC_SOURCES = {"welcometothejungle"}
 ROLE_QUERY_ALIASES_FR: dict[str, tuple[str, ...]] = {
     "data scientist": ("Data Science", "Scientifique des données"),
     "data analyst": ("Analyste Data",),
@@ -172,7 +173,9 @@ class Ingestor:
                 f"Source {source!r} is not configured. "
                 "Check your .env (SERPAPI_API_KEY or FRANCETRAVAIL_*)."
             )
-        query_parts = split_or_query(query) if split_or else [query.strip()]
+        source_key = source.lower()
+        should_split_query = split_or and source_key not in QUERY_AGNOSTIC_SOURCES
+        query_parts = split_or_query(query) if should_split_query else [query.strip()]
         queries: list[str] = []
         seen_queries: set[str] = set()
         for part in query_parts:
