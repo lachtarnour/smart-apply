@@ -664,6 +664,7 @@ def test_filter_rejects_bi_substrings_that_are_not_business_intelligence() -> No
         "Tourneur CN BI-BROCHES",
         "IADE - BLOC OPERATOIRE - BI-SITE",
         "Chauffeur poids lourd bi-température",
+        "Conducteur de camion bi-benne",
     )
     for title in titles:
         res = f.evaluate(

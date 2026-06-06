@@ -8,14 +8,18 @@ from smartapply.filtering import contract_signals, location_signals, role_signal
 from smartapply.filtering import seniority as seniority_signals
 from smartapply.filtering.preferences import ruleset_from_preferences
 from smartapply.filtering.rules import RuleSet
+from smartapply.filtering.source_facts import FilterFacts, build_filter_facts
 from smartapply.filtering.text import contains_any as _contains_any
 from smartapply.filtering.text import has_word as _has_word
 from smartapply.filtering.text import norm as _norm
 from smartapply.filtering.types import FilterResult, HasJobFields
 from smartapply.utils.contracts import (
     INCOMPATIBLE_CONTRACT_TAGS,
+    TAG_CONTRACTOR,
+    TAG_PART_TIME,
     contract_matches_accepted,
     contract_type_tags,
+    contract_types_to_tags,
 )
 from smartapply.utils.experience import required_min_years
 from smartapply.utils.location import is_foreign_location, is_french_location
@@ -52,6 +56,100 @@ _title_seniority_or_management_marker = (
     seniority_signals.title_seniority_or_management_marker
 )
 
+_PRESTATAIRE_CONTEXT_PATTERNS = (
+    r"\bmission\s+(?:en\s+)?freelance\b",
+    r"\bmission\s+de\s+prestation\b",
+    r"\bcontexte\s+de\s+la\s+prestation\b",
+    r"\bprestation\s+s\s+inscrit\b",
+    r"\btarif\s+journalier\b",
+    r"\btjm\b",
+    r"\bdate\s+de\s+prochaine\s+disponibilite\b",
+    r"\bfreelance\b",
+    r"\bfreelancer\b",
+    r"\bcontractor\b",
+    r"\bportage\s+salarial\b",
+    r"\bstatut\s+independant\b",
+)
+_PRESTATAIRE_SOURCE_MARKERS = (
+    "free-work",
+    "free work",
+    "freelance.com",
+    "freelance com",
+    "freelancerepublik",
+    "freelance-republik",
+    "malt",
+    "lehibou",
+    "comet",
+)
+
+
+def _fact_source_suffix(facts: FilterFacts) -> str:
+    source = _norm(facts.source).replace(" ", "_")
+    return source or "unknown"
+
+
+def _format_years(value: float) -> str:
+    return str(int(value)) if float(value).is_integer() else str(value)
+
+
+def _contract_for_matching(
+    job_contract_type: str | None,
+    facts: FilterFacts,
+) -> str | None:
+    if job_contract_type and contract_type_tags(job_contract_type):
+        return job_contract_type
+    return facts.structured_contract_type or job_contract_type
+
+
+def _structured_contract_tags(facts: FilterFacts) -> set[str]:
+    tags = contract_type_tags(facts.structured_contract_type)
+    return tags
+
+
+def _prestataire_is_corroborated(
+    *,
+    title: str,
+    description: str,
+    company: str,
+    application_url: str | None,
+) -> bool:
+    visible_text = f"{title}\n{description}\n{company}"
+    if any(re.search(pattern, visible_text) for pattern in _PRESTATAIRE_CONTEXT_PATTERNS):
+        return True
+    url_text = _norm(application_url)
+    return any(marker in url_text for marker in _PRESTATAIRE_SOURCE_MARKERS)
+
+
+def _reason_value(value: str | None) -> str:
+    return _norm(value).replace(" ", "_") or "unknown"
+
+
+def _rome_context_reason(facts: FilterFacts) -> str | None:
+    parts = [
+        value
+        for value in (
+            facts.structured_rome_code,
+            facts.structured_rome_label,
+            facts.structured_appellation_label,
+        )
+        if value
+    ]
+    if not parts:
+        return None
+    return "rome_context:" + ":".join(_reason_value(part) for part in parts)
+
+
+def _search_context_reason(facts: FilterFacts) -> str | None:
+    parts = []
+    if facts.structured_search_origin:
+        parts.append(f"origin={_reason_value(facts.structured_search_origin)}")
+    if facts.structured_search_chips:
+        parts.append(f"chips={_reason_value(facts.structured_search_chips)}")
+    if not parts:
+        return None
+    return "search_context:" + ",".join(parts)
+
+
 __all__ = [
     "FilterResult",
     "HasJobFields",
@@ -70,25 +168,38 @@ __all__ = [
 class JobFilter:
     """Score-and-filter pipeline that runs entirely locally."""
 
-    def __init__(self, rules: RuleSet):
+    def __init__(self, rules: RuleSet, *, use_source_facts: bool = True):
         self.rules = rules
+        self.use_source_facts = use_source_facts
 
     def evaluate(self, job: HasJobFields) -> FilterResult:
+        facts = build_filter_facts(job) if self.use_source_facts else FilterFacts()
         title = _norm(job.title)
+        company = _norm(job.company)
         description = _norm(job.description)
-        location = _norm(job.location)
+        location_value = facts.structured_location or job.location
+        location = _norm(location_value)
         contract = _norm(job.contract_type)
-        remote = _norm(job.remote_policy)
+        remote_value = job.remote_policy or facts.structured_remote_policy
+        remote = _norm(remote_value)
         combined = f"{title}\n{description}"
 
         reasons: list[str] = []
         score = 0.5  # neutral baseline
+        if rome_context := _rome_context_reason(facts):
+            reasons.append(rome_context)
+        if search_context := _search_context_reason(facts):
+            reasons.append(search_context)
+        if facts.structured_remote_policy:
+            reasons.append(
+                f"remote_structured:{_reason_value(facts.structured_remote_policy)}"
+            )
 
         # --- Hard reject: foreign location ---
         # The candidate only targets the French market. Foreign offers are
         # dropped before any LLM analysis to save tokens.
-        if is_foreign_location(job.location):
-            reasons.append(f"location_rejected_foreign:{(job.location or '').lower()}")
+        if is_foreign_location(location_value):
+            reasons.append(f"location_rejected_foreign:{(location_value or '').lower()}")
             return FilterResult(kept=False, score=0.0, reasons=reasons)
 
         if foreign_marker := _visible_foreign_location_marker(title, description):
@@ -99,17 +210,36 @@ class JobFilter:
         # Bilingual regex extraction (FR + EN). See utils.experience.
         # We check both title and description because senior signals often
         # live in titles ("Senior Data Scientist - 7+ years").
-        required_years = required_min_years(
-            f"{job.title or ''}\n{job.description or ''}"
-        )
+        if facts.experience_min_years is not None:
+            required_years = facts.experience_min_years
+            reasons.append(
+                f"experience_structured_{_fact_source_suffix(facts)}:"
+                f"{_format_years(required_years)}"
+            )
+        elif facts.experience_required is False and facts.experience_requirement:
+            required_years = None
+            reasons.append(
+                f"experience_structured_{_fact_source_suffix(facts)}:"
+                f"{facts.experience_requirement}"
+            )
+        else:
+            required_years = required_min_years(
+                f"{job.title or ''}\n{job.description or ''}"
+            )
         if required_years is not None and required_years >= self.rules.max_required_years:
-            reasons.append(f"experience_required_too_high:{required_years}+ years")
+            reasons.append(
+                f"experience_required_too_high:{_format_years(required_years)}+ years"
+            )
             return FilterResult(kept=False, score=0.0, reasons=reasons)
 
         # --- Hard reject: blocked contract type (internship, alternance, ...) ---
         # Soft penalty on contract_off was not enough — internships sometimes
         # slipped through with a high semantic score. Now they're rejected
         # before any LLM analysis.
+        if facts.structured_alternance is True:
+            reasons.append("blocked_contract_structured:alternance (tag 'apprenticeship')")
+            return FilterResult(kept=False, score=0.0, reasons=reasons)
+
         contract_tags = contract_type_tags(job.contract_type)
         incompatible_tags = sorted(contract_tags & INCOMPATIBLE_CONTRACT_TAGS)
         if contract and incompatible_tags:
@@ -117,6 +247,43 @@ class JobFilter:
                 f"blocked_contract_type:{contract} (tag '{incompatible_tags[0]}')"
             )
             return FilterResult(kept=False, score=0.0, reasons=reasons)
+
+        structured_contract = facts.structured_contract_type
+        structured_contract_norm = _norm(structured_contract)
+        structured_contract_tags = _structured_contract_tags(facts)
+        if structured_contract_norm == "prestataire":
+            if _prestataire_is_corroborated(
+                title=title,
+                description=description,
+                company=company,
+                application_url=getattr(job, "application_url", None),
+            ):
+                structured_contract_tags.add(TAG_CONTRACTOR)
+            else:
+                reasons.append("contract_structured_uncorroborated:prestataire")
+        structured_incompatible = sorted(
+            structured_contract_tags & INCOMPATIBLE_CONTRACT_TAGS
+        )
+        if structured_contract_norm and structured_incompatible:
+            reasons.append(
+                f"blocked_contract_structured:{structured_contract_norm} "
+                f"(tag '{structured_incompatible[0]}')"
+            )
+            return FilterResult(kept=False, score=0.0, reasons=reasons)
+
+        work_time = facts.structured_work_time
+        work_time_tags = contract_type_tags(work_time)
+        part_time_not_accepted = TAG_PART_TIME not in contract_types_to_tags(
+            self.rules.accepted_contract_types
+        )
+        if TAG_PART_TIME in work_time_tags and part_time_not_accepted:
+            reasons.append(
+                f"blocked_work_time_structured:{_reason_value(work_time)} "
+                "(tag 'part_time')"
+            )
+            return FilterResult(kept=False, score=0.0, reasons=reasons)
+        if work_time:
+            reasons.append(f"work_time_structured:{_reason_value(work_time)}")
 
         if contract and self.rules.blocked_contract_types:
             matched = next(
@@ -325,10 +492,10 @@ class JobFilter:
             if any(loc in location for loc in specific_locations):
                 score += 0.1
                 reasons.append("location_preferred")
-            elif _is_remote_france(job.location, remote):
+            elif _is_remote_france(location_value, remote):
                 score += 0.05
                 reasons.append("location_remote_france")
-            elif accepts_france and is_french_location(job.location):
+            elif accepts_france and is_french_location(location_value):
                 score += 0.05
                 reasons.append("location_accepted_france")
             elif remote == "remote" and "remote" in self.rules.accepted_remote_policies:
@@ -339,8 +506,13 @@ class JobFilter:
                 reasons.append("location_unknown")
 
         # --- Contract type ---
+        contract_for_matching = _contract_for_matching(job.contract_type, facts)
+        contract = _norm(contract_for_matching)
         if self.rules.accepted_contract_types and contract:
-            if contract_matches_accepted(job.contract_type, self.rules.accepted_contract_types):
+            if contract_matches_accepted(
+                contract_for_matching,
+                self.rules.accepted_contract_types,
+            ):
                 reasons.append(f"contract_ok:{contract}")
             else:
                 score -= 0.1
