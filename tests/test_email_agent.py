@@ -476,8 +476,8 @@ def test_workflow_step5_uses_creer_brouillon_label_not_envoyer() -> None:
         Path(__file__).resolve().parent.parent
         / "smartapply"
         / "app"
-        / "pages"
-        / "0_Workflow.py"
+        / "workflow"
+        / "step5_send.py"
     )
     source = workflow_path.read_text(encoding="utf-8")
     assert "Créer le brouillon Gmail" in source, (

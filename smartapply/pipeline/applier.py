@@ -1,45 +1,18 @@
-"""Phase 3 — generate one application (CV + email + contact + drafts).
-
-A single ``apply`` path driven by an ``ApplySpec`` preset. The two presets
-``MANUAL`` and ``AUTOPILOT`` configure contact provider, quality gate and
-audit behavior. Both use the modern combined ``ApplicationDraft`` call so CV
-and motivation letter are generated together.
-
-The differences between presets:
-
-- ``MANUAL``    : one combined LLM call (CV + motivation letter), no quality gate,
-                  optional user-provided contact, no audit blob.
-- ``AUTOPILOT`` : one combined LLM call (CV + motivation letter), quality gate,
-                  ContactProviderChain (Anymail Finder + persistent cache), audit
-                  blob persisted as a generated_document.
-"""
+"""Phase 3 - generate one application (CV + email + contact + drafts)."""
 
 from __future__ import annotations
 
 import dataclasses
-import json
 import re
-from dataclasses import asdict
 from typing import Any
 
 from smartapply.config import get_settings
 from smartapply.cv import CvAdapter, CvValidator
 from smartapply.cv.motivation_validator import MotivationLetterValidator
-from smartapply.database import session_scope
 from smartapply.database.models import Job, JobStatus
-from smartapply.database.repository import (
-    add_contact,
-    create_or_get_application,
-    update_status,
-    upsert_document,
-)
-from smartapply.email_agent import (
-    ContactCandidate,
-    build_application_email,
-    export_eml,
-)
+from smartapply.email_agent import ContactCandidate
+from smartapply.email_agent import gmail_draft as _gmail_draft
 from smartapply.email_agent.eml_export import MISSING_RECIPIENT_PLACEHOLDER
-from smartapply.email_agent.gmail_draft import GmailDraftError, create_draft
 from smartapply.llm import (
     ApplicationQualityReview,
     EmailDraft,
@@ -48,8 +21,10 @@ from smartapply.llm import (
     MotivationLetter,
 )
 from smartapply.llm.prompts import application_quality_review as quality_prompts
-from smartapply.logging_setup import get_logger
 from smartapply.pipeline.application_renderer import ApplicationDocumentRenderer
+from smartapply.pipeline.apply.cv_writer import CvWriterMixin, _document_company_label
+from smartapply.pipeline.apply.email_writer import EmailWriterMixin
+from smartapply.pipeline.apply.gmail_dispatcher import GmailDispatcherMixin
 from smartapply.pipeline.apply_specs import (
     ApplyMode,
     ApplySpec,
@@ -57,118 +32,15 @@ from smartapply.pipeline.apply_specs import (
     apply_spec_for,
 )
 from smartapply.pipeline.contact_service import ContactService
-from smartapply.pipeline.language import detect_offer_language
 from smartapply.pipeline.reports import ApplyReport
 from smartapply.profile import Profile
 from smartapply.utils.strategy import decide_strategy
 
-logger = get_logger(__name__)
-
-
-_ANCHOR_STOPWORDS = {
-    "and",
-    "avec",
-    "chez",
-    "data",
-    "donnée",
-    "données",
-    "donnee",
-    "donnees",
-    "engineer",
-    "engineering",
-    "for",
-    "from",
-    "h/f",
-    "ingénieur",
-    "ingenieur",
-    "junior",
-    "mid",
-    "pour",
-    "role",
-    "scientist",
-    "the",
-    "with",
-}
-
-_ROLE_PHRASES = (
-    "ai engineer",
-    "analytics engineer",
-    "business analyst",
-    "computer vision",
-    "data analyst",
-    "data engineer",
-    "data scientist",
-    "deep learning",
-    "devops",
-    "full stack",
-    "fullstack",
-    "generative ai",
-    "ingénieur data",
-    "machine learning",
-    "ml engineer",
-    "mlops",
-    "nlp",
-    "product analyst",
-    "product data analyst",
-    "rag",
-    "software engineer",
-    "speech",
-    "time series",
-)
-
-_ANONYMOUS_COMPANY_MARKERS = (
-    "confidentiel",
-    "non communiqu",
-    "anonyme",
-)
-
-
-def _norm(text: str | None) -> str:
-    return " ".join((text or "").lower().replace("’", "'").split())
-
-
-def _is_anonymous_company(name: str | None) -> bool:
-    lowered = _norm(name)
-    return not lowered or any(marker in lowered for marker in _ANONYMOUS_COMPANY_MARKERS)
-
-
-def _document_company_label(company: str | None, language: str) -> str:
-    if not _is_anonymous_company(company):
-        return (company or "").strip()
-    return "l'entreprise recruteuse" if language == "fr" else "the hiring company"
-
-
-def _word_anchors(text: str) -> set[str]:
-    words = {
-        word
-        for word in re.findall(r"[a-zA-ZÀ-ÿ0-9+#.]{3,}", _norm(text))
-        if word not in _ANCHOR_STOPWORDS
-    }
-    return words
-
-
-def _offer_anchors(analysis: JobAnalysis, job_title: str) -> set[str]:
-    role_text = " ".join(
-        [
-            job_title or "",
-            analysis.role_type or "",
-            " ".join(analysis.main_tasks[:4]),
-            " ".join(analysis.required_skills),
-            " ".join(analysis.cv_keywords_to_include),
-        ]
-    )
-    haystack = _norm(role_text)
-    anchors = _word_anchors(role_text)
-    for phrase in _ROLE_PHRASES:
-        if phrase in haystack:
-            anchors.add(phrase)
-    return {anchor for anchor in anchors if len(anchor) >= 3}
-
-
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+create_draft = _gmail_draft.create_draft
 
 
-class Applier:
+class Applier(GmailDispatcherMixin, EmailWriterMixin, CvWriterMixin):
     """Compose the CV adapter, validator, renderer and contact service."""
 
     def __init__(
@@ -363,34 +235,6 @@ class Applier:
         )
         return report
 
-    # ============================================================
-    # Step helpers — branching kept narrow and explicit
-    # ============================================================
-
-    def _generate_draft(
-        self,
-        *,
-        job: Job,
-        analysis: JobAnalysis,
-        offer_language: str,
-        document_company: str,
-    ) -> tuple[Any, MotivationLetter, EmailDraft]:
-        """Generate CV + motivation letter, then build the sending email."""
-        adapted, letter_draft, _selection = self.adapter.adapt_application(
-            analysis,
-            job_title=job.title,
-            job_company=document_company,
-            language=offer_language,
-            job_id=job.id,
-        )
-        email_draft = build_application_email(
-            candidate_name=self.profile.identity.full_name,
-            job_title=job.title,
-            job_company=document_company,
-            language=offer_language,
-        )
-        return adapted, letter_draft, email_draft
-
     def _maybe_quality_gate(
         self,
         *,
@@ -481,129 +325,6 @@ class Applier:
             return JobStatus.EMAIL_GENERATED
         return JobStatus.READY_FOR_FORM_SUBMISSION
 
-    # ============================================================
-    # Shared building blocks (unchanged from the previous version)
-    # ============================================================
-
-    def _validate_with_auto_fix(self, adapted, report: ApplyReport):
-        result = self.validator.validate(adapted)
-        if not result.ok:
-            adapted, removed = self.validator.auto_fix(adapted)
-            result = self.validator.validate(adapted)
-            report.validation_warnings.extend(f"auto_fixed:{r}" for r in removed)
-        report.validation_warnings.extend(result.warnings)
-        report.validation_errors.extend(result.errors)
-        return adapted
-
-    def _validate_letter(
-        self,
-        letter_draft: MotivationLetter,
-        adapted,
-        analysis: JobAnalysis,
-        report: ApplyReport,
-    ) -> None:
-        result = self.letter_validator.validate(
-            letter_draft,
-            cv=adapted,
-            analysis=analysis,
-        )
-        report.validation_warnings.extend(result.warnings)
-        report.validation_errors.extend(result.errors)
-
-    def _validate_cv_offer_alignment(
-        self,
-        adapted,
-        analysis: JobAnalysis,
-        job_title: str,
-        report: ApplyReport,
-    ) -> None:
-        anchors = _offer_anchors(analysis, job_title)
-        if not anchors:
-            return
-        title = _norm(adapted.cv_title)
-        summary = _norm(adapted.professional_summary)
-        if not any(anchor in title for anchor in anchors):
-            report.validation_warnings.append("cv_title_not_offer_anchored")
-        if not any(anchor in summary for anchor in anchors):
-            report.validation_warnings.append("summary_not_offer_anchored")
-
-    def _load_job_analysis(self, job_id: int) -> tuple[Job, JobAnalysis]:
-        with session_scope() as s:
-            job = s.get(Job, job_id)
-            if job is None or job.analysis is None:
-                raise ValueError(
-                    f"Job {job_id} not analyzed. Run process_pending first."
-                )
-            raw = job.analysis.raw_response or {}
-            offer_language = raw.get("offer_language") or detect_offer_language(
-                f"{job.title}\n{job.cleaned_description or job.description}"
-            )
-            analysis = JobAnalysis(
-                role_type=job.analysis.role_type or "",
-                seniority=job.analysis.seniority or "",
-                domain=job.analysis.domain or "",
-                main_tasks=list(job.analysis.main_tasks or []),
-                required_skills=list(job.analysis.required_skills or []),
-                nice_to_have=list(job.analysis.nice_to_have or []),
-                match_reasons=list(job.analysis.match_reasons or []),
-                risks=list(job.analysis.risks or []),
-                cv_keywords_to_include=list(job.analysis.cv_keywords_to_include or []),
-                contact_domain_kind=raw.get("contact_domain_kind") or "unknown",
-                contact_domain_hint=raw.get("contact_domain_hint") or "",
-                contact_domain_reason=raw.get("contact_domain_reason") or "",
-                offer_language=offer_language,
-                company_size=raw.get("company_size") or "unknown",
-                company_size_reason=raw.get("company_size_reason") or "",
-                extracted_company_name=raw.get("extracted_company_name") or "",
-                extracted_location=raw.get("extracted_location") or "",
-                company_context=raw.get("company_context") or "",
-                offer_interest_points=list(raw.get("offer_interest_points") or []),
-            )
-            if job.score is not None:
-                _ = job.score.components
-            return job, analysis
-
-    def _export_eml(
-        self,
-        *,
-        report: ApplyReport,
-        email_draft: EmailDraft,
-        recipient: str,
-        cc_recipient: str | None = None,
-    ) -> None:
-        out_dir = self.settings.output_dir / f"job-{report.job_id}"
-        eml_path = out_dir / "draft.eml"
-        export_eml(
-            subject=email_draft.subject,
-            body=email_draft.body,
-            sender=self.profile.identity.email,
-            recipient=recipient,
-            cc_recipient=cc_recipient,
-            attachments=self.renderer.attachment_paths(report),
-            out_path=eml_path,
-        )
-        report.eml_path = str(eml_path)
-
-    def _create_gmail_draft(
-        self,
-        *,
-        report: ApplyReport,
-        email_draft: EmailDraft,
-        recipient: str,
-        cc_recipient: str | None = None,
-    ) -> None:
-        try:
-            report.gmail_draft_id = create_draft(
-                subject=email_draft.subject,
-                body=email_draft.body,
-                recipient=recipient,
-                cc_recipient=cc_recipient,
-                sender=self.profile.identity.email,
-                attachment_paths=self.renderer.attachment_paths(report),
-            )
-        except GmailDraftError as e:
-            logger.warning("Gmail draft skipped: %s", e)
-
     def _review_quality(
         self,
         *,
@@ -673,131 +394,3 @@ class Applier:
             and not report.validation_errors
             and not severe_warnings
         )
-
-    def _build_audit(
-        self,
-        *,
-        job_id: int,
-        job: Job,
-        analysis: JobAnalysis,
-        score_components: dict[str, Any] | None,
-        report: ApplyReport,
-        contact: ContactCandidate | None,
-        status: str,
-    ) -> dict[str, Any]:
-        return {
-            "job_id": job_id,
-            "job_title": job.title,
-            "job_company": job.company,
-            "score": score_components,
-            "quality_review": report.quality_review,
-            "validation_warnings": report.validation_warnings,
-            "validation_errors": report.validation_errors,
-            "contact": asdict(contact) if contact else None,
-            "contact_email": report.contact_email,
-            "contact_cc_email": report.contact_cc_email,
-            "contact_source": report.contact_source,
-            "contact_form_url": report.contact_form_url,
-            "contact_domain_kind": analysis.contact_domain_kind,
-            "contact_domain_hint": analysis.contact_domain_hint,
-            "contact_domain_reason": analysis.contact_domain_reason,
-            "job_location": job.location,
-            "extracted_location": analysis.extracted_location,
-            "docx_path": report.docx_path,
-            "cv_pdf_path": report.cv_pdf_path,
-            "letter_pdf_path": report.letter_pdf_path,
-            "eml_path": report.eml_path,
-            "gmail_draft_id": report.gmail_draft_id,
-            "status": status,
-        }
-
-    def _persist_application(
-        self,
-        *,
-        report: ApplyReport,
-        adapted,
-        letter_draft: MotivationLetter,
-        email_draft: EmailDraft,
-        job_company: str,
-        apply_url: str | None,
-        status: str,
-        contact_email: str | None = None,
-        contact: ContactCandidate | None = None,
-        quality_reason: str | None = None,
-        audit: dict[str, Any] | None = None,
-    ) -> None:
-        with session_scope() as s:
-            app = create_or_get_application(s, report.job_id)
-            if contact and contact.email:
-                contact_row = add_contact(
-                    s,
-                    company=job_company,
-                    email=contact.email,
-                    source_url=contact.source_url,
-                    confidence=contact.confidence,
-                    full_name=contact.full_name,
-                    job_title=contact.job_title,
-                    location_hint=contact.location_hint,
-                    decision_reason=contact.decision_reason,
-                )
-                app.contact_id = contact_row.id
-            elif contact_email:
-                is_manual = report.contact_source == "manual"
-                contact_row = add_contact(
-                    s,
-                    company=job_company,
-                    email=contact_email,
-                    source_url="manual" if is_manual else apply_url,
-                    confidence=1.0 if is_manual else 0.7,
-                )
-                app.contact_id = contact_row.id
-            app.cv_docx_path = report.docx_path
-            app.cv_pdf_path = report.cv_pdf_path
-            app.cv_json = adapted.model_dump()
-            app.email_subject = email_draft.subject
-            app.email_body = email_draft.body
-            app.email_cc = report.contact_cc_email
-            app.eml_path = report.eml_path
-            app.gmail_draft_id = report.gmail_draft_id
-            app.validation_warnings = report.validation_warnings
-            app.status = status
-            app.application_strategy = report.application_strategy
-            if report.application_strategy in ("email_and_form", "form_only"):
-                app.form_submission_url = report.contact_form_url or apply_url
-            if quality_reason is not None:
-                app.notes = (
-                    f"{quality_reason}\nFormulaire: {report.contact_form_url}"
-                    if report.contact_form_url and not report.contact_email
-                    else quality_reason
-                )
-            self.renderer.add_document_rows(s, app.id, report)
-            upsert_document(
-                s,
-                app.id,
-                doc_type="cv_json",
-                content=json.dumps(adapted.model_dump(), ensure_ascii=False),
-            )
-            upsert_document(
-                s,
-                app.id,
-                doc_type="email",
-                content=email_draft.body,
-                extra={"subject": email_draft.subject},
-            )
-            upsert_document(
-                s,
-                app.id,
-                doc_type="motivation_letter",
-                content=letter_draft.body,
-                extra={"subject": letter_draft.subject},
-            )
-            upsert_document(s, app.id, doc_type="eml", path=report.eml_path)
-            if audit is not None:
-                upsert_document(
-                    s,
-                    app.id,
-                    doc_type="autopilot_audit",
-                    content=json.dumps(audit, ensure_ascii=False, default=str),
-                )
-            update_status(s, report.job_id, status)
-            report.application_id = app.id
