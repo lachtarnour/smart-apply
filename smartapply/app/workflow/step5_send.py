@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,8 @@ from smartapply.app.workflow.widgets import _download_button, _status_pill
 from smartapply.database import session_scope
 from smartapply.database.models import Application, JobStatus
 from smartapply.database.repository import add_contact, update_application_tracking, upsert_document
+
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 def step5_send() -> None:
@@ -135,6 +138,15 @@ def step5_send() -> None:
     st.divider()
 
 
+def _reset_final_email(subject_key: str, body_key: str, subject: str, body: str) -> None:
+    st.session_state[subject_key] = subject
+    st.session_state[body_key] = body
+
+
+def _is_valid_email(value: str) -> bool:
+    return bool(EMAIL_RE.match(value.strip().lower()))
+
+
 def _render_send_card(row: dict[str, Any]) -> None:
     app_id = row["id"]
     strategy_icon = {
@@ -217,13 +229,12 @@ def _render_send_card(row: dict[str, Any]) -> None:
                 height=240,
                 key=body_key,
             )
-            if st.button(
+            st.button(
                 "Recharger l'email généré",
                 key=f"wf_reset_email_{app_id}",
-            ):
-                st.session_state[subject_key] = row["subject"]
-                st.session_state[body_key] = row["body"]
-                st.rerun()
+                on_click=_reset_final_email,
+                args=(subject_key, body_key, row["subject"], row["body"]),
+            )
         with col2:
             reviewed = st.checkbox(
                 "J'ai vérifié le contact, le CV, la lettre et l'email",
@@ -231,6 +242,29 @@ def _render_send_card(row: dict[str, Any]) -> None:
             )
             final_subject = str(st.session_state.get(subject_key, "")).strip()
             final_body = str(st.session_state.get(body_key, "")).strip()
+
+            contact_key = f"wf_manual_contact_{app_id}"
+            st.session_state.setdefault(contact_key, row["contact"] or "")
+            with st.expander(
+                "Ajouter / modifier le contact email",
+                expanded=not row["contact"],
+            ):
+                st.text_input(
+                    "Email contact",
+                    key=contact_key,
+                    placeholder="recrutement@entreprise.com",
+                )
+                if st.button(
+                    "Enregistrer le contact",
+                    key=f"wf_save_manual_contact_{app_id}",
+                ):
+                    saved = _save_manual_contact_for_application(
+                        row,
+                        str(st.session_state.get(contact_key) or ""),
+                    )
+                    if saved:
+                        st.rerun()
+
             if row["contact"]:
                 if row["strategy"] == "form_only":
                     st.caption(
@@ -244,8 +278,9 @@ def _render_send_card(row: dict[str, Any]) -> None:
                     key=f"wf_lookup_contact_{app_id}",
                     help="Action manuelle. Peut utiliser le fournisseur de contacts configuré.",
                 ):
-                    _lookup_contact_for_application(row)
-                    st.rerun()
+                    found = _lookup_contact_for_application(row)
+                    if found:
+                        st.rerun()
 
             # ---- Gmail draft button ----
             if row["gmail_draft_id"]:
@@ -371,7 +406,44 @@ def _regenerate_final_eml(app: Application, *, recipient: str, cc_recipient: str
     return str(written)
 
 
-def _lookup_contact_for_application(row: dict[str, Any]) -> None:
+def _save_manual_contact_for_application(row: dict[str, Any], email: str) -> bool:
+    normalized = email.strip().lower()
+    if not _is_valid_email(normalized):
+        st.error("Adresse email invalide.")
+        return False
+
+    with session_scope() as s:
+        app = s.get(Application, int(row["id"]))
+        if app is None:
+            st.error("Candidature introuvable.")
+            return False
+        contact_row = add_contact(
+            s,
+            company=app.job.company if app.job else str(row.get("company") or ""),
+            email=normalized,
+            source_url="manual_final_step",
+            confidence=1.0,
+            decision_reason="manual_final_step",
+        )
+        app.contact_id = contact_row.id
+        app.application_strategy = "email_and_form" if app.form_submission_url else "email_only"
+        if app.status == JobStatus.READY_FOR_FORM_SUBMISSION:
+            app.status = JobStatus.EMAIL_GENERATED
+            if app.job is not None:
+                app.job.status = JobStatus.EMAIL_GENERATED
+        eml_path = _regenerate_final_eml(
+            app,
+            recipient=normalized,
+            cc_recipient=app.email_cc,
+        )
+        if eml_path:
+            upsert_document(s, app.id, doc_type="eml", path=eml_path)
+
+    st.success(f"Contact enregistré : {normalized}")
+    return True
+
+
+def _lookup_contact_for_application(row: dict[str, Any]) -> bool:
     service = pipeline_singleton().contact_service
     candidate = service.find(
         company=str(row.get("company") or ""),
@@ -393,17 +465,16 @@ def _lookup_contact_for_application(row: dict[str, Any]) -> None:
             )
         else:
             st.warning("Aucun contact email fiable trouvé pour cette candidature.")
-        return
+        return False
 
     with session_scope() as s:
         app = s.get(Application, int(row["id"]))
         if app is None:
             st.error("Candidature introuvable.")
-            return
-        company = app.job.company if app.job else str(row.get("company") or "")
+            return False
         contact_row = add_contact(
             s,
-            company=company,
+            company=app.job.company if app.job else str(row.get("company") or ""),
             email=candidate.email,
             source_url=candidate.source_url,
             confidence=candidate.confidence,
@@ -427,6 +498,7 @@ def _lookup_contact_for_application(row: dict[str, Any]) -> None:
             upsert_document(s, app.id, doc_type="eml", path=eml_path)
 
     st.success(f"Contact trouvé et attaché : {candidate.email}")
+    return True
 
 
 def _render_gmail_dry_run_preview(row: dict[str, Any]) -> None:

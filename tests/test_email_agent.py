@@ -507,4 +507,7 @@ def test_workflow_step5_uses_creer_brouillon_label_not_envoyer() -> None:
         f"Workflow must not expose a 'Envoyer' button; found: {forbidden}"
     )
     assert "Chercher un contact email" in source
+    assert "Ajouter / modifier le contact email" in source
+    assert "Enregistrer le contact" in source
+    assert "on_click=_reset_final_email" in source
     assert 'or row["strategy"] == "form_only"' not in source
