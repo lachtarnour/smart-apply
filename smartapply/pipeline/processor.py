@@ -354,6 +354,8 @@ class Processor:
             mark_ranked(session, job.id)
             if i < shortlist_n:
                 update_status(session, job.id, JobStatus.SHORTLISTED)
+            else:
+                update_status(session, job.id, JobStatus.FILTERED)
         return [job for job, _ in ranked[:shortlist_n]]
 
     def _analyze_one(self, *, job_id: int) -> None:

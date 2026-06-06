@@ -721,6 +721,8 @@ def test_rank_pending_scores_without_llm_analysis() -> None:
         assert all(job.score and job.score.final_score is not None for job in jobs)
         assert all(job.analyzed_at is None for job in jobs)
         assert sum(job.status == JobStatus.SHORTLISTED for job in jobs) == 1
+        assert sum(job.status == JobStatus.FILTERED for job in jobs) == 1
+        assert all(job.archived_at is None for job in jobs)
 
 
 def test_analyze_jobs_only_selected_ranked_jobs() -> None:
