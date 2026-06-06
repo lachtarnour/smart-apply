@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -15,9 +16,18 @@ from smartapply.app.workflow.step4_generate import _existing_generated_applicati
 from smartapply.app.workflow.widgets import _download_button, _status_pill
 from smartapply.database import session_scope
 from smartapply.database.models import Application, JobStatus
-from smartapply.database.repository import add_contact, update_application_tracking, upsert_document
+from smartapply.database.repository import (
+    add_contact,
+    mark_archived,
+    update_application_tracking,
+    upsert_document,
+)
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+CLOSE_ACTION_LABELS = {
+    "done": "Candidature faite",
+    "archive": "Archiver",
+}
 
 
 def step5_send() -> None:
@@ -95,7 +105,13 @@ def step5_send() -> None:
     drafts_done = sum(1 for row in rows if row["gmail_draft_id"])
     with_contact = sum(1 for row in rows if row["contact"])
     with_form = sum(1 for row in rows if row["form_url"])
-    sent_done = sum(1 for row in rows if row["email_sent_at"] or row["form_submitted_at"])
+    sent_done = sum(
+        1
+        for row in rows
+        if row["email_sent_at"]
+        or row["form_submitted_at"]
+        or row["status"] in (JobStatus.SENT, JobStatus.ARCHIVED)
+    )
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Candidatures", len(rows))
     m2.metric("Contacts trouvés", with_contact)
@@ -147,6 +163,41 @@ def _is_valid_email(value: str) -> bool:
     return bool(EMAIL_RE.match(value.strip().lower()))
 
 
+def _close_application(app_id: int, action: str) -> bool:
+    with session_scope() as s:
+        app = s.get(Application, int(app_id))
+        if app is None:
+            st.error("Candidature introuvable.")
+            return False
+
+        if action == "done":
+            _mark_application_done(app)
+            st.success("Candidature marquée comme faite.")
+            return True
+
+        if action == "archive":
+            app.status = JobStatus.ARCHIVED
+            if app.job is not None:
+                mark_archived(s, app.job.id)
+            st.success("Candidature archivée.")
+            return True
+
+    st.error("Action de clôture inconnue.")
+    return False
+
+
+def _mark_application_done(app: Application) -> None:
+    now = datetime.now(timezone.utc)
+    strategy = app.application_strategy or "email_only"
+    if strategy in ("email_only", "email_and_form") and app.email_sent_at is None:
+        app.email_sent_at = now
+    if strategy in ("form_only", "email_and_form") and app.form_submitted_at is None:
+        app.form_submitted_at = now
+    app.status = JobStatus.SENT
+    if app.job is not None:
+        app.job.status = JobStatus.SENT
+
+
 def _render_send_card(row: dict[str, Any]) -> None:
     app_id = row["id"]
     strategy_icon = {
@@ -154,7 +205,7 @@ def _render_send_card(row: dict[str, Any]) -> None:
         "email_and_form": "📧🗂",
         "form_only": "🗂",
     }.get(row["strategy"], "")
-    expanded_default = row["status"] != JobStatus.SENT
+    expanded_default = row["status"] not in (JobStatus.SENT, JobStatus.ARCHIVED)
     with st.expander(
         f"{strategy_icon} [{app_id}] {row['title']} @ {row['company']}  ·  {row['status_label']}",
         expanded=expanded_default,
@@ -362,6 +413,19 @@ def _render_send_card(row: dict[str, Any]) -> None:
                         with session_scope() as s:
                             update_application_tracking(s, app_id, form_submitted=True)
                         st.rerun()
+
+            st.divider()
+            st.markdown("**Clôture**")
+            close_action = st.selectbox(
+                "Action finale",
+                options=list(CLOSE_ACTION_LABELS),
+                format_func=lambda value: CLOSE_ACTION_LABELS[str(value)],
+                key=f"wf_close_action_{app_id}",
+            )
+            if st.button("Appliquer la clôture", key=f"wf_close_apply_{app_id}"):
+                closed = _close_application(app_id, str(close_action))
+                if closed:
+                    st.rerun()
 
 
 def _row_analysis_value(row: dict[str, Any], key: str) -> str:

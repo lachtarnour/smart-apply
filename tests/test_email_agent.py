@@ -509,5 +509,67 @@ def test_workflow_step5_uses_creer_brouillon_label_not_envoyer() -> None:
     assert "Chercher un contact email" in source
     assert "Ajouter / modifier le contact email" in source
     assert "Enregistrer le contact" in source
+    assert "Candidature faite" in source
+    assert "Archiver" in source
+    assert "Appliquer la clôture" in source
     assert "on_click=_reset_final_email" in source
     assert 'or row["strategy"] == "form_only"' not in source
+
+
+def test_workflow_step5_close_application_marks_done_or_archived(
+    isolated_db: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert isolated_db.exists()
+
+    from importlib import import_module
+
+    step5_module = import_module("smartapply.app.workflow.step5_send")
+    from smartapply.database import session_scope
+    from smartapply.database.models import JobStatus
+    from smartapply.database.repository import create_or_get_application, upsert_job
+
+    monkeypatch.setattr(step5_module.st, "success", lambda *args, **kwargs: None)
+
+    with session_scope() as s:
+        done_job = upsert_job(
+            s,
+            external_id="manual:close-done",
+            title="Data Scientist",
+            company="Acme",
+            description="desc",
+            source="manual",
+        )
+        done_app = create_or_get_application(s, done_job.id)
+        done_app.application_strategy = "email_and_form"
+        done_app.status = JobStatus.EMAIL_GENERATED
+
+        archive_job = upsert_job(
+            s,
+            external_id="manual:close-archive",
+            title="ML Engineer",
+            company="Beta",
+            description="desc",
+            source="manual",
+        )
+        archive_app = create_or_get_application(s, archive_job.id)
+        archive_app.status = JobStatus.EMAIL_GENERATED
+
+        done_app_id = done_app.id
+        archive_app_id = archive_app.id
+
+    assert step5_module._close_application(done_app_id, "done")
+    assert step5_module._close_application(archive_app_id, "archive")
+
+    with session_scope() as s:
+        done_app = s.get(step5_module.Application, done_app_id)
+        archive_app = s.get(step5_module.Application, archive_app_id)
+        assert done_app is not None
+        assert archive_app is not None
+        assert done_app.status == JobStatus.SENT
+        assert done_app.job.status == JobStatus.SENT
+        assert done_app.email_sent_at is not None
+        assert done_app.form_submitted_at is not None
+        assert archive_app.status == JobStatus.ARCHIVED
+        assert archive_app.job.status == JobStatus.ARCHIVED
+        assert archive_app.job.archived_at is not None
