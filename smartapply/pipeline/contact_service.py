@@ -49,19 +49,60 @@ GENERIC_COMPANY_NAMES = {
     "france travail",
     "hellowork",
     "indeed",
+    "jobinlive",
     "linkedin",
+    "michael page",
+    "michael page france",
     "non communique",
     "non communiquée",
     "unknown",
+    "groupe talents handicap",
+    "talent-r",
+    "talents handicap",
     "welcome to the jungle",
     "welcometothejungle",
     "wttj",
 }
 
-DOMAIN_TLDS_RE = (
-    r"fr|com|io|ai|co|org|net|eu|dev|tech|jobs|careers|health|"
-    r"consulting|cloud|app|software|digital|uk|de|es|it"
-)
+GENERIC_COMPANY_TOKENS = {
+    "and",
+    "assurances",
+    "batiment",
+    "company",
+    "conseil",
+    "consulting",
+    "data",
+    "de",
+    "des",
+    "digital",
+    "distribution",
+    "du",
+    "et",
+    "franc",
+    "france",
+    "group",
+    "groupe",
+    "inc",
+    "ingenierie",
+    "international",
+    "la",
+    "le",
+    "les",
+    "limited",
+    "ltd",
+    "of",
+    "recrutement",
+    "recruitment",
+    "reseaux",
+    "sa",
+    "sarl",
+    "sas",
+    "solutions",
+    "systemes",
+    "technologies",
+    "technology",
+    "the",
+}
 
 
 @dataclass(frozen=True)
@@ -136,7 +177,12 @@ def _unique_domains(domains: list[str | None]) -> list[str]:
 
 
 def domains_visible_in_text(text: str | None) -> list[str]:
-    """Extract literal email/URL/domain signals visible in the offer body."""
+    """Extract strong email/URL signals visible in the offer body.
+
+    Bare tokens such as ``draw.io`` or French inclusive writing like
+    ``client.es`` are intentionally ignored. They are too noisy to prove a
+    company domain.
+    """
     body = text or ""
     domains: list[str | None] = []
     domains.extend(re.findall(r"[\w.+-]+@([\w.-]+\.[a-zA-Z]{2,})", body))
@@ -149,14 +195,77 @@ def domains_visible_in_text(text: str | None) -> list[str]:
     domains.extend(
         re.findall(r"\bwww\.([\w.-]+\.[a-zA-Z]{2,})(?:[/?#:]|\b)", body)
     )
-    domains.extend(
-        re.findall(
-            rf"(?<![\w@.-])([a-zA-Z0-9][a-zA-Z0-9-]{{1,63}}"
-            rf"(?:\.[a-zA-Z0-9-]{{2,63}})?\.(?:{DOMAIN_TLDS_RE}))(?![\w-])",
-            body,
-        )
-    )
     return _unique_domains(domains)
+
+
+def _email_domain(email: str | None) -> str:
+    value = (email or "").strip().lower()
+    if "@" not in value:
+        return ""
+    return value.rsplit("@", 1)[-1]
+
+
+def _domain_terms(domain: str | None) -> set[str]:
+    normalized = domain_from_url(f"https://{domain}") if domain else None
+    normalized = normalized or normalize_domain_like(domain)
+    parts = [part for part in normalized.split(".") if part]
+    labels = parts[:-1] if len(parts) > 1 else parts
+    if len(labels) > 1 and labels[-1] in {"asso", "co", "com"}:
+        labels = labels[:-1]
+    terms: set[str] = set()
+    for label in labels:
+        terms.update(part for part in re.split(r"[-_]+", label) if part)
+        terms.add(re.sub(r"[^a-z0-9]+", "", label))
+    return {term for term in terms if term}
+
+
+def normalize_domain_like(domain: str | None) -> str:
+    return str(domain or "").lower().strip().removeprefix("www.")
+
+
+def _company_tokens(company: str | None) -> list[str]:
+    normalized = _ascii_lower(company)
+    tokens = [
+        token
+        for token in re.split(r"[^a-z0-9]+", normalized)
+        if len(token) >= 2 and token not in GENERIC_COMPANY_TOKENS
+    ]
+    return tokens
+
+
+def _same_company_domain(left: str | None, right: str | None) -> bool:
+    left_norm = normalize_domain_like(domain_from_url(f"https://{left}") or left)
+    right_norm = normalize_domain_like(domain_from_url(f"https://{right}") or right)
+    if not left_norm or not right_norm:
+        return False
+    if left_norm == right_norm:
+        return True
+    if left_norm.endswith(f".{right_norm}") or right_norm.endswith(f".{left_norm}"):
+        return True
+    left_terms = _domain_terms(left_norm)
+    right_terms = _domain_terms(right_norm)
+    return bool(left_terms and right_terms and left_terms & right_terms)
+
+
+def _email_domain_matches_company(email_domain: str, company: str | None) -> bool:
+    tokens = _company_tokens(company)
+    if not tokens:
+        return True
+    terms = _domain_terms(email_domain)
+    joined_terms = "".join(sorted(terms))
+    compact_domain = re.sub(r"[^a-z0-9]+", "", normalize_domain_like(email_domain))
+    if any(
+        token in terms
+        or token in joined_terms
+        or token in compact_domain
+        or any(token in term for term in terms if len(token) >= 4)
+        for token in tokens
+    ):
+        return True
+    acronym = "".join(token[0] for token in tokens if token)
+    return len(acronym) >= 3 and (
+        acronym in terms or acronym in joined_terms or acronym in compact_domain
+    )
 
 
 def _domain_is_usable(domain: str | None) -> tuple[bool, str]:
@@ -169,6 +278,37 @@ def _domain_is_usable(domain: str | None) -> tuple[bool, str]:
     if not is_reliable_company_domain(domain):
         return False, "domain_not_reliable_company_domain"
     return True, "domain_reliable"
+
+
+def _external_contact_quality_issue(
+    contact: ContactCandidate,
+    *,
+    lookup_company: str | None,
+    lookup_domain: str | None,
+) -> str | None:
+    """Return a rejection reason for low-quality Anymail-style contacts."""
+    source = (contact.source_url or "").lower()
+    provider = (contact.provider or "").lower()
+    if "anymailfinder" not in source and "anymailfinder" not in provider:
+        return None
+
+    email_domain = _email_domain(contact.email)
+    if not email_domain:
+        return "email_invalid"
+    normalized_domain = domain_from_url(f"https://{email_domain}") or email_domain
+    if is_job_board_domain(normalized_domain):
+        return "email_domain_is_job_board"
+    if is_suspicious_contact_domain(normalized_domain):
+        return "email_domain_is_suspicious"
+    if lookup_domain and not _same_company_domain(normalized_domain, lookup_domain):
+        return "email_domain_not_matching_lookup_domain"
+    if (
+        not lookup_domain
+        and lookup_company
+        and not _email_domain_matches_company(normalized_domain, lookup_company)
+    ):
+        return "email_domain_not_related_to_company"
+    return None
 
 
 def _domain_confirmed_by_sources(
@@ -432,12 +572,26 @@ class ContactService:
                     lookup_key=lookup_key,
                 )
                 if cached is not None:
-                    return self._from_cache_payload(cached.contacts)
+                    cached_contact = self._from_cache_payload(cached.contacts)
+                    if cached_contact is None:
+                        return None
+                    if _external_contact_quality_issue(
+                        cached_contact,
+                        lookup_company=lookup_company,
+                        lookup_domain=domain,
+                    ):
+                        return None
+                    return cached_contact
 
         contacts = self.chain.find(
             company=lookup_company,
             application_url=contact_url,
             job_location=lookup_location,
+        )
+        contacts = self._filter_external_contacts(
+            contacts,
+            lookup_company=lookup_company,
+            lookup_domain=domain,
         )
         best = contacts[0] if contacts else None
 
@@ -473,6 +627,32 @@ class ContactService:
         credits and should never happen accidentally.
         """
         return self.chain.verify_email(email)
+
+    @staticmethod
+    def _filter_external_contacts(
+        contacts: list[ContactCandidate],
+        *,
+        lookup_company: str | None,
+        lookup_domain: str | None,
+    ) -> list[ContactCandidate]:
+        kept: list[ContactCandidate] = []
+        for contact in contacts:
+            issue = _external_contact_quality_issue(
+                contact,
+                lookup_company=lookup_company,
+                lookup_domain=lookup_domain,
+            )
+            if issue:
+                logger.info(
+                    "contact_rejected_quality email=%s company=%s domain=%s issue=%s",
+                    contact.email,
+                    lookup_company,
+                    lookup_domain,
+                    issue,
+                )
+                continue
+            kept.append(contact)
+        return kept
 
     def _stored_contact_passes_optional_verification(self, contact: ContactCandidate) -> bool:
         source = (contact.source_url or "").lower()
@@ -573,11 +753,22 @@ class ContactService:
         )
 
     @staticmethod
-    def _can_reuse_local_contact(contact, job_location: str | None) -> bool:
+    def _can_reuse_local_contact(
+        contact,
+        company: str | None,
+        job_location: str | None,
+    ) -> bool:
         source = (contact.source_url or "").lower()
         if source == "manual":
             return True
         if ContactService._external_contact_uses_blocked_domain(contact):
+            return False
+        candidate = ContactService._row_to_candidate(contact)
+        if _external_contact_quality_issue(
+            candidate,
+            lookup_company=company,
+            lookup_domain=None,
+        ):
             return False
         if "anymailfinder:company" in source:
             return score_email(contact.email) >= 0.6
@@ -627,6 +818,6 @@ class ContactService:
         with session_scope() as s:
             contacts = find_contacts_for(s, company)
             for contact in contacts:
-                if self._can_reuse_local_contact(contact, job_location):
+                if self._can_reuse_local_contact(contact, company, job_location):
                     return self._row_to_candidate(contact)
             return None
