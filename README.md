@@ -115,6 +115,46 @@ Voir [`.env.example`](.env.example) pour la liste exhaustive. Les clés strictem
 | `FRANCETRAVAIL_CLIENT_ID` / `_SECRET` | API officielle France Travail | Si tu actives `francetravail` |
 | `GMAIL_CREDENTIALS_PATH` | Brouillons Gmail (OAuth) | Si tu veux les brouillons |
 
+### Configuration Gmail
+
+SmartApply ne fait que créer un brouillon Gmail avec le scope
+`https://www.googleapis.com/auth/gmail.compose`. Aucun appel `send` n'est utilisé.
+
+1. Installe les dépendances Gmail :
+
+```bash
+make install-all
+# ou, si le venv existe déjà :
+.venv/bin/pip install -e ".[gmail]"
+```
+
+2. Dans Google Cloud Console, crée ou choisis un projet, active **Gmail API**, puis configure l'écran OAuth.
+3. Crée un client OAuth **Desktop app** et télécharge le JSON.
+4. Place ce fichier ici :
+
+```bash
+mkdir -p secrets
+mv ~/Downloads/client_secret_*.json secrets/credentials.json
+```
+
+5. Vérifie `.env` :
+
+```dotenv
+GMAIL_CREDENTIALS_PATH=./secrets/credentials.json
+GMAIL_TOKEN_PATH=./secrets/token.json
+GMAIL_USER=me
+```
+
+6. Lance le diagnostic local :
+
+```bash
+.venv/bin/python -m smartapply.cli gmail-check
+```
+
+Si `ready_for_auth` vaut `true`, crée un premier brouillon depuis l'UI ou avec
+`smartapply apply --job-id 42 --gmail-draft`. Le navigateur s'ouvrira une seule
+fois pour autoriser Gmail, puis `secrets/token.json` sera réutilisé.
+
 Quelques réglages utiles :
 
 ```
