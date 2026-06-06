@@ -1,403 +1,151 @@
-# SmartApply AI
+# SmartApply
 
-Pipeline d'optimisation de candidatures combinant scraping multi-sources (Google Jobs via SerpApi, France Travail, ingestion manuelle URL/texte), filtrage local, scoring sémantique, génération CV+email via LLM avec **validation anti-hallucination stricte**, recherche de contacts via Anymail Finder avec cache, et export d'emails prêts à envoyer (.eml ou brouillon Gmail).
+Outil d'assistance pour candidater plus vite et plus juste. SmartApply collecte des offres
+sur plusieurs sources, filtre localement le bruit, classe les meilleures par pertinence,
+analyse les retenues avec un LLM, adapte ton CV + lettre + email à chaque offre, et prépare
+un brouillon Gmail prêt à envoyer. **Rien ne part automatiquement** — chaque étape passe
+par ta validation.
 
-> Le principe central : utiliser un LLM **uniquement là où il apporte une vraie valeur** (compréhension d'offre, adaptation rédactionnelle). Tout le reste — filtrage, scoring, dédoublonnage, validation — est local, déterministe, et gratuit. Résultat : un pipeline cohérent qui scale à des centaines d'offres pour quelques centimes d'API.
+## Principes
 
----
+- **Cascade de coûts** — tout ce qui est déterministe (parsing, dédoublonnage, filtre, scoring) reste local et gratuit ; le LLM n'intervient que là où il apporte vraiment de la valeur (compréhension d'offre, rédaction CV/lettre/email).
+- **Anti-hallucination strict** — chaque bullet du CV pointe vers un `source_id` du profil et passe un validateur qui élimine les faits inventés.
+- **Contrôle à chaque étape** — l'UI Streamlit expose 5 étapes manuelles (Fetch → Scoring → Analyse → Génération → Finalisation), tu peux désélectionner ou récupérer une offre archivée à tout moment.
+- **Aucun envoi automatique** — la brique Gmail crée uniquement un brouillon (scope `gmail.compose`), un test statique en CI bloque tout ajout d'appel `send`.
 
-## Sommaire
+## Démarrage rapide
 
-1. [Architecture](#architecture)
-2. [Structure des modules](#structure-des-modules)
-3. [Installation rapide](#installation-rapide)
-4. [Configuration `.env`](#configuration-env)
-5. [Utilisation](#utilisation)
-6. [Pipeline détaillé](#pipeline-détaillé)
-7. [Anti-hallucination](#anti-hallucination)
-8. [Tests](#tests)
-9. [Coûts](#coûts)
-10. [Limites & extensions](#limites--extensions)
+```bash
+make install-all      # crée .venv, installe UI + PDF + Gmail + dev
+cp .env.example .env  # renseigne au minimum OPENAI_API_KEY
+make init-db
+make test             # 578 tests, ~6 secondes, 100 % offline
+make run-app          # ouvre le dashboard Streamlit
+```
 
----
+Variante allégée sans Streamlit / PDF / Gmail : `make install`.
+
+## Workflow Streamlit
+
+| # | Étape | Ce qui se passe | LLM ? |
+|---|---|---|---|
+| 1 | **Fetch** | Recherche multi-sources, filtre local par règles, dédup contre DB | Non |
+| 2 | **Scoring** | Embeddings + scoring composite, slider Top-K présélection | Embeddings |
+| 3 | **Analyse** | Extraction structurée (rôle, skills, risques, contact) | LLM cheap |
+| 4 | **Génération** | CV + lettre + email adaptés en un appel | LLM smart |
+| 5 | **Finalisation** | Dry-run preview, puis création brouillon Gmail OU export `.eml` | Non |
+
+Une CLI équivalente existe : `smartapply ingest`, `process`, `apply`, `pipeline`, `autopilot`, `gmail-check`.
+
+## Sources d'offres
+
+| Source | Mode | Clé requise |
+|---|---|---|
+| **France Travail** | API officielle, structurée, FR uniquement | `FRANCETRAVAIL_CLIENT_ID` / `_SECRET` |
+| **Google Jobs (SerpApi)** | API payante, couverture mondiale | `SERPAPI_API_KEY` |
+| **Welcome to the Jungle** | Matches personnalisés via ta session | `WTTJ_COOKIE` |
+| **Manuel** | URL ou texte collé | — |
+
+Les ergonomies par source (localisation, expérience, contrats) sont documentées dans `docs/sources/`.
+
+## Configuration `.env`
+
+| Clé | Pour quoi | Obligatoire ? |
+|---|---|---|
+| `OPENAI_API_KEY` | LLM + embeddings | Oui (sauf mode `mock`) |
+| `SERPAPI_API_KEY` | Google Jobs via SerpApi | Si tu actives `serpapi` |
+| `FRANCETRAVAIL_CLIENT_ID` / `_SECRET` | API France Travail | Si tu actives `francetravail` |
+| `WTTJ_COOKIE` | Welcome to the Jungle | Si tu actives `welcometothejungle` |
+| `GMAIL_CREDENTIALS_PATH` | Brouillons Gmail | Si tu veux les brouillons Gmail |
+| `ANYMAILFINDER_API_KEY` | Découverte de contacts RH | Si tu veux l'enrichissement contact |
+
+Voir [`.env.example`](.env.example) pour la liste complète.
+
+### Gmail : créer un brouillon (pas un envoi)
+
+1. `make install-all` (ou `.venv/bin/pip install -e '.[gmail]'`)
+2. Sur Google Cloud Console : activer Gmail API, créer un client OAuth **Desktop app**, télécharger le JSON, placer dans `secrets/credentials.json`.
+3. `.venv/bin/python -m smartapply.cli gmail-check` valide la config sans toucher au réseau.
+4. Crée ton premier brouillon depuis l'UI (étape 5) ou via `smartapply apply --job-id N --gmail-draft`.
+
+Seul endpoint Gmail appelé : `users().drafts().create`. Un test statique AST (`tests/test_email_agent.py::test_gmail_draft_module_has_no_send_calls`) bloque toute introduction de `send` / `messages.send` / `drafts.send`.
 
 ## Architecture
 
 ```
-Scraping (SerpApi / France Travail / Manuel)
-        │
-        ▼
-   Parsing (clean + sections)
-        │
-        ▼
-   Dédoublonnage (fuzzy multi-sources)
-        │
-        ▼
-   Filtres locaux (règles, rapides, gratuits)
-        │
-        ▼
-   Scoring sémantique (embeddings, top K)
-        │
-        ▼
-   Analyse LLM structurée (top K offres)
-        │
-        ▼
-   Sélection blocs CV (embeddings)
-        │
-        ▼
-   Adaptation LLM du CV
-        │
-        ▼
-   Validation anti-hallucination
-        │           │
-        ▼           ▼
-  Export DOCX   Email .eml
-        │           │
-        ▼           ▼
-   Stockage      Brouillon Gmail (optionnel)
-        │
-        ▼
-   Dashboard Streamlit
+Scraping (SerpApi / France Travail / WTTJ / Manuel)
+    │
+    ▼
+Parsing + dédoublonnage  ──────────────  LOCAL, gratuit
+    │
+    ▼
+Filtre local (signaux contrat / location / role / seniority)
+    │
+    ▼
+Scoring sémantique (embeddings, Top-K configurable) ──── ~$0.001
+    │
+    ▼
+Analyse LLM structurée (top-K offres) ───────────────── ~$0.01
+    │
+    ▼
+Génération CV + lettre + email (un appel par offre) ── ~$0.03/offre
+    │
+    ▼
+Validation anti-hallucination (déterministe)
+    │
+    ▼
+Brouillon Gmail OU export `.eml` ─────── jamais d'envoi
+    │
+    ▼
+DB SQLite + dashboard Streamlit
 ```
 
-Chaque flèche est un module indépendant et testable, branché via une interface (`Provider`, `Scraper`, `Generator`). On peut remplacer **n'importe quelle brique** sans toucher au reste.
-
----
-
-## Structure des modules
-
-| Module | Rôle | Fichiers clés |
-|---|---|---|
-| `smartapply.profile` | Profil candidat structuré, source de vérité | `schema.py`, `data/*.json`, `loader.py` |
-| `smartapply.scrapers` | Collecte d'offres modulable | `base.py`, `serpapi.py`, `francetravail.py`, `manual.py`, `registry.py` |
-| `smartapply.parsing` | Nettoyage + extraction de sections | `cleaner.py`, `sections.py` |
-| `smartapply.dedup` | Dédoublonnage fuzzy multi-sources | `deduplicator.py` |
-| `smartapply.filtering` | Filtres règles locaux | `rules.py`, `filters.py` |
-| `smartapply.ranking` | Embeddings + scoring composite | `embeddings.py`, `scorer.py` |
-| `smartapply.llm` | Provider LLM modulable + cache + usage | `provider.py`, `openai_provider.py`, `mock_provider.py`, `schemas.py`, `prompts/` |
-| `smartapply.cv` | Sélection blocs → adaptation → validation → DOCX/PDF | `selector.py`, `adapter.py`, `validator.py`, `docx_generator.py` |
-| `smartapply.email_agent` | Contact enrichi Anymail Finder + email template + .eml + Gmail draft | `template.py`, `contact_providers.py`, `eml_export.py`, `gmail_draft.py` |
-| `smartapply.database` | Persistance SQLAlchemy | `models.py`, `session.py`, `repository.py` |
-| `smartapply.pipeline` | Orchestrateur end-to-end | `pipeline.py` |
-| `smartapply.app` | Dashboard Streamlit (5 pages) | `main.py`, `pages/` |
-| `smartapply.cli` | CLI `smartapply ...` | `cli.py` |
-
----
-
-## Installation rapide
-
-**Prérequis** : Python 3.11 (recommandé) ou 3.12. Le projet est testé sur macOS arm64.
-
-```bash
-make install-all      # crée .venv, installe tout (UI, PDF, Gmail, dev)
-cp .env.example .env  # renseigne OPENAI_API_KEY au minimum
-make init-db          # crée la base SQLite
-make test             # 218 tests, ~1 seconde
-make run-app          # ouvre le dashboard Streamlit
-```
-
-Variante allégée si tu veux juste le cœur :
-
-```bash
-make install   # sans Streamlit / PDF / Gmail
-```
-
----
-
-## Configuration `.env`
-
-Voir [`.env.example`](.env.example) pour la liste exhaustive. Les clés strictement nécessaires :
-
-| Clé | Pour quoi | Obligatoire ? |
-|---|---|---|
-| `OPENAI_API_KEY` | Appels LLM et embeddings (par défaut) | Oui (sauf en mode mock) |
-| `SERPAPI_API_KEY` | Collecte Google Jobs via SerpApi | Si tu actives `serpapi` |
-| `FRANCETRAVAIL_CLIENT_ID` / `_SECRET` | API officielle France Travail | Si tu actives `francetravail` |
-| `GMAIL_CREDENTIALS_PATH` | Brouillons Gmail (OAuth) | Si tu veux les brouillons |
-
-### Configuration Gmail
-
-SmartApply ne fait que créer un brouillon Gmail avec le scope
-`https://www.googleapis.com/auth/gmail.compose`. Aucun appel `send` n'est utilisé.
-
-1. Installe les dépendances Gmail :
-
-```bash
-make install-all
-# ou, si le venv existe déjà :
-.venv/bin/pip install -e ".[gmail]"
-```
-
-2. Dans Google Cloud Console, crée ou choisis un projet, active **Gmail API**, puis configure l'écran OAuth.
-3. Crée un client OAuth **Desktop app** et télécharge le JSON.
-4. Place ce fichier ici :
-
-```bash
-mkdir -p secrets
-mv ~/Downloads/client_secret_*.json secrets/credentials.json
-```
-
-5. Vérifie `.env` :
-
-```dotenv
-GMAIL_CREDENTIALS_PATH=./secrets/credentials.json
-GMAIL_TOKEN_PATH=./secrets/token.json
-GMAIL_USER=me
-```
-
-6. Lance le diagnostic local :
-
-```bash
-.venv/bin/python -m smartapply.cli gmail-check
-```
-
-Si `ready_for_auth` vaut `true`, crée un premier brouillon depuis l'UI ou avec
-`smartapply apply --job-id 42 --gmail-draft`. Le navigateur s'ouvrira une seule
-fois pour autoriser Gmail, puis `secrets/token.json` sera réutilisé.
-
-Quelques réglages utiles :
-
-```
-SERPAPI_DATE_POSTED=week  # any, today, 3days, week, month
-SERPAPI_MAX_PAGES=3       # 10 résultats max par page SerpApi
-SERPAPI_LOW_RESULT_FALLBACK_TARGET=10  # monte à 20 avec MAX_PAGES>=2 si besoin
-SERPAPI_UDS=              # filtre Google Jobs avancé, optionnel
-```
-
-`SERPAPI_DATE_POSTED=week` correspond au filtre Google Jobs “Last week”, donc aux offres des 7 derniers jours environ. SerpApi sert aussi un cache gratuit d'une heure quand la requête et les paramètres sont strictement identiques.
-
-```
-LLM_PROVIDER=openai            # openai | anthropic (futur) | mock
-EMBEDDINGS_PROVIDER=openai     # openai | local | mock
-JOB_SOURCES=serpapi,francetravail,manual
-OPENAI_MODEL_CHEAP=gpt-4o-mini # pour analyse + quality gate
-OPENAI_MODEL_SMART=gpt-4o      # pour génération CV + email en un appel
-TOP_K_RANKED=25                # nb d'offres envoyées au LLM
-TOP_K_CV_BLOCKS=8              # nb de blocs profil envoyés pour CV
-```
-
----
-
-## Utilisation
-
-### CLI
-
-```bash
-# Pipeline complet sur SerpApi + France Travail
-smartapply pipeline \
-  --source serpapi --source francetravail \
-  --query "Data Scientist" --location "Paris, France" \
-  --date-posted week \
-  --top-apply 5
-
-# Étape par étape
-smartapply ingest --source serpapi --query "ML Engineer" -l "Paris" --date-posted week
-smartapply ingest-url --url https://acme.example/jobs/42
-smartapply ingest-text --title "Data Scientist" --company "Acme" --file offer.txt
-smartapply process --top-k 20
-smartapply apply --job-id 42 --gmail-draft
-smartapply autopilot \
-  --query "Data Scientist OR Machine Learning Engineer" \
-  --location "Paris, France" \
-  --target-drafts 25 \
-  --gmail-draft
-
-# Suivi
-smartapply list-jobs --status analyzed
-smartapply list-applications
-smartapply update-application --application-id 1 --status sent --notes "Relancer mardi"
-smartapply stats
-```
-
-### Dashboard Streamlit
-
-```bash
-make run-app
-```
-
-5 pages :
-- **Accueil** : KPIs + actions rapides (coller URL, coller texte, rechercher, traiter).
-- **📋 Offres** : table triable + filtres par statut/source, détail + génération.
-- **📝 Candidatures** : téléchargement DOCX/EML + bouton Gmail.
-- **Suivi candidature** : statut, notes de relance et prochaine action.
-- **🚀 Autopilot** : run quotidien haut volume, quality gate LLM, contacts enrichis, brouillons Gmail ou dossiers prêts formulaire.
-- **👤 Profil** : visualisation du profil avec les `source_id` (utilisés par le validateur).
-- **📊 Stats** : entonnoir, coût LLM par usage, historique.
-
-### Python API
-
-```python
-from smartapply.pipeline import Pipeline
-
-p = Pipeline()
-p.ingest("serpapi", "Data Scientist", "Paris, France", max_results=30)
-p.process_pending(top_k_analyze=20)
-report = p.apply_to(
-    job_id=42,
-    contact_email="recrutement@example.com",  # optionnel
-    create_gmail_draft=False,
-)
-print(report.docx_path, report.eml_path)
-```
-
-### Autopilot
-
-L'autopilot vise un usage pratique : générer vite 20+ candidatures exploitables sans envoyer automatiquement à ta place.
-
-```bash
-smartapply autopilot \
-  --source serpapi --source francetravail --source manual \
-  --query "Data Scientist OR Machine Learning Engineer OR AI Engineer" \
-  --location "Paris, France" \
-  --target-drafts 25 \
-  --gmail-draft
-```
-
-Comportement :
-- offres avec contact fiable → CV + email + brouillon Gmail ;
-- offres sans email mais avec formulaire → CV + email + `.eml`, statut `ready_for_form_submission`, URL du formulaire dans l'audit et les notes ;
-- offres sans contact exploitable → CV + email + `.eml`, statut `ready_for_form_submission` ;
-- candidatures trop faibles → statut `quality_rejected` avec audit.
-
-Contacts :
-- en mode manuel, aucun contact n'est cherché automatiquement : fournis `contact_email` si tu as déjà l'email recruteur/RH ;
-- Anymail Finder cherche les contacts professionnels avec `ANYMAILFINDER_API_KEY` ;
-- SerpApi sert à trouver des offres Google Jobs, pas à découvrir des contacts ;
-- le LLM ne cherche pas les contacts par défaut : il reste utilisé pour analyse offre, adaptation CV, email et quality gate ;
-- aucun email n'est généré par pattern générique : pas de `jobs@domain`, `recrutement@domain`, etc. inventés ;
-- Anymail Finder cherche d'abord des emails d'entreprise génériques valides (`ANYMAILFINDER_COMPANY_EMAIL_TYPE=generic`) ;
-- si un email générique recrutement/RH fiable existe (`jobs@`, `careers@`, `recrutement@`, `talent@`, `hr@`...), il devient le destinataire principal et le décideur n'est pas appelé ;
-- sinon, SmartApply cherche un décideur (`ANYMAILFINDER_DECISION_MAKER_CATEGORIES=hr,engineering,it`) et garde les emails génériques faibles uniquement comme fallback ;
-- seuls les emails `valid_email` / `valid_emails` sont utilisés, jamais les emails `risky` ;
-- `ANYMAILFINDER_VERIFY_MANUAL_CONTACTS=true` peut vérifier les emails saisis manuellement via l'endpoint `verify-email` (0,2 crédit par vérification selon Anymail Finder) ;
-- un cache par entreprise/domaine évite de consommer plusieurs crédits sur la même société, y compris quand aucun contact n'a été trouvé ;
-
----
-
-## Pipeline détaillé
-
-Économie d'API par cascade :
-
-```
-500 offres scrapées
-→ 380 offres uniques après dédoublonnage          [LOCAL, gratuit]
-→ 120 offres après filtres locaux                 [LOCAL, gratuit]
-→  30 offres après scoring sémantique             [EMBEDDINGS, $0.0006]
-→  20 analyses LLM courtes                        [LLM CHEAP, ~$0.02]
-→   5 CV + emails personnalisés                   [LLM SMART, 1 appel/offre]
-→   5 quality gates stricts                       [LLM CHEAP]
-→   5 brouillons Gmail ou .eml prêts à envoyer    [LOCAL, gratuit]
-```
-
-| Étape | LLM | Justification |
-|---|---|---|
-| Scraping | Non | Extraction structurée |
-| Nettoyage | Non | Regex + BeautifulSoup |
-| Dédoublonnage | Non | RapidFuzz + Union-Find |
-| Filtrage | Non | Règles dérivées du profil |
-| Scoring | Embeddings | Cosinus, pas de génération |
-| Analyse top K | **Oui (cheap)** | JSON structuré strict |
-| CV + email | **Oui (smart)** | Un seul appel structuré par offre |
-| Quality gate | Oui (cheap) | Validation stricte avant contact/draft |
-| Contact RH | Non | Anymail Finder + cache, pas de LLM par défaut |
-| Gmail draft | Non | API Gmail |
-
----
+Modules principaux : `scrapers`, `parsing`, `dedup`, `filtering`, `ranking`, `llm`, `cv`, `email_agent`, `pipeline`, `app`, `cli`. Chacun est branché via une interface (`Scraper`, `LLMProvider`, `EmbeddingsProvider`, `ContactProvider`) et remplaçable indépendamment.
 
 ## Anti-hallucination
 
-C'est le cœur du projet. Le LLM produit **toujours** une sortie structurée via `response_format=json_schema` strict (OpenAI). Chaque bullet du CV généré référence un `source_id` du profil. Le validateur (`smartapply.cv.validator.CvValidator`) vérifie ensuite :
+Trois garde-fous combinés :
 
-**Erreurs (rejet automatique) :**
-- `unknown_experience_id` / `unknown_bullet_id` / `unknown_project_id`
-- `bullet_wrong_parent` : un bullet d'expérience A déclaré sous expérience B
+- **Schéma JSON strict** sur tous les appels LLM (`response_format=json_schema`), pas de texte libre.
+- **Validateur CV/lettre** (`smartapply.cv.validator`) : chaque bullet doit pointer vers un `source_id` du profil ; les chiffres inventés sont signalés ; `auto_fix` retire les éléments non valides.
+- **Quality gate** : un dernier appel cheap relit le dossier avant de le marquer prêt à envoyer.
 
-**Warnings (conservés mais signalés) :**
-- `hallucinated_number` : un nombre apparaît dans la sortie mais pas dans la source (les années sont tolérées)
-- `low_text_overlap` : la sortie ne partage presque rien avec la source (rapidfuzz < 35)
-- `bullet_too_long`, `summary_too_long` : dépassement des limites du style guide
+Détail : `smartapply/cv/validator.py`, `tests/test_cv.py`.
 
-En cas d'erreur, `CvValidator.auto_fix(cv)` enlève les éléments invalides — le CV est toujours produit, jamais avec du contenu inventé. Voir [`smartapply/cv/validator.py`](smartapply/cv/validator.py) et le test [`tests/test_cv.py`](tests/test_cv.py).
+## Coûts indicatifs (un cycle de 5 candidatures)
 
----
+| Usage | Modèle | Coût |
+|---|---|---|
+| Embeddings 30 offres | `text-embedding-3-small` | < $0.001 |
+| Analyse 20 offres | `gpt-4o-mini` | ~$0.01 |
+| CV + lettre + email × 5 | `gpt-4o` | ~$0.17 |
+| Quality gate × 5 | `gpt-4o-mini` | ~$0.005 |
+| **Total** | | **~$0.18** |
+
+Le cache LLM est activé par défaut → ré-exécution gratuite. Suivi en temps réel dans la page Stats du dashboard ou via `smartapply stats`.
 
 ## Tests
 
 ```bash
-make test       # 218 tests, ~1.2s, ne touche aucun service externe
+make test         # 578 tests, ~6 s, 100 % offline
+make test-fast    # exclut le test d'intégration end-to-end
 ```
 
-Tous les appels HTTP et LLM sont mockés en tests. Pour les tests qui touchent vraiment OpenAI (rare et coûteux) :
-
-```bash
-LLM_PROVIDER=openai .venv/bin/pytest -m llm
-```
-
-Couverture par module :
-
-| Module | Tests |
-|---|---|
-| profile | 20 |
-| database | 6 |
-| scrapers | 14 |
-| parsing | 8 |
-| dedup | 7 |
-| filtering | 7 |
-| ranking | 9 |
-| llm | 11 |
-| cv | 13 |
-| email_agent | 9 |
-| pipeline | 4 |
-| autopilot | 3 |
-| contact providers | 5 |
-| integration end-to-end | 1 |
-
-Le test d'intégration final ingère 5 offres réalistes, vérifie que le Sales Director et le Data Analyst BI sont rejetés, que les bons rôles sont rankés en tête, et que le CV produit contient bien les faits réels du profil (`0.67`, `Whisper`, `Emobot`, `PyTorch`).
-
----
-
-## Coûts
-
-Avec OpenAI (mai 2026) sur un cycle complet de 5 candidatures :
-
-| Usage | Modèle | Tokens (in/out) | Coût |
-|---|---|---|---|
-| 30× embeddings | text-embedding-3-small | ~30K / 0 | < $0.001 |
-| 20× analyse | gpt-4o-mini | ~30K / 5K | ~$0.008 |
-| 5× CV + email | gpt-4o | ~30K / 9K | ~$0.17 |
-| 5× quality gate | gpt-4o-mini | ~12K / 2K | ~$0.003 |
-| **Total** | | | **~$0.18** |
-
-Avec cache activé (`use_cache=True` par défaut), les ré-exécutions sont gratuites. Suivi en temps réel dans la page Stats du dashboard ou via `smartapply stats`.
-
----
-
-## Limites & extensions
-
-**Limites assumées :**
-- SerpApi est un service payant (gratuit jusqu'à 250 recherches/mois).
-- France Travail nécessite la création d'une app sur https://francetravail.io.
-- Le mode manuel ne cherche pas d'email automatiquement : renseigne `contact_email` ou soumets via formulaire. L'autopilot utilise Anymail Finder + cache si configuré.
-- Le générateur PDF utilise LibreOffice (`soffice --headless`) — pas embarqué. Le DOCX reste l'output primaire.
-- Le validateur anti-hallucination ne couvre que les bullets : il fait confiance au prompt système pour le titre et le résumé. Les warnings restent visibles.
-
-**Extensions naturelles :**
-- Ajouter un nouveau scraper : implémenter `Scraper` et l'enregistrer dans `scrapers/registry.py`.
-- Ajouter un nouveau LLM provider : implémenter `LLMProvider` et brancher dans la factory.
-- Anthropic : la config (`anthropic_*`) et le squelette dans `provider.py` sont déjà en place.
-- Embeddings locaux : `pip install -e '.[local-embeddings]'` puis `EMBEDDINGS_PROVIDER=local`.
-
----
+Toutes les API externes (SerpApi, France Travail, OpenAI, geo.api.gouv.fr, Gmail) sont mockées en test. Aucune clé n'est requise pour faire tourner la suite.
 
 ## Sécurité
 
-- Aucune clé API n'est commitée. `.env` est dans `.gitignore`. Le `.env.example` reste vide.
-- Les credentials Gmail vont dans `secrets/` (gitignored).
-- Les scrapers refusent les schémas non-HTTP (pas de `file://`).
-- Les retries HTTP sont bornés (3 tentatives, backoff exponentiel via tenacity).
-- Les tests forcent `OPENAI_API_KEY=""` et `SERPAPI_API_KEY=""` pour empêcher toute fuite vers une vraie API.
+- `.env`, `secrets/`, `data/secrets/`, `*token*.json`, `credentials.json` sont gitignored.
+- `OPENAI_API_KEY` et `SERPAPI_API_KEY` sont forcés à vide pendant les tests pour empêcher toute fuite.
+- Le scraper manuel refuse les URLs non-HTTP, les hôtes locaux et les IPs privées.
+- Les retries HTTP sont bornés (3 tentatives, backoff exponentiel).
+- La création de brouillon Gmail ne logue ni le destinataire, ni le body, ni le token.
 
----
+## Étendre
+
+- **Nouveau scraper** : implémenter `smartapply.scrapers.base.Scraper`, enregistrer dans `smartapply/scrapers/registry.py`, ajouter un builder dans `filtering/source_facts.py` et `llm/source_metadata.py`.
+- **Nouveau LLM provider** : implémenter `LLMProvider` (voir `MockLLMProvider`), brancher dans la factory.
+- **Embeddings locaux** : `pip install -e '.[local-embeddings]'`, puis `EMBEDDINGS_PROVIDER=local`.
 
 ## Licence
 
