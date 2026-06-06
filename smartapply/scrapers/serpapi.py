@@ -316,6 +316,12 @@ class SerpApiGoogleJobsScraper(Scraper):
     ) -> Iterator[RawJob]:
         if not self.api_key:
             raise ScraperConfigError("SERPAPI_API_KEY is not set")
+        if max_results is None:
+            raise ScraperConfigError(
+                "SerpApi requires max_results to avoid unbounded paid pagination."
+            )
+        if max_results is not None and max_results <= 0:
+            return
 
         freshness = (
             self.date_posted
@@ -372,7 +378,7 @@ class SerpApiGoogleJobsScraper(Scraper):
                         if max_results is not None and len(collected) >= max_results:
                             break
 
-        for job in collected[:max_results] if max_results else collected:
+        for job in collected[:max_results] if max_results is not None else collected:
             yield job
 
     def _search_pages_with_fallback(
@@ -529,7 +535,7 @@ class SerpApiGoogleJobsScraper(Scraper):
                     continue
                 yield job
                 results_yielded += 1
-                if max_results and results_yielded >= max_results:
+                if max_results is not None and results_yielded >= max_results:
                     return
 
             if not next_token:

@@ -316,6 +316,34 @@ def _fake_raw_jobs(n: int) -> list[RawJob]:
     ]
 
 
+def test_ingestor_allows_unbounded_max_results(monkeypatch: pytest.MonkeyPatch) -> None:
+    from smartapply.pipeline.ingestor import Ingestor
+
+    calls: list[int | None] = []
+    jobs = _fake_raw_jobs(7)
+
+    class FakeScraper:
+        name = "fake"
+
+        def is_available(self) -> bool:
+            return True
+
+        def search(self, query, location=None, *, max_results=None, **kwargs):  # noqa: ANN001, ARG002
+            calls.append(max_results)
+            yield from jobs
+
+    monkeypatch.setattr(
+        "smartapply.pipeline.ingestor.get_scraper",
+        lambda source: FakeScraper(),
+    )
+
+    report = Ingestor().from_source("fake", "q", max_results=None, split_or=False)
+
+    assert calls == [None]
+    assert report.fetched == 7
+    assert report.persisted == 7
+
+
 def test_collect_skips_known_external_ids_and_finds_genuinely_new(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -540,6 +568,15 @@ def test_serpapi_cdi_uses_fulltime_chip_not_query_suffix(monkeypatch: pytest.Mon
         "Machine Learning Engineer",
     ]
     assert all(chips == "employment_type:FULLTIME" for chips in chips_seen)
+
+
+def test_pipeline_rejects_unbounded_serpapi_ingest() -> None:
+    from smartapply.pipeline import Pipeline
+
+    pipeline = Pipeline(embeddings=MockEmbeddingsProvider(), llm=MockLLMProvider())
+
+    with pytest.raises(ValueError, match="SerpApi requires"):
+        pipeline.ingest("serpapi", "Data Scientist", max_results=None)
 
 
 def test_francetravail_permanent_preferences_use_cdi_filter(
@@ -845,6 +882,105 @@ def test_filter_pending_records_duplicate_archive_reason() -> None:
             reason.startswith("duplicate_of:")
             for reason in archived.score.components["rejection_reasons"]
         )
+
+
+def test_filter_pending_deduplicates_against_already_filtered_jobs() -> None:
+    from smartapply.database import session_scope
+    from smartapply.database.models import Job, JobStatus
+    from smartapply.database.repository import upsert_job
+    from smartapply.pipeline import Pipeline
+
+    p = Pipeline(embeddings=MockEmbeddingsProvider(), llm=MockLLMProvider())
+    with session_scope() as s:
+        first = upsert_job(
+            s,
+            external_id="manual:filtered-duplicate-root",
+            title="Data Scientist",
+            company="Acme",
+            description="Build ML models with Python and PyTorch.",
+            location="Paris",
+            contract_type="CDI",
+            source="manual",
+        )
+        first_id = int(first.id)
+
+    p.filter_pending(job_ids=[first_id])
+
+    with session_scope() as s:
+        second = upsert_job(
+            s,
+            external_id="manual:filtered-duplicate-copy",
+            title="Data Scientist H/F",
+            company="Acme SAS",
+            description="Build ML models with Python and PyTorch.",
+            location="Paris",
+            contract_type="CDI",
+            source="manual",
+        )
+        second_id = int(second.id)
+
+    report = p.filter_pending(job_ids=[second_id])
+
+    assert report.duplicates_removed == 1
+    assert second_id in report.rejected_ids
+    with session_scope() as s:
+        root = s.get(Job, first_id)
+        duplicate = s.get(Job, second_id)
+        assert root.archived_at is None
+        assert root.filtered_at is not None
+        assert duplicate.status == JobStatus.ARCHIVED
+        assert duplicate.score.components["rejection_stage"] == "deduplication"
+        assert f"duplicate_of:{root.id}" in duplicate.score.components["rejection_reasons"]
+
+
+def test_rank_pending_deduplicates_selected_job_against_active_vivier() -> None:
+    from smartapply.database import session_scope
+    from smartapply.database.models import Job, JobStatus
+    from smartapply.database.repository import upsert_job
+    from smartapply.pipeline import Pipeline
+
+    p = Pipeline(embeddings=MockEmbeddingsProvider(), llm=MockLLMProvider())
+    with session_scope() as s:
+        first = upsert_job(
+            s,
+            external_id="manual:ranked-duplicate-root",
+            title="Machine Learning Engineer",
+            company="Acme",
+            description="Build ML models with Python and PyTorch.",
+            location="Paris",
+            contract_type="CDI",
+            source="manual",
+        )
+        first_id = int(first.id)
+
+    p.filter_pending(job_ids=[first_id])
+
+    with session_scope() as s:
+        second = upsert_job(
+            s,
+            external_id="manual:ranked-duplicate-copy",
+            title="Machine Learning Engineer H/F",
+            company="Acme SAS",
+            description="Build ML models with Python and PyTorch.",
+            location="Paris",
+            contract_type="CDI",
+            source="manual",
+        )
+        second_id = int(second.id)
+
+    report = p.rank_pending(job_ids=[second_id], top_k_ranked=1)
+
+    assert report.duplicates_removed == 1
+    assert report.ranked == 0
+    assert report.shortlisted == 0
+    with session_scope() as s:
+        root = s.get(Job, first_id)
+        duplicate = s.get(Job, second_id)
+        assert root.archived_at is None
+        assert root.filtered_at is not None
+        assert duplicate.status == JobStatus.ARCHIVED
+        assert duplicate.score.components["rejection_stage"] == "deduplication"
+        assert f"duplicate_of:{root.id}" in duplicate.score.components["rejection_reasons"]
 
 
 def test_process_pending_respects_manual_filter_override() -> None:

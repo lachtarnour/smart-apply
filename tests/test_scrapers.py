@@ -200,7 +200,7 @@ def test_serpapi_maps_jobs_and_paginates(mocker) -> None:
     mocker.patch("smartapply.scrapers.serpapi.requests.get", side_effect=pages)
 
     s = SerpApiGoogleJobsScraper(api_key="fake", hl="fr", low_result_fallback_target=10)
-    jobs = list(s.search("data scientist"))
+    jobs = list(s.search("data scientist", max_results=2))
     assert len(jobs) == 2
     first, second = jobs
     assert isinstance(first, RawJob)
@@ -255,6 +255,23 @@ def test_serpapi_respects_max_results(mocker) -> None:
     assert len(out) == 3
 
 
+def test_serpapi_zero_max_results_returns_no_jobs(mocker) -> None:
+    get_mock = mocker.patch("smartapply.scrapers.serpapi.requests.get")
+    s = SerpApiGoogleJobsScraper(api_key="fake", hl="fr")
+
+    assert list(s.search("data", max_results=0)) == []
+    get_mock.assert_not_called()
+
+
+def test_serpapi_rejects_unbounded_max_results(mocker) -> None:
+    get_mock = mocker.patch("smartapply.scrapers.serpapi.requests.get")
+    s = SerpApiGoogleJobsScraper(api_key="fake", hl="fr")
+
+    with pytest.raises(ScraperConfigError, match="requires max_results"):
+        list(s.search("data", max_results=None))
+    get_mock.assert_not_called()
+
+
 def test_serpapi_respects_max_pages_even_with_max_results(mocker) -> None:
     def make_page(page: int, next_token: str | None):
         jobs_page = [
@@ -287,34 +304,6 @@ def test_serpapi_respects_max_pages_even_with_max_results(mocker) -> None:
     assert get_mock.call_count == 1
 
 
-def test_serpapi_does_not_low_result_fallback_without_max_results(mocker) -> None:
-    jobs_page = [
-        {
-            "title": f"Data Scientist {i}",
-            "company_name": "Acme",
-            "description": "Build ML.",
-            "job_id": f"strict-{i}",
-        }
-        for i in range(2)
-    ]
-    get_mock = mocker.patch(
-        "smartapply.scrapers.serpapi.requests.get",
-        return_value=_mock_response(_sample_serpapi_page(jobs_page, None)),
-    )
-
-    s = SerpApiGoogleJobsScraper(api_key="fake", hl="fr", low_result_fallback_target=10)
-    jobs = list(
-        s.search(
-            "Data Scientist",
-            chips="employment_type:FULLTIME",
-            date_posted="week",
-        )
-    )
-
-    assert len(jobs) == 2
-    assert get_mock.call_count == 1
-
-
 def test_serpapi_defaults_to_last_week_filter(mocker) -> None:
     get_mock = mocker.patch(
         "smartapply.scrapers.serpapi.requests.get",
@@ -322,7 +311,7 @@ def test_serpapi_defaults_to_last_week_filter(mocker) -> None:
     )
 
     s = SerpApiGoogleJobsScraper(api_key="fake", hl="fr")
-    list(s.search("data scientist"))
+    list(s.search("data scientist", max_results=10))
 
     params = get_mock.call_args_list[0].kwargs["params"]
     assert params["q"] == "data scientist"
@@ -537,7 +526,7 @@ def test_serpapi_date_filter_can_be_disabled_or_combined_with_uds(mocker) -> Non
     )
 
     s = SerpApiGoogleJobsScraper(api_key="fake", hl="fr")
-    list(s.search("data scientist", date_posted="any", uds="raw-filter"))
+    list(s.search("data scientist", max_results=10, date_posted="any", uds="raw-filter"))
 
     params = get_mock.call_args_list[0].kwargs["params"]
     assert params["q"] == "data scientist"
@@ -555,6 +544,7 @@ def test_serpapi_date_filter_combines_with_existing_chips(mocker) -> None:
     list(
         s.search(
             "data scientist",
+            max_results=10,
             chips="employment_type:FULLTIME",
             date_posted="3days",
         )
@@ -741,7 +731,7 @@ def test_serpapi_stops_when_no_results(mocker) -> None:
         return_value=_mock_response({"jobs_results": []}),
     )
     s = SerpApiGoogleJobsScraper(api_key="fake", hl="fr")
-    assert list(s.search("data")) == []
+    assert list(s.search("data", max_results=10)) == []
 
 
 # ============================ France Travail ============================
@@ -751,6 +741,14 @@ def test_francetravail_requires_credentials() -> None:
     assert s.is_available() is False
     with pytest.raises(ScraperConfigError):
         next(s.search("data"))
+
+
+def test_francetravail_zero_max_results_returns_no_jobs(mocker) -> None:
+    post_mock = mocker.patch("smartapply.scrapers.francetravail.requests.post")
+    s = FranceTravailScraper(client_id="cid", client_secret="csec")
+
+    assert list(s.search("data", max_results=0)) == []
+    post_mock.assert_not_called()
 
 
 def test_francetravail_authenticates_and_maps(mocker) -> None:
@@ -797,6 +795,44 @@ def test_francetravail_authenticates_and_maps(mocker) -> None:
     assert "PyTorch" in j.description
     assert j.published_date is not None
     assert j.application_url and "OFR-001" in j.application_url
+
+
+def test_francetravail_unbounded_max_results_reads_until_source_exhaustion(mocker) -> None:
+    token_response = _mock_response({"access_token": "T0K3N", "expires_in": 1500})
+
+    def job_payload(job_id: str) -> dict[str, Any]:
+        return {
+            "id": job_id,
+            "intitule": f"Data Scientist {job_id}",
+            "entreprise": {"nom": "Acme SA"},
+            "lieuTravail": {"libelle": "75 - Paris"},
+            "description": "Construire des pipelines ML.",
+            "typeContratLibelle": "CDI",
+        }
+
+    first_page = _mock_response(
+        {"resultats": [job_payload(f"OFR-{i:03d}") for i in range(50)]}
+    )
+    second_page = _mock_response(
+        {"resultats": [job_payload("OFR-050"), job_payload("OFR-051")]}
+    )
+
+    mocker.patch(
+        "smartapply.scrapers.francetravail.requests.post",
+        return_value=token_response,
+    )
+    get_mock = mocker.patch(
+        "smartapply.scrapers.francetravail.requests.get",
+        side_effect=[first_page, second_page],
+    )
+
+    s = FranceTravailScraper(client_id="cid", client_secret="csec")
+    jobs = list(s.search("data scientist", max_results=None))
+
+    assert len(jobs) == 52
+    assert jobs[0].title == "Data Scientist OFR-000"
+    assert jobs[-1].title == "Data Scientist OFR-051"
+    assert get_mock.call_count == 2
 
 
 def test_francetravail_maps_structured_experience() -> None:

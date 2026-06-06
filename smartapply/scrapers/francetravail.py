@@ -335,6 +335,9 @@ class FranceTravailScraper(Scraper):
         date_posted: str | None = None,
         **kwargs: Any,
     ) -> Iterator[RawJob]:
+        if max_results is not None and max_results <= 0:
+            return
+
         token = self._get_token()
         headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
         creation_window = _date_posted_to_creation_window(date_posted)
@@ -388,7 +391,7 @@ class FranceTravailScraper(Scraper):
                     continue
                 yield job
                 results_yielded += 1
-                if max_results and results_yielded >= max_results:
+                if max_results is not None and results_yielded >= max_results:
                     return
 
             offset += page_size

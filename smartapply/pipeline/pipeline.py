@@ -123,9 +123,13 @@ class Pipeline:
         query: str,
         location: str | None = None,
         *,
-        max_results: int = 20,
+        max_results: int | None = 20,
         **search_kwargs: Any,
     ) -> IngestReport:
+        if source == "serpapi" and max_results is None:
+            raise ValueError(
+                "SerpApi requires a bounded max_results to avoid paid unbounded pagination."
+            )
         accepted = self.profile.preferences.accepted_contract_types or []
         if (
             source == "francetravail"
@@ -252,7 +256,7 @@ class Pipeline:
         self,
         *,
         sources: list[tuple[str, str, str | None]],
-        max_per_source: int = 20,
+        max_per_source: int | None = 20,
         top_k_apply: int = 5,
         create_gmail_drafts: bool = False,
         date_posted: str | None = None,

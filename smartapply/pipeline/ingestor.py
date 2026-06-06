@@ -162,7 +162,7 @@ class Ingestor:
         query: str,
         location: str | None = None,
         *,
-        max_results: int = 20,
+        max_results: int | None = 20,
         split_or: bool = True,
         **search_kwargs,
     ) -> IngestReport:

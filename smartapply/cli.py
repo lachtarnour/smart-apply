@@ -34,6 +34,21 @@ AUTOPILOT_SOURCE_CHOICE = click.Choice(
 )
 
 
+def _optional_int(value: str | None) -> int | None:
+    if value is None:
+        return None
+    normalized = value.strip().lower()
+    if normalized in {"", "none", "all", "unlimited"}:
+        return None
+    try:
+        parsed = int(normalized)
+    except ValueError as exc:
+        raise click.BadParameter("expected an integer or one of: none, all, unlimited") from exc
+    if parsed < 0:
+        raise click.BadParameter("must be >= 0")
+    return parsed
+
+
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})
 def cli() -> None:
     """SmartApply AI — pipeline d'optimisation de candidatures."""
@@ -51,20 +66,26 @@ def init_db_command() -> None:
 @click.option("--source", required=True, type=SCRAPER_SOURCE_CHOICE)
 @click.option("--query", "-q", required=True)
 @click.option("--location", "-l", default=None)
-@click.option("--max-results", type=int, default=20)
+@click.option("--max-results", callback=lambda _, __, value: _optional_int(value), default="20")
 @click.option("--date-posted", type=DATE_POSTED_CHOICE, default=None)
 @click.option("--serpapi-hl", default=None, help="Google Jobs language(s), e.g. en, fr or en,fr.")
 def ingest_command(
     source: str,
     query: str,
     location: str | None,
-    max_results: int,
+    max_results: int | None,
     date_posted: str | None,
     serpapi_hl: str | None,
 ) -> None:
     """Scrape one source and persist new jobs."""
     from smartapply.pipeline import Pipeline
     from smartapply.pipeline.pipeline import freshness_kwargs
+
+    if source == "serpapi" and max_results is None:
+        raise click.BadParameter(
+            "SerpApi requires a bounded --max-results value.",
+            param_hint="--max-results",
+        )
 
     p = Pipeline()
     kwargs = freshness_kwargs(source, date_posted=date_posted, serpapi_hl=serpapi_hl)
@@ -160,7 +181,7 @@ def gmail_check_command() -> None:
               type=SCRAPER_SOURCE_CHOICE)
 @click.option("--query", "-q", required=True)
 @click.option("--location", "-l", default=None)
-@click.option("--max-per-source", type=int, default=20)
+@click.option("--max-per-source", callback=lambda _, __, value: _optional_int(value), default="20")
 @click.option("--top-apply", type=int, default=5)
 @click.option("--gmail-draft", is_flag=True)
 @click.option("--date-posted", type=DATE_POSTED_CHOICE, default=None)
@@ -169,7 +190,7 @@ def pipeline_command(
     sources: tuple[str, ...],
     query: str,
     location: str | None,
-    max_per_source: int,
+    max_per_source: int | None,
     top_apply: int,
     gmail_draft: bool,
     date_posted: str | None,
@@ -177,6 +198,12 @@ def pipeline_command(
 ) -> None:
     """End-to-end: ingest from sources → process → apply to top K."""
     from smartapply.pipeline import Pipeline
+
+    if "serpapi" in sources and max_per_source is None:
+        raise click.BadParameter(
+            "SerpApi requires a bounded --max-per-source value.",
+            param_hint="--max-per-source",
+        )
 
     p = Pipeline()
     source_tuples = [(name, query, location) for name in sources]
