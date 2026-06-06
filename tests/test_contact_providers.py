@@ -12,6 +12,7 @@ from smartapply.email_agent.contact_providers import (
     ContactCandidate,
     ContactProvider,
     ContactProviderChain,
+    classify_application_domain,
     contact_lookup_key,
     default_contact_chain,
     domain_from_url,
@@ -122,6 +123,20 @@ def test_domain_from_url_strips_common_job_subdomain() -> None:
 
 
 def test_non_company_domains_include_french_job_boards() -> None:
+    assert classify_application_domain("jobs.lever.co") == "ats"
+    assert classify_application_domain("boards.greenhouse.io") == "ats"
+    assert classify_application_domain("hire.trakstar.com") == "ats"
+    assert classify_application_domain("app.mytalentplug.com") == "ats"
+    assert classify_application_domain("agence-nationale-recherche-career.talent-soft.com") == "ats"
+    assert classify_application_domain("syt-technologies.odoo.com") == "ats"
+    assert classify_application_domain("www.aio-jobs.com") == "ats"
+    assert classify_application_domain("candidat.francetravail.fr") == "partner_job_board"
+    assert classify_application_domain("labonnealternance.apprentissage.beta.gouv.fr") == "partner_job_board"
+    assert classify_application_domain("regionsjob.com") == "partner_job_board"
+    assert classify_application_domain("talents-handicap.com") == "partner_job_board"
+    assert classify_application_domain("moovijob.com") == "partner_job_board"
+    assert classify_application_domain("tinyurl.com") == "application_redirect"
+    assert classify_application_domain("acme.ai") == "unknown"
     assert is_job_board_domain("welcometothejungle.com")
     assert not is_company_domain("agefiph.asso.fr")
     assert not is_company_domain("espace-emploi.agefiph.asso.fr")

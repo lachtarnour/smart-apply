@@ -21,42 +21,157 @@ from smartapply.utils.location import canonical_french_city, french_city_mismatc
 logger = get_logger(__name__)
 
 
-NON_COMPANY_CONTACT_DOMAINS = {
-    "agefiph.asso.fr",
-    "agefiph.fr",
-    "apec.fr",
-    "app.link",
-    "ashbyhq.com",
-    "bamboohr.com",
-    "bebee.com",
-    "bit.ly",
-    "cadremploi.fr",
-    "francetravail.fr",
-    "glassdoor.com",
-    "google.com",
+ATS_DOMAINS = {
+    # Greenhouse / Lever / Ashby
+    "greenhouse.com",
     "greenhouse.io",
-    "hellowork.com",
-    "handicap-job.com",
-    "icims.com",
-    "indeed.com",
-    "jobijoba.com",
-    "jobs.lever.co",
     "lever.co",
+    "ashbyhq.com",
+    # Workday / Oracle / SAP / UKG
+    "myworkdayjobs.com",
+    "oraclecloud.com",
+    "successfactors.com",
+    "successfactors.eu",
+    "taleo.com",
+    "taleo.net",
+    "ukg.com",
+    "ultipro.com",
+    "workdayjobs.com",
+    # SmartRecruiters / Workable / Recruitee / Teamtailor
+    "smartrecruiters.com",
+    "smartrecruiters.eu",
+    "workable.com",
+    "recruitee.com",
+    "teamtailor.com",
+    # Jobvite / JazzHR / ApplyToJob / iCIMS
+    "applytojob.com",
+    "icims.com",
+    "jazz.co",
+    "jazzhr.com",
+    "jobvite.com",
+    # Common SMB / Europe ATS
+    "bamboohr.com",
+    "altays-progiciels.com",
+    "adequasys.com",
+    "beetween.com",
+    "breezy.hr",
+    "contactrh.com",
+    "comeet.co",
+    "flatchr.io",
+    "gestmax.fr",
+    "homerun.co",
+    "intervieweb.it",
+    "jobaffinity.fr",
+    "jobylon.com",
+    "jometer.com",
+    "join.com",
+    "mstaff.co",
+    "mytalentplug.com",
+    "odoo.com",
+    "personio.com",
+    "pinpointhq.com",
+    "recruitmentplatform.com",
+    "skeeled.com",
+    "softy.pro",
+    "taleez.com",
+    "talent-soft.com",
+    "talentview.io",
+    "werecruit.io",
+    "welcomekit.co",
+    "wink-lab.com",
+    "zoho.com",
+    "zohorecruit.com",
+    # Other ATS / apply platforms observed in data
+    "aplitrak.com",
+    "easyapply.jobs",
+    "nicoka.com",
+    "smrtr.io",
+    "trakstar.com",
+    "aio-jobs.com",
+    "xtramile.io",
+}
+
+PARTNER_JOB_BOARD_DOMAINS = {
+    # France Travail / public
+    "candidat.francetravail.fr",
+    "francetravail.fr",
+    "gouv.fr",
+    "pole-emploi.fr",
+    # France major job boards
+    "adzuna.com",
+    "adzuna.fr",
+    "apec.fr",
+    "cadremploi.fr",
+    "cadreo.com",
+    "glassdoor.com",
+    "hellowork.com",
+    "indeed.com",
+    "indeed.fr",
+    "jobijoba.com",
+    "keljob.com",
     "linkedin.com",
-    "lnkd.in",
     "meteojob.com",
     "monster.com",
     "monster.fr",
-    "myworkdayjobs.com",
-    "optioncarriere.com",
-    "recruitee.com",
-    "smartrecruiters.com",
-    "taleo.net",
-    "teamtailor.com",
+    "ouestjob.com",
+    "pacajob.com",
+    "parisjob.com",
+    "regionsjob.com",
+    "rhonealpesjob.com",
+    "sudouestjob.com",
+    "talent.com",
     "welcometothejungle.com",
-    "workable.com",
-    "workdayjobs.com",
+    # Tech / specialist boards
+    "chooseyourboss.com",
+    "aerocontact.com",
+    "dogfinance.com",
+    "emploi-pro.fr",
+    "free-work.com",
+    "moovijob.com",
+    "lesjeudis.com",
+    "linkfinance.fr",
+    # Inclusion / handicap / sector partners
+    "agefiph.asso.fr",
+    "agefiph.fr",
+    "apecita.com",
+    "clicandsport.fr",
+    "clicandearth.fr",
+    "handicap-job.com",
+    "handicap.fr",
+    "jobinlive.com",
+    "lindustrie-recrute.fr",
+    "missionhandicap.com",
+    "talents-handicap.com",
+    # Aggregators / partner posting
+    "batiactu.com",
+    "bebee.com",
+    "carriereonline.com",
+    "careerjet.com",
+    "directemploi.com",
+    "emploi-collectivites.fr",
+    "equest.com",
+    "google.com",
+    "jobposting.pro",
+    "jobtransport.com",
+    "jobvitae.fr",
+    "jooble.org",
+    "optioncarriere.com",
+    "ouest-france.fr",
+    "pmejob.fr",
 }
+
+APPLICATION_REDIRECT_DOMAINS = {
+    "app.link",
+    "bit.ly",
+    "lnkd.in",
+    "t.co",
+    "tinyurl.com",
+    "urlr.me",
+}
+
+NON_COMPANY_CONTACT_DOMAINS = (
+    ATS_DOMAINS | PARTNER_JOB_BOARD_DOMAINS | APPLICATION_REDIRECT_DOMAINS
+)
 
 SUSPECT_CONTACT_DOMAIN_MARKERS = {
     "applicant",
@@ -168,6 +283,31 @@ def domain_from_url(url: str | None) -> str | None:
     return ".".join(parts[-2:])
 
 
+def normalize_domain(domain: str | None) -> str:
+    return str(domain or "").lower().strip().removeprefix("www.")
+
+
+def is_known_domain(domain: str | None, known_domains: set[str]) -> bool:
+    normalized = normalize_domain(domain)
+    if not normalized:
+        return False
+    return any(
+        normalized == known or normalized.endswith(f".{known}")
+        for known in known_domains
+    )
+
+
+def classify_application_domain(domain: str | None) -> str:
+    normalized = normalize_domain(domain)
+    if is_known_domain(normalized, ATS_DOMAINS):
+        return "ats"
+    if is_known_domain(normalized, PARTNER_JOB_BOARD_DOMAINS):
+        return "partner_job_board"
+    if is_known_domain(normalized, APPLICATION_REDIRECT_DOMAINS):
+        return "application_redirect"
+    return "unknown"
+
+
 def is_company_domain(domain: str | None) -> bool:
     if not domain:
         return False
@@ -176,13 +316,7 @@ def is_company_domain(domain: str | None) -> bool:
 
 
 def is_job_board_domain(domain: str | None) -> bool:
-    if not domain:
-        return False
-    domain = domain.lower().removeprefix("www.")
-    return any(
-        domain == blocked or domain.endswith(f".{blocked}")
-        for blocked in NON_COMPANY_CONTACT_DOMAINS
-    )
+    return is_known_domain(domain, NON_COMPANY_CONTACT_DOMAINS)
 
 
 def is_suspicious_contact_domain(domain: str | None) -> bool:
