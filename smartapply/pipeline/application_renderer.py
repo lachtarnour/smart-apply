@@ -87,12 +87,14 @@ class ApplicationDocumentRenderer:
 
     @staticmethod
     def attachment_paths(report: ApplyReport) -> list[str]:
-        """Prefer stable PDF attachments, with DOCX as a fallback."""
+        """Return email-safe PDF attachments only.
+
+        The DOCX CV remains downloadable in the UI, but it must not be sent as
+        an email/Gmail attachment.
+        """
         paths: list[str] = []
         if report.cv_pdf_path:
             paths.append(report.cv_pdf_path)
-        elif report.docx_path:
-            paths.append(report.docx_path)
         if report.letter_pdf_path:
             paths.append(report.letter_pdf_path)
         return paths

@@ -358,6 +358,7 @@ def test_full_pipeline_on_realistic_sample(tmp_path: Path) -> None:
     assert str(msg["From"]) == "nour.lachtar@dauphine.eu"
     attachments = list(msg.iter_attachments())
     filenames = [attachment.get_filename() for attachment in attachments]
+    assert not any(name.endswith(".docx") for name in filenames)
     assert any(name.endswith(".pdf") and name.startswith("CV_") for name in filenames)
     assert any(name.endswith(".pdf") and name.startswith("Lettre_motivation_") for name in filenames)
 

@@ -24,6 +24,29 @@ from smartapply.ranking import MockEmbeddingsProvider
 from smartapply.scrapers.base import RawJob
 
 
+def test_email_attachment_paths_never_include_docx_cv() -> None:
+    from smartapply.pipeline.application_renderer import ApplicationDocumentRenderer
+    from smartapply.pipeline.reports import ApplyReport
+
+    report = ApplyReport(
+        job_id=1,
+        application_id=None,
+        docx_path="CV_Lachtar_Nour.docx",
+        cv_pdf_path=None,
+        letter_pdf_path="Lettre_motivation.pdf",
+    )
+
+    assert ApplicationDocumentRenderer.attachment_paths(report) == [
+        "Lettre_motivation.pdf"
+    ]
+
+    report.cv_pdf_path = "CV_Lachtar_Nour.pdf"
+    assert ApplicationDocumentRenderer.attachment_paths(report) == [
+        "CV_Lachtar_Nour.pdf",
+        "Lettre_motivation.pdf",
+    ]
+
+
 @pytest.fixture(autouse=True)
 def _isolated_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     db_path = tmp_path / "test.db"

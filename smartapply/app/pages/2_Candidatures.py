@@ -95,7 +95,6 @@ def _attachment_paths_from_app(app: Application) -> list[str]:
     cv_path = (
         _optional_text(app.cv_pdf_path)
         or _optional_text(cv_pdf_doc.path if cv_pdf_doc else None)
-        or _optional_text(app.cv_docx_path)
     )
     paths = [
         cv_path,
@@ -577,7 +576,7 @@ if st.button("📧 Créer un brouillon Gmail", type="primary", disabled=draft_di
                 raise RuntimeError("Candidature introuvable.")
             attachment_paths = [
                 path
-                for path in [cv_pdf_path or cv_path, letter_pdf_path]
+                for path in [cv_pdf_path, letter_pdf_path]
                 if path and Path(path).exists()
             ]
             result = create_draft_result(

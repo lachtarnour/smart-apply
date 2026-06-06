@@ -386,7 +386,7 @@ def _regenerate_final_eml(app: Application, *, recipient: str, cc_recipient: str
     attachments = [
         path
         for path in (
-            app.cv_pdf_path or (cv_pdf_doc.path if cv_pdf_doc else None) or app.cv_docx_path,
+            app.cv_pdf_path or (cv_pdf_doc.path if cv_pdf_doc else None),
             letter_pdf_doc.path if letter_pdf_doc else None,
         )
         if path and Path(path).exists()
@@ -524,7 +524,6 @@ def _render_gmail_dry_run_preview(row: dict[str, Any]) -> None:
         p
         for p in (
             row.get("cv_pdf_path"),
-            row.get("cv_docx_path"),
             row.get("letter_pdf_path"),
         )
         if p and Path(p).exists()
@@ -594,7 +593,6 @@ def _create_gmail_draft(row: dict[str, Any]) -> None:
         p
         for p in (
             row.get("cv_pdf_path"),
-            row.get("cv_docx_path"),
             row.get("letter_pdf_path"),
         )
         if p and Path(p).exists()
