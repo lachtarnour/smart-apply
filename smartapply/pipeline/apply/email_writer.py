@@ -7,7 +7,7 @@ from dataclasses import asdict
 from typing import Any
 
 from smartapply.database import session_scope
-from smartapply.database.models import Job
+from smartapply.database.models import Application, Job
 from smartapply.database.repository import (
     add_contact,
     create_or_get_application,
@@ -16,6 +16,7 @@ from smartapply.database.repository import (
 )
 from smartapply.email_agent import ContactCandidate, export_eml
 from smartapply.llm import EmailDraft, JobAnalysis, MotivationLetter
+from smartapply.pipeline.output_paths import application_output_dir
 from smartapply.pipeline.reports import ApplyReport
 
 
@@ -30,7 +31,7 @@ class EmailWriterMixin:
         recipient: str,
         cc_recipient: str | None = None,
     ) -> None:
-        out_dir = self.settings.output_dir / f"job-{report.job_id}"
+        out_dir = application_output_dir(self.settings.output_dir, report.application_id)
         eml_path = out_dir / "draft.eml"
         export_eml(
             subject=email_draft.subject,
@@ -42,6 +43,11 @@ class EmailWriterMixin:
             out_path=eml_path,
         )
         report.eml_path = str(eml_path)
+
+    def _reserve_application_id(self, report: ApplyReport) -> None:
+        with session_scope() as s:
+            app = create_or_get_application(s, report.job_id)
+            report.application_id = app.id
 
     def _build_audit(
         self,
@@ -96,7 +102,14 @@ class EmailWriterMixin:
         audit: dict[str, Any] | None = None,
     ) -> None:
         with session_scope() as s:
-            app = create_or_get_application(s, report.job_id)
+            app = (
+                s.get(Application, report.application_id)
+                if report.application_id is not None
+                else None
+            )
+            if app is None:
+                app = create_or_get_application(s, report.job_id)
+                report.application_id = app.id
             if contact and contact.email:
                 contact_row = add_contact(
                     s,

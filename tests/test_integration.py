@@ -326,6 +326,8 @@ def test_full_pipeline_on_realistic_sample(tmp_path: Path) -> None:
         assert report.cv_pdf_path and Path(report.cv_pdf_path).exists()
         assert report.letter_pdf_path and Path(report.letter_pdf_path).exists()
         assert report.eml_path and Path(report.eml_path).exists()
+        assert Path(report.docx_path).parent.name == f"application-{report.application_id}"
+        assert Path(report.eml_path).parent.name == f"application-{report.application_id}"
         # Anti-hallucination: no validation errors after auto-fix
         assert not report.validation_errors
 

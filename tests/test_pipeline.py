@@ -1127,6 +1127,8 @@ def test_full_pipeline_with_mocked_dependencies() -> None:
     assert report.cv_pdf_path and Path(report.cv_pdf_path).exists()
     assert report.letter_pdf_path and Path(report.letter_pdf_path).exists()
     assert report.eml_path and Path(report.eml_path).exists()
+    assert Path(report.docx_path).parent.name == f"application-{report.application_id}"
+    assert Path(report.eml_path).parent.name == f"application-{report.application_id}"
     assert not report.validation_errors
 
 

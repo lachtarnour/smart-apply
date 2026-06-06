@@ -22,6 +22,7 @@ from smartapply.database.repository import (
     update_application_tracking,
     upsert_document,
 )
+from smartapply.pipeline.output_paths import application_output_dir
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 CLOSED_STATUSES = (JobStatus.SENT, JobStatus.ARCHIVED)
@@ -606,7 +607,11 @@ def _regenerate_final_eml(app: Application, *, recipient: str, cc_recipient: str
         if path and Path(path).exists()
     ]
     output_dir = pipeline_singleton().settings.output_dir
-    eml_path = Path(app.eml_path) if app.eml_path else output_dir / f"job-{app.job_id}" / "draft.eml"
+    eml_path = (
+        Path(app.eml_path)
+        if app.eml_path
+        else application_output_dir(output_dir, app.id) / "draft.eml"
+    )
     written = export_eml(
         subject=subject,
         body=body,

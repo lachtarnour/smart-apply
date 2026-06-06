@@ -175,6 +175,7 @@ class Applier(GmailDispatcherMixin, EmailWriterMixin, CvWriterMixin):
             has_contact_email=bool(report.contact_email),
             has_application_url=bool(job.application_url),
         )
+        self._reserve_application_id(report)
 
         self.renderer.render_all(
             report=report,

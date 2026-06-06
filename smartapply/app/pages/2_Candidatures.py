@@ -27,6 +27,7 @@ from smartapply.database.repository import (
 )
 from smartapply.email_agent.eml_export import MISSING_RECIPIENT_PLACEHOLDER, export_eml
 from smartapply.jobsearch import APPLICATION_STATUSES, next_action_for
+from smartapply.pipeline.output_paths import application_output_dir
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
@@ -117,7 +118,7 @@ def _regenerate_eml(
     eml_path = (
         Path(app.eml_path)
         if app.eml_path
-        else output_dir / f"job-{app.job_id}" / "draft.eml"
+        else application_output_dir(output_dir, app.id) / "draft.eml"
     )
     written = export_eml(
         subject=subject,

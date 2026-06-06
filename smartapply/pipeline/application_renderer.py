@@ -14,6 +14,7 @@ from smartapply.cv import CvDocxRenderer, HtmlApplicationRenderer
 from smartapply.database.repository import upsert_document
 from smartapply.llm import MotivationLetter
 from smartapply.logging_setup import get_logger
+from smartapply.pipeline.output_paths import application_output_dir
 from smartapply.profile import Profile
 
 if TYPE_CHECKING:
@@ -43,7 +44,7 @@ class ApplicationDocumentRenderer:
         language: str,
     ) -> None:
         """Generate every artifact and populate the corresponding report fields."""
-        out_dir = self.settings.output_dir / f"job-{report.job_id}"
+        out_dir = application_output_dir(self.settings.output_dir, report.application_id)
         safe_name = self.profile.identity.full_name.replace(" ", "_")
 
         # ---- DOCX (always — candidate fallback) ----
