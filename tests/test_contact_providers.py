@@ -72,6 +72,22 @@ class RecordingContactProvider(ContactProvider):
         ]
 
 
+class StaticContactProvider(ContactProvider):
+    name = "anymailfinder"
+
+    def __init__(self, contacts: list[ContactCandidate]) -> None:
+        self.contacts = contacts
+
+    def find(
+        self,
+        *,
+        company: str,
+        application_url: str | None,
+        job_location: str | None = None,
+    ) -> list[ContactCandidate]:
+        return self.contacts
+
+
 @pytest.fixture
 def contact_service_factory(tmp_path, monkeypatch):
     def factory(provider: ContactProvider):
@@ -130,11 +146,26 @@ def test_non_company_domains_include_french_job_boards() -> None:
     assert classify_application_domain("agence-nationale-recherche-career.talent-soft.com") == "ats"
     assert classify_application_domain("syt-technologies.odoo.com") == "ats"
     assert classify_application_domain("www.aio-jobs.com") == "ats"
+    assert classify_application_domain("company.eightfold.ai") == "ats"
+    assert classify_application_domain("careers.phenompeople.com") == "ats"
+    assert classify_application_domain("jobs.dayforcehcm.com") == "ats"
+    assert classify_application_domain("jobs.brassring.com") == "ats"
+    assert classify_application_domain("talentlink.csod.com") == "ats"
+    assert classify_application_domain("company.softgarden.io") == "ats"
+    assert classify_application_domain("careers.avature.net") == "ats"
     assert classify_application_domain("candidat.francetravail.fr") == "partner_job_board"
     assert classify_application_domain("labonnealternance.apprentissage.beta.gouv.fr") == "partner_job_board"
     assert classify_application_domain("regionsjob.com") == "partner_job_board"
     assert classify_application_domain("talents-handicap.com") == "partner_job_board"
     assert classify_application_domain("moovijob.com") == "partner_job_board"
+    assert classify_application_domain("efinancialcareers.fr") == "partner_job_board"
+    assert classify_application_domain("fr.trabajo.org") == "partner_job_board"
+    assert classify_application_domain("engineering.jobs") == "partner_job_board"
+    assert classify_application_domain("jobleads.com") == "partner_job_board"
+    assert classify_application_domain("studentjob.fr") == "partner_job_board"
+    assert classify_application_domain("talent-r.com") == "partner_job_board"
+    assert classify_application_domain("www.michaelpage.fr") == "partner_job_board"
+    assert classify_application_domain("jobinlive.fr") == "partner_job_board"
     assert classify_application_domain("tinyurl.com") == "application_redirect"
     assert classify_application_domain("acme.ai") == "unknown"
     assert is_job_board_domain("welcometothejungle.com")
@@ -440,6 +471,10 @@ def test_contact_strategy_uses_direct_company_url(contact_service_factory) -> No
         "https://jobs.lever.co/acme/123",
         "https://boards.greenhouse.io/acme/jobs/123",
         "https://apply.unknown-ats-platform.com/acme/123",
+        "https://fr.trabajo.org/offre-2958-123",
+        "https://engineering.jobs/job/123",
+        "https://www.efinancialcareers.fr/emploi-France-Paris-Data.id123",
+        "https://www.michaelpage.fr/job-detail/data-analyst-fh/ref/123",
     ],
 )
 def test_contact_strategy_falls_back_to_company_for_job_boards_and_ats(
@@ -466,6 +501,54 @@ def test_contact_strategy_falls_back_to_company_for_job_boards_and_ats(
     ]
     assert service.last_lookup_decision is not None
     assert service.last_lookup_decision.strategy == "company_name_fallback"
+
+
+def test_contact_strategy_manual_review_for_non_target_company_names(
+    contact_service_factory,
+) -> None:
+    provider = RecordingContactProvider()
+    service = contact_service_factory(provider)
+
+    result = service.find(
+        company="JOBINLIVE",
+        application_url="https://espace-emploi.agefiph.fr/candidat/offres/123",
+        job_description="Le portail relaie une offre sans domaine entreprise final.",
+        analysis={},
+        job_location="Lyon, France",
+    )
+
+    assert result is None
+    assert provider.calls == []
+    assert service.last_lookup_decision is not None
+    assert service.last_lookup_decision.strategy == "manual_review_no_reliable_company"
+
+
+@pytest.mark.parametrize(
+    "company",
+    [
+        "Talent-R",
+        "Groupe Talents Handicap",
+    ],
+)
+def test_contact_strategy_manual_review_for_recruitment_platform_company_names(
+    contact_service_factory,
+    company: str,
+) -> None:
+    provider = RecordingContactProvider()
+    service = contact_service_factory(provider)
+
+    result = service.find(
+        company=company,
+        application_url="https://www.linkedin.com/jobs/view/123",
+        job_description="Offre relayee par une plateforme sans employeur final fiable.",
+        analysis={},
+        job_location="Paris, France",
+    )
+
+    assert result is None
+    assert provider.calls == []
+    assert service.last_lookup_decision is not None
+    assert service.last_lookup_decision.strategy == "manual_review_no_reliable_company"
 
 
 def test_contact_strategy_uses_company_domain_visible_in_offer_body(
@@ -627,9 +710,77 @@ def test_contact_strategy_prefers_company_url_over_unconfirmed_llm_conflict(
 def test_domains_visible_in_text_avoids_regular_sentence_false_domains() -> None:
     from smartapply.pipeline.contact_service import domains_visible_in_text
 
-    text = "Missions: analyses automatisées. Missions alignement métier. www.acme.fr"
+    text = (
+        "Skills: Draw.io, client.es, dbt. Site: www.acme.fr. "
+        "Contact: jobs@beta.fr. Careers: https://careers.gamma.com/jobs"
+    )
 
-    assert domains_visible_in_text(text) == ["acme.fr"]
+    assert domains_visible_in_text(text) == ["beta.fr", "gamma.com", "acme.fr"]
+
+
+def test_contact_service_rejects_anymail_email_unrelated_to_company(
+    contact_service_factory,
+) -> None:
+    provider = StaticContactProvider(
+        [
+            ContactCandidate(
+                email="catie.brand@adeccogroup.com",
+                source_url="anymailfinder:decision-maker:CATIE",
+                confidence=0.96,
+                provider="anymailfinder",
+                verified=True,
+                kind="anymailfinder_decision_maker",
+            )
+        ]
+    )
+    service = contact_service_factory(provider)
+
+    contact = service.find(
+        company="CATIE",
+        application_url="https://www.linkedin.com/jobs/view/123",
+        job_description="Offre relayee par un job board.",
+        analysis={},
+        job_location="Talence",
+    )
+
+    assert contact is None
+
+
+def test_contact_service_keeps_related_email_after_rejecting_bad_anymail_result(
+    contact_service_factory,
+) -> None:
+    provider = StaticContactProvider(
+        [
+            ContactCandidate(
+                email="patrick.tran@namely.com",
+                source_url="anymailfinder:decision-maker:NEXT DECISION",
+                confidence=0.96,
+                provider="anymailfinder",
+                verified=True,
+                kind="anymailfinder_decision_maker",
+            ),
+            ContactCandidate(
+                email="jennifer@next-decision.fr",
+                source_url="anymailfinder:decision-maker:NEXT DECISION",
+                confidence=0.88,
+                provider="anymailfinder",
+                verified=True,
+                kind="anymailfinder_decision_maker",
+            ),
+        ]
+    )
+    service = contact_service_factory(provider)
+
+    contact = service.find(
+        company="NEXT DECISION",
+        application_url="https://www.linkedin.com/jobs/view/123",
+        job_description="Offre relayee par un job board.",
+        analysis={},
+        job_location="Nantes",
+    )
+
+    assert contact is not None
+    assert contact.email == "jennifer@next-decision.fr"
 
 
 def test_contact_service_uses_local_contact_when_no_provider_configured(
