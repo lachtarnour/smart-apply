@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from smartapply.llm import (
@@ -17,8 +19,13 @@ from smartapply.llm import (
     get_llm_provider,
     make_cache_key,
 )
+from smartapply.llm.analyzer_input import AnalyzerInput, build_analyzer_input
 from smartapply.llm.prompts import job_analysis
-
+from smartapply.llm.source_metadata import (
+    build_analyzer_source_metadata,
+    build_francetravail_source_metadata,
+    register_source_metadata_builder,
+)
 
 # ---------------- Schemas ----------------
 
@@ -64,6 +71,265 @@ def test_job_analysis_prompt_includes_structured_location() -> None:
     assert "Structured location (metadata only; do not copy into extracted_location): France" in prompt
     assert "Poste base a Paris" in prompt
     assert "extracted_location" in job_analysis.SYSTEM
+
+
+def _metadata_line(metadata: str, source_field: str) -> str:
+    for line in metadata.splitlines():
+        if f"source_field={source_field}" in line:
+            return line
+    raise AssertionError(f"Missing metadata URL line for {source_field}")
+
+
+def test_francetravail_source_metadata_classifies_contact_and_application_urls() -> None:
+    metadata = build_francetravail_source_metadata(
+        {
+            "id": "206GJTL",
+            "entreprise": {
+                "nom": "CIRIL GROUP",
+                "url": "https://www.cirilgroup.com/fr/recrutement.html",
+                "description": "Long company description already included elsewhere.",
+            },
+            "origineOffre": {
+                "origine": 1,
+                "urlOrigine": "https://candidat.francetravail.fr/offres/recherche/detail/206GJTL",
+                "partenaires": [
+                    {"nom": "Broadbean", "url": "https://www.aplitrak.com/?adid=abc"},
+                ],
+            },
+            "contact": {
+                "nom": "Service recrutement",
+                "courriel": "jobs@cirilgroup.com",
+                "urlPostulation": "https://taleez.com/apply/data-engineer/applying",
+                "coordonnees1": "Postuler ici: https://candidat.francetravail.fr/offres/recherche/detail/206GJTL",
+            },
+        }
+    )
+
+    assert "CONTACT_AND_APPLICATION_METADATA" in metadata
+    assert "source: francetravail" in metadata
+    assert "raw_id: 206GJTL" in metadata
+    assert "entreprise.nom: CIRIL GROUP" in metadata
+    assert "contact.nom: Service recrutement" in metadata
+    assert "contact.courriel: jobs@cirilgroup.com" in metadata
+
+    company = _metadata_line(metadata, "entreprise.url")
+    assert "domain=cirilgroup.com" in company
+    assert "url_kind=company_url" in company
+    assert "company_domain_candidate=cirilgroup.com" in company
+
+    postulation = _metadata_line(metadata, "contact.urlPostulation")
+    assert "domain=taleez.com" in postulation
+    assert "url_kind=ats" in postulation
+    assert "company_domain_candidate" not in postulation
+
+    coordonnees = _metadata_line(metadata, "contact.coordonnees1")
+    assert "domain=francetravail.fr" in coordonnees
+    assert "url_kind=francetravail" in coordonnees
+    assert "company_domain_candidate" not in coordonnees
+
+    partner = _metadata_line(metadata, "origineOffre.partenaires[0].url")
+    assert "domain=aplitrak.com" in partner
+    assert "url_kind=ats" in partner
+    assert "company_domain_candidate" not in partner
+
+    origin = _metadata_line(metadata, "origineOffre.urlOrigine")
+    assert "url_kind=francetravail" in origin
+
+
+def test_francetravail_source_metadata_includes_structured_job_facts() -> None:
+    metadata = build_francetravail_source_metadata(
+        {
+            "experienceExige": "D",
+            "experienceLibelle": "3 An(s)",
+            "_smartapply_experience": {"required": True, "min_months": 36},
+            "typeContratLibelle": "CDI",
+            "natureContrat": "Contrat travail",
+            "dureeTravailLibelle": "35H Travail en journée",
+            "salaire": {"libelle": "Annuel de 45000 Euros à 55000 Euros"},
+            "secteurActiviteLibelle": "Conseil en systèmes informatiques",
+            "trancheEffectifEtab": "50 à 99 salariés",
+            "nombrePostes": 1,
+            "formations": [{"niveauLibelle": "Bac+5", "domaineLibelle": "Data science"}],
+            "langues": [{"libelle": "Anglais", "exigence": "Exigé"}],
+            "competences": [{"libelle": "Python", "exigence": "Exigé"}],
+            "qualitesProfessionnelles": [{"libelle": "Rigueur", "description": "Capacité à..."}],
+            "deplacementLibelle": "Ponctuels Zone nationale",
+            "contexteTravail": {"horaires": "Hybride", "conditions": "Open space"},
+        }
+    )
+
+    assert "STRUCTURED_JOB_FACTS" in metadata
+    assert "experienceExige: D" in metadata
+    assert "experienceLibelle: 3 An(s)" in metadata
+    assert "_smartapply_experience:" in metadata
+    assert "typeContratLibelle: CDI" in metadata
+    assert "salaire:" in metadata
+    assert "formations: Bac+5 / Data science" in metadata
+    assert "langues: Anglais / Exigé" in metadata
+    assert "competences: Python / Exigé" in metadata
+    assert "qualitesProfessionnelles: Rigueur / Capacité à..." in metadata
+    assert "contexteTravail:" in metadata
+
+
+def test_francetravail_source_metadata_extracts_visible_company_url_from_description_only() -> None:
+    metadata = build_francetravail_source_metadata(
+        {
+            "id": "3176602",
+            "entreprise": {"nom": "IPPON Technologies"},
+            "description": "Actualités techniques visibles sur https://blog.ippon.fr/data-ai.",
+            "origineOffre": {
+                "urlOrigine": "https://candidat.francetravail.fr/offres/recherche/detail/3176602",
+            },
+        }
+    )
+
+    line = _metadata_line(metadata, "description")
+    assert "domain=ippon.fr" in line
+    assert "url_kind=company_url" in line
+    assert "company_domain_candidate=ippon.fr" in line
+
+
+def test_analyzer_source_metadata_unknown_source_returns_empty() -> None:
+    job = SimpleNamespace(source="serpapi", source_data={"url": "https://example.com"})
+
+    assert build_analyzer_source_metadata(job) == ""
+
+
+def test_build_analyzer_input_normalizes_common_job_fields() -> None:
+    job = SimpleNamespace(
+        title="Data Scientist",
+        company="Acme",
+        location="France",
+        application_url="https://acme.ai/jobs/42",
+        cleaned_description="Clean offer body.",
+        description="Raw offer body.",
+        source="serpapi",
+        source_data={"url": "https://example.com"},
+    )
+
+    analyzer_input = build_analyzer_input(job)
+
+    assert analyzer_input == AnalyzerInput(
+        title="Data Scientist",
+        company="Acme",
+        location="France",
+        application_url="https://acme.ai/jobs/42",
+        offer_body="Clean offer body.",
+        source="serpapi",
+        source_metadata="",
+    )
+
+
+def test_build_analyzer_input_uses_registered_source_metadata_builder() -> None:
+    def custom_builder(source_data):
+        assert source_data == {"contract": "CDI"}
+        return "STRUCTURED_JOB_FACTS:\ncontract: CDI"
+
+    register_source_metadata_builder("custom_api", custom_builder)
+    job = SimpleNamespace(
+        title="ML Engineer",
+        company="Acme",
+        location=None,
+        application_url=None,
+        cleaned_description=None,
+        description="Offer body.",
+        source="custom_api",
+        source_data={"contract": "CDI"},
+    )
+
+    analyzer_input = build_analyzer_input(job)
+
+    assert analyzer_input.source_metadata == "STRUCTURED_JOB_FACTS:\ncontract: CDI"
+
+
+def test_source_metadata_does_not_include_raw_json_or_long_descriptions() -> None:
+    metadata = build_francetravail_source_metadata(
+        {
+            "id": "1",
+            "description": "Main offer body without URL.",
+            "entreprise": {
+                "description": "Very long company description that should not be copied into metadata.",
+            },
+            "competences": [{"libelle": "Python", "exigence": "Exigé", "extra": "ignored"}],
+        }
+    )
+
+    assert "Very long company description" not in metadata
+    assert "Main offer body without URL" not in metadata
+    assert '"competences"' not in metadata
+    assert "{'libelle'" not in metadata
+    assert "Python / Exigé" in metadata
+
+
+def test_job_analysis_prompt_includes_source_metadata_rules_when_provided() -> None:
+    from smartapply.profile import get_profile
+
+    prompt = job_analysis.build_user_prompt(
+        profile=get_profile(),
+        job_title="Data Engineer",
+        job_company="CIRIL GROUP",
+        job_location="Lyon",
+        application_url="https://candidat.francetravail.fr/offres/recherche/detail/206GJTL",
+        source_metadata="CONTACT_AND_APPLICATION_METADATA:\nsource: francetravail",
+        job_description="Offer body.",
+    )
+
+    assert "=== SOURCE-SPECIFIC STRUCTURED METADATA ===" in prompt
+    assert "Do not use this block to invent required_skills or cv_keywords_to_include" in prompt
+    assert "Structured metadata complements the offer body" in prompt
+    assert "Keep concrete offer-body use cases in cv_keywords_to_include" in prompt
+    assert "business rules, reports, and data quality" in prompt
+    assert "a recruiting agency with an anonymous client" in prompt
+    assert "Do not infer or synthesize company domains" in prompt
+    assert "CONTACT_AND_APPLICATION_METADATA" in prompt
+
+
+def test_job_analysis_prompt_unchanged_without_source_metadata() -> None:
+    from smartapply.profile import get_profile
+
+    kwargs = {
+        "profile": get_profile(),
+        "job_title": "Data Scientist",
+        "job_company": "Acme",
+        "job_location": "France",
+        "application_url": "https://acme.ai/jobs/42",
+        "job_description": "Poste base a Paris.",
+    }
+    without = job_analysis.build_user_prompt(**kwargs)
+    empty = job_analysis.build_user_prompt(**kwargs, source_metadata="")
+
+    assert without == empty
+    assert "SOURCE-SPECIFIC STRUCTURED METADATA" not in without
+
+
+def test_job_analysis_prompt_from_analyzer_input_matches_legacy_builder() -> None:
+    from smartapply.profile import get_profile
+
+    profile = get_profile()
+    analyzer_input = AnalyzerInput(
+        title="Data Scientist",
+        company="Acme",
+        location="France",
+        application_url="https://acme.ai/jobs/42",
+        offer_body="Poste base a Paris.",
+        source="serpapi",
+        source_metadata="",
+    )
+
+    legacy = job_analysis.build_user_prompt(
+        profile=profile,
+        job_title="Data Scientist",
+        job_company="Acme",
+        job_location="France",
+        application_url="https://acme.ai/jobs/42",
+        job_description="Poste base a Paris.",
+    )
+    canonical = job_analysis.build_user_prompt_from_input(
+        profile=profile,
+        analyzer_input=analyzer_input,
+    )
+
+    assert canonical == legacy
 
 
 def test_adapted_cv_schema_requires_source_ids() -> None:

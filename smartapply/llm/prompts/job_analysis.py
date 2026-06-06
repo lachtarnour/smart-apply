@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from smartapply.llm.analyzer_input import AnalyzerInput
 from smartapply.profile import Profile
 
 SYSTEM = """You are an experienced technical recruiter who analyses job offers to extract structured signals.
@@ -136,6 +137,12 @@ You always:
   - Prefer exact stack, method, domain and responsibility terms that appear as
     contiguous phrases in the offer body. Avoid English paraphrases of French
     text when the phrase itself is not present.
+  - Keep concrete use cases, mission terms, stack terms and delivery artifacts
+    that are visible in the offer body, such as demand prediction, fraud
+    detection, sentiment analysis, business rules, reports and data quality.
+  - Scraper/source structured metadata may supplement cv_keywords_to_include,
+    but it must not replace concrete offer-body use cases with broader source
+    labels such as generic France Travail skill names.
 - Make risks systematic and concrete when visible:
   - Flag short or vague offers, missing/unclear required skills, seniority that
     is too high or ambiguous, 5+ years, senior/lead/principal/staff/manager
@@ -155,6 +162,10 @@ You always:
     product/process quality, data steward or data management roles, flag the
     risk when the work is more advisory/governance/quality/process than
     hands-on ML, modelling, experimentation or applied AI engineering.
+  - Preserve important risks that remain true after adding metadata. If the
+    company is undisclosed, unknown, a recruiting agency with an anonymous
+    client, or the final client is masked, keep an explicit risk for application
+    strategy and employer/context clarity.
   - Treat French seniority signals such as "responsable", "chef d'equipe",
     "manager", "encadrer", "pilotage d'equipe" or "lead" as seniority risks
     when visible.
@@ -203,6 +214,7 @@ def build_user_prompt(
     job_company: str = "",
     job_location: str | None = None,
     application_url: str | None = None,
+    source_metadata: str | None = None,
 ) -> str:
     profile_block = (
         f"Candidate title: {profile.identity.title}\n"
@@ -212,6 +224,7 @@ def build_user_prompt(
         f"Seniority: {profile.preferences.seniority or 'unspecified'}\n"
         f"Preferred locations: {', '.join(profile.preferences.preferred_locations)}\n"
     )
+    source_metadata_block = _source_metadata_block(source_metadata)
     return (
         "Analyze the following job offer and extract structured fields.\n\n"
         "=== CANDIDATE ===\n"
@@ -225,6 +238,61 @@ def build_user_prompt(
         f"Company: {job_company}\n"
         f"Structured location (metadata only; do not copy into extracted_location): {job_location or ''}\n"
         f"Application URL: {application_url or ''}\n\n"
+        f"{source_metadata_block}"
         "=== OFFER BODY (PRIMARY EVIDENCE) ===\n"
         f"{job_description.strip()}\n"
+    )
+
+
+def build_user_prompt_from_input(
+    *,
+    profile: Profile,
+    analyzer_input: AnalyzerInput,
+) -> str:
+    """Build the analyzer prompt from the canonical job-analysis input."""
+    return build_user_prompt(
+        profile=profile,
+        job_title=analyzer_input.title,
+        job_company=analyzer_input.company,
+        job_location=analyzer_input.location,
+        application_url=analyzer_input.application_url,
+        source_metadata=analyzer_input.source_metadata,
+        job_description=analyzer_input.offer_body,
+    )
+
+
+def _source_metadata_block(source_metadata: str | None) -> str:
+    metadata = (source_metadata or "").strip()
+    if not metadata:
+        return ""
+    return (
+        "=== SOURCE-SPECIFIC STRUCTURED METADATA ===\n"
+        "This block comes from structured source fields. It is supplementary evidence.\n"
+        "Rules:\n"
+        "- Use CONTACT_AND_APPLICATION_METADATA only for contact_domain_kind, "
+        "contact_domain_hint, contact_domain_reason, application URL interpretation, "
+        "and contact/application strategy.\n"
+        "- Use STRUCTURED_JOB_FACTS only as supplementary source-provided facts for "
+        "experience, contract, salary, language, education, company size, sector, "
+        "work schedule, and travel constraints.\n"
+        "- Do not use this block to invent required_skills or cv_keywords_to_include.\n"
+        "- Structured metadata complements the offer body; it must not replace "
+        "concrete mission, stack, or use-case details from the body.\n"
+        "- Keep concrete offer-body use cases in cv_keywords_to_include, such "
+        "as demand prediction, fraud detection, sentiment analysis, business "
+        "rules, reports, and data quality.\n"
+        "- France Travail structured skills may supplement keywords, but must "
+        "not suppress concrete mission, stack, or use-case keywords from the "
+        "body.\n"
+        "- Preserve important risks that still remain true after adding "
+        "metadata. If the company is undisclosed, unknown, a recruiting agency "
+        "with an anonymous client, or the final client is masked, keep an "
+        "explicit risk.\n"
+        "- Do not infer or synthesize company domains.\n"
+        "- The job description remains the primary evidence for responsibilities, "
+        "skills, mission content, company_context, and offer_interest_points.\n"
+        "- If metadata conflicts with the job body, prefer explicit source-provided "
+        "structured facts for contract, experience, salary, and location, but do "
+        "not hallucinate missing information.\n"
+        f"{metadata}\n\n"
     )
