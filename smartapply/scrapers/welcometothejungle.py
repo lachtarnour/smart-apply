@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -101,23 +101,27 @@ def scrape_matches_requests(
     pages: Sequence[int],
     cookie_header: str,
     max_jobs: int | None = None,
+    progress_target: int | None = None,
     per_page: int | None = None,
     include_company_profile: bool = True,
     skip_failed_jobs: bool = True,
     timeout: int = 30,
     delay_seconds: float = 0.5,
     extra_headers: dict[str, str] | None = None,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> Iterator[RawJob]:
     return _matches_api.scrape_matches_requests(
         pages=pages,
         cookie_header=cookie_header,
         max_jobs=max_jobs,
+        progress_target=progress_target,
         per_page=per_page,
         include_company_profile=include_company_profile,
         skip_failed_jobs=skip_failed_jobs,
         timeout=timeout,
         delay_seconds=delay_seconds,
         extra_headers=extra_headers,
+        progress_callback=progress_callback,
         fetch_matches_api_page_fn=fetch_matches_api_page,
         fetch_detail_api_job_fn=fetch_detail_api_job,
     )
@@ -187,17 +191,32 @@ class WelcomeToTheJungleScraper(Scraper):
         skip_failed_jobs = bool(kwargs.pop("skip_failed_jobs", self.skip_failed_jobs))
         timeout = int(kwargs.pop("timeout", self.timeout))
         delay_seconds = float(kwargs.pop("delay_seconds", self.delay_seconds))
+        progress_callback = kwargs.pop("progress_callback", None)
+        progress_target = kwargs.pop("progress_target", max_results)
         page_numbers = range(1, pages + 1)
+        if progress_callback is not None:
+            progress_callback(
+                {
+                    "event": "start",
+                    "pages_total": pages,
+                    "per_page": per_page,
+                    "max_jobs": max_results,
+                    "progress_target": progress_target,
+                    "yielded": 0,
+                }
+            )
 
         for job in scrape_matches_requests(
             pages=page_numbers,
             cookie_header=self.cookie_header,
             max_jobs=max_results,
+            progress_target=progress_target,
             per_page=per_page,
             include_company_profile=include_company_profile,
             skip_failed_jobs=skip_failed_jobs,
             timeout=timeout,
             delay_seconds=delay_seconds,
+            progress_callback=progress_callback,
         ):
             source_data = dict(job.source_data or {})
             source_data["_smartapply_search"] = {

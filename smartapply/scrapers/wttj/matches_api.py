@@ -42,6 +42,16 @@ from smartapply.scrapers.wttj.offer_parser import (
 )
 
 logger = get_logger(__name__)
+ProgressCallback = Callable[[dict[str, Any]], None]
+
+
+def _emit_progress(callback: ProgressCallback | None, **event: Any) -> None:
+    if callback is None:
+        return
+    try:
+        callback(event)
+    except Exception as exc:
+        logger.debug("Ignoring WTTJ progress callback error: %s", exc)
 
 def matches_page_url(page: int) -> str:
     """Build the personalized matches URL for a 1-indexed page number."""
@@ -163,12 +173,14 @@ def scrape_matches_requests(
     pages: Sequence[int],
     cookie_header: str,
     max_jobs: int | None = None,
+    progress_target: int | None = None,
     per_page: int | None = None,
     include_company_profile: bool = True,
     skip_failed_jobs: bool = True,
     timeout: int = 30,
     delay_seconds: float = 0.5,
     extra_headers: dict[str, str] | None = None,
+    progress_callback: ProgressCallback | None = None,
     fetch_matches_api_page_fn: Callable[..., dict[str, Any]] | None = None,
     fetch_detail_api_job_fn: Callable[..., dict[str, Any]] | None = None,
 ) -> Iterator[RawJob]:
@@ -184,9 +196,20 @@ def scrape_matches_requests(
     company_cache: dict[str, dict[str, Any]] = {}
     yielded = 0
     page_count: int | None = None
+    pages_total = len(pages)
     for page_number in pages:
         if page_count is not None and page_number > page_count:
             break
+        _emit_progress(
+            progress_callback,
+            event="page_fetch_start",
+            page=page_number,
+            pages_total=pages_total,
+            page_count=page_count,
+            max_jobs=max_jobs,
+            progress_target=progress_target,
+            yielded=yielded,
+        )
         try:
             payload = (fetch_matches_api_page_fn or fetch_matches_api_page)(
                 page=page_number,
@@ -203,15 +226,49 @@ def scrape_matches_requests(
 
         page_count = _matches_api_page_count(payload) or page_count
         links = parse_matches_api_links(payload)
+        _emit_progress(
+            progress_callback,
+            event="page_links",
+            page=page_number,
+            pages_total=pages_total,
+            page_count=page_count,
+            links=len(links),
+            max_jobs=max_jobs,
+            progress_target=progress_target,
+            yielded=yielded,
+        )
         if not links:
+            _emit_progress(
+                progress_callback,
+                event="page_empty",
+                page=page_number,
+                pages_total=pages_total,
+                page_count=page_count,
+                max_jobs=max_jobs,
+                progress_target=progress_target,
+                yielded=yielded,
+            )
             break
 
         page_has_new_link = False
-        for link in links:
+        for page_job_index, link in enumerate(links, start=1):
             if link.url in seen:
                 continue
             page_has_new_link = True
             seen.add(link.url)
+            _emit_progress(
+                progress_callback,
+                event="job_detail_start",
+                page=page_number,
+                pages_total=pages_total,
+                page_count=page_count,
+                page_job_index=page_job_index,
+                page_jobs=len(links),
+                max_jobs=max_jobs,
+                progress_target=progress_target,
+                yielded=yielded,
+                title_hint=link.title_hint,
+            )
             try:
                 detail_response = requests.get(link.url, headers=WTTJ_HEADERS, timeout=timeout)
                 detail_response.raise_for_status()
@@ -244,15 +301,68 @@ def scrape_matches_requests(
                 _merge_company_profile_from_matches_api(source_data, link.api_data)
             job.source_data = source_data
             if include_company_profile:
+                _emit_progress(
+                    progress_callback,
+                    event="company_profile_start",
+                    page=page_number,
+                    pages_total=pages_total,
+                    page_count=page_count,
+                    max_jobs=max_jobs,
+                    progress_target=progress_target,
+                    yielded=yielded,
+                    title=job.title,
+                    company=job.company,
+                )
                 _attach_company_profile(job, company_cache=company_cache, timeout=timeout)
-            yield job
             yielded += 1
+            _emit_progress(
+                progress_callback,
+                event="job_yielded",
+                page=page_number,
+                pages_total=pages_total,
+                page_count=page_count,
+                max_jobs=max_jobs,
+                progress_target=progress_target,
+                yielded=yielded,
+                title=job.title,
+                company=job.company,
+            )
+            yield job
             if max_jobs is not None and yielded >= max_jobs:
+                _emit_progress(
+                    progress_callback,
+                    event="done",
+                    page=page_number,
+                    pages_total=pages_total,
+                    page_count=page_count,
+                    max_jobs=max_jobs,
+                    progress_target=progress_target,
+                    yielded=yielded,
+                )
                 return
             if delay_seconds > 0:
                 sleep(delay_seconds)
         if not page_has_new_link:
+            _emit_progress(
+                progress_callback,
+                event="page_duplicate",
+                page=page_number,
+                pages_total=pages_total,
+                page_count=page_count,
+                max_jobs=max_jobs,
+                progress_target=progress_target,
+                yielded=yielded,
+            )
             break
+    _emit_progress(
+        progress_callback,
+        event="done",
+        pages_total=pages_total,
+        page_count=page_count,
+        max_jobs=max_jobs,
+        progress_target=progress_target,
+        yielded=yielded,
+    )
 
 def scrape_matches_live(
     *,

@@ -55,11 +55,13 @@ def test_wttj_scraper_search_adds_audit_metadata(mocker) -> None:  # noqa: ANN00
         pages=range(1, 6),
         cookie_header="wttj_session=abc",
         max_jobs=20,
+        progress_target=20,
         per_page=10,
         include_company_profile=True,
         skip_failed_jobs=True,
         timeout=30,
         delay_seconds=0.0,
+        progress_callback=None,
     )
     assert jobs == [raw]
     assert raw.source_data["_smartapply_search"] == {
@@ -487,6 +489,72 @@ def test_scrape_matches_requests_stops_after_empty_api_page_without_page_count(m
 
     assert jobs == []
     fetch_api.assert_called_once()
+
+
+def test_scrape_matches_requests_reports_progress(mocker) -> None:  # noqa: ANN001
+    matches_payload = {
+        "data": [
+            {
+                "name": "ML Engineer",
+                "slug": "ml-engineer_paris",
+                "organization": {"slug": "acme", "name": "Acme"},
+            }
+        ],
+        "metadata": {"page_count": 1},
+    }
+    detail_html = """
+    <html>
+      <head>
+        <script type="application/ld+json">
+        {
+          "@context": "http://schema.org",
+          "@type": "JobPosting",
+          "description": "<p>Build ML systems.</p>",
+          "employmentType": "FULL_TIME",
+          "hiringOrganization": {"@type": "Organization", "name": "Acme"},
+          "jobLocation": [],
+          "title": "ML Engineer"
+        }
+        </script>
+      </head>
+      <body></body>
+    </html>
+    """
+    detail_response = mocker.MagicMock(text=detail_html)
+    detail_response.raise_for_status = mocker.MagicMock()
+    events: list[dict] = []
+    mocker.patch(
+        "smartapply.scrapers.welcometothejungle.fetch_matches_api_page",
+        return_value=matches_payload,
+    )
+    mocker.patch(
+        "smartapply.scrapers.welcometothejungle.requests.get",
+        return_value=detail_response,
+    )
+
+    jobs = list(
+        scrape_matches_requests(
+            pages=[1],
+            cookie_header="wttj_session=abc",
+            max_jobs=1,
+            progress_target=1,
+            include_company_profile=False,
+            delay_seconds=0,
+            progress_callback=events.append,
+        )
+    )
+
+    assert len(jobs) == 1
+    event_names = [event["event"] for event in events]
+    assert event_names == [
+        "page_fetch_start",
+        "page_links",
+        "job_detail_start",
+        "job_yielded",
+        "done",
+    ]
+    assert events[-2]["yielded"] == 1
+    assert events[-2]["progress_target"] == 1
 
 
 def test_scrape_matches_requests_skips_missing_page_by_default(mocker) -> None:  # noqa: ANN001
