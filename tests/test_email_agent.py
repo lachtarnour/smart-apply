@@ -516,6 +516,9 @@ def test_workflow_step5_uses_creer_brouillon_label_not_envoyer() -> None:
     assert "wf_send_card_" in source
     assert "sa-wf-card-slide-up" in source
     assert "wf_closed_slide_target_ids" in source
+    assert "Questions formulaire" in source
+    assert "Générer les réponses" in source
+    assert "form_question_answers" in source
     assert "Appliquer la clôture" not in source
     assert "Action finale" not in source
     assert "on_click=_reset_final_email" in source
@@ -534,6 +537,60 @@ def test_workflow_step5_drop_application_targets_cards_below() -> None:
 
     assert remaining_ids == [10, 30, 40]
     assert slide_target_ids == [30, 40]
+
+
+def test_workflow_step5_formats_form_question_answers() -> None:
+    from importlib import import_module
+
+    from smartapply.llm import FormQuestionAnswer, FormQuestionAnswers
+
+    step5_module = import_module("smartapply.app.workflow.step5_send")
+    answers = FormQuestionAnswers(
+        answers=[
+            FormQuestionAnswer(
+                question="Why this role?",
+                answer="It matches my applied AI experience.",
+                evidence_used=["Emobot applied AI internship"],
+                warnings=["Verify company-specific wording"],
+            )
+        ],
+        global_warnings=["No external company research used"],
+    )
+
+    rendered = step5_module._format_form_question_answers_text(
+        "Why this role?",
+        answers,
+    )
+
+    assert "Why this role?" in rendered
+    assert "It matches my applied AI experience." in rendered
+    assert "Emobot applied AI internship" in rendered
+    assert "No external company research used" in rendered
+
+
+def test_form_questions_prompt_includes_offer_profile_and_questions() -> None:
+    from smartapply.llm.prompts.form_questions import build_form_questions_prompt
+    from smartapply.profile import get_profile
+
+    _system, user = build_form_questions_prompt(
+        profile=get_profile(),
+        row={
+            "id": 10,
+            "job_id": 75,
+            "title": "Data Analyst",
+            "company": "Joko",
+            "job_location": "Paris",
+            "application_url": "https://example.com/apply",
+            "job_description": "Joko builds product analytics features.",
+            "analysis_raw": {"company_context": "Joko builds consumer product tools."},
+        },
+        questions="What makes Joko special according to you?",
+    )
+
+    assert "Joko builds product analytics features." in user
+    assert "What makes Joko special according to you?" in user
+    assert "CANDIDATE PROFILE JSON" in user
+    assert "Lachtar Nour" in user
 
 
 def test_workflow_step5_close_application_marks_done_or_archived(

@@ -220,6 +220,30 @@ class MotivationLetter(BaseModel):
     )
 
 
+class FormQuestionAnswer(BaseModel):
+    model_config = _strict
+
+    question: str = Field(description="Original form question, copied or normalized")
+    answer: str = Field(description="Candidate-ready answer, plain text, no markdown")
+    evidence_used: list[str] = Field(
+        description="Concrete profile/job evidence used to justify this answer"
+    )
+    warnings: list[str] = Field(
+        description="Grounding warnings, missing context or claims to verify manually"
+    )
+
+
+class FormQuestionAnswers(BaseModel):
+    model_config = _strict
+
+    answers: list[FormQuestionAnswer] = Field(
+        description="One answer per detected form question, preserving question order"
+    )
+    global_warnings: list[str] = Field(
+        description="Overall warnings that apply to the generated answer set"
+    )
+
+
 class ApplicationDraft(BaseModel):
     model_config = _strict
 
