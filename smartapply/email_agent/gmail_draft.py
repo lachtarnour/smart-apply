@@ -73,6 +73,21 @@ class GmailDraftDryRun:
     encoded_size_bytes: int
 
 
+@dataclass
+class GmailSetupStatus:
+    """Local Gmail configuration status, checked without any network call."""
+
+    dependencies_installed: bool
+    credentials_path: str
+    credentials_exists: bool
+    token_path: str
+    token_exists: bool
+    gmail_user: str
+    scopes: list[str]
+    ready_for_auth: bool
+    issues: list[str] = field(default_factory=list)
+
+
 # ---- internal helpers --------------------------------------------------
 
 
@@ -216,6 +231,41 @@ def _get_credentials() -> Any:
 
 
 # ---- public API --------------------------------------------------------
+
+
+def check_gmail_setup() -> GmailSetupStatus:
+    """Return the local Gmail setup status without opening OAuth or Gmail."""
+    settings = get_settings()
+    creds_path = Path(settings.gmail_credentials_path)
+    token_path = Path(settings.gmail_token_path)
+    issues: list[str] = []
+
+    try:
+        _ensure_libs()
+        dependencies_installed = True
+    except GmailDraftError as exc:
+        dependencies_installed = False
+        issues.append(str(exc))
+
+    credentials_exists = creds_path.exists()
+    token_exists = token_path.exists()
+    if not credentials_exists:
+        issues.append(
+            "Gmail OAuth credentials file is missing. Download an OAuth Desktop "
+            "client JSON from Google Cloud Console and set GMAIL_CREDENTIALS_PATH."
+        )
+
+    return GmailSetupStatus(
+        dependencies_installed=dependencies_installed,
+        credentials_path=str(creds_path),
+        credentials_exists=credentials_exists,
+        token_path=str(token_path),
+        token_exists=token_exists,
+        gmail_user=settings.gmail_user,
+        scopes=list(SCOPES),
+        ready_for_auth=dependencies_installed and credentials_exists,
+        issues=issues,
+    )
 
 
 def dry_run_draft(

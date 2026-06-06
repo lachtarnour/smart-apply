@@ -6,6 +6,7 @@ import ast
 import base64
 from email import message_from_bytes, policy
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -17,6 +18,7 @@ from smartapply.email_agent.gmail_draft import (
     GmailDraftError,
     GmailDraftResult,
     build_mime_message,
+    check_gmail_setup,
     create_draft,
     create_draft_result,
     dry_run_draft,
@@ -370,6 +372,51 @@ def test_gmail_create_draft_result_reports_validation_failures_without_raising()
     assert "Subject" in result.error
     assert result.draft_id is None
     assert result.message_id is None
+
+
+def test_gmail_check_setup_reports_missing_credentials(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("smartapply.email_agent.gmail_draft._ensure_libs", lambda: None)
+    monkeypatch.setattr(
+        "smartapply.email_agent.gmail_draft.get_settings",
+        lambda: SimpleNamespace(
+            gmail_credentials_path=tmp_path / "credentials.json",
+            gmail_token_path=tmp_path / "token.json",
+            gmail_user="me",
+        ),
+    )
+
+    status = check_gmail_setup()
+
+    assert status.dependencies_installed is True
+    assert status.credentials_exists is False
+    assert status.token_exists is False
+    assert status.ready_for_auth is False
+    assert status.issues
+
+
+def test_gmail_check_setup_ready_for_first_auth(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    credentials = tmp_path / "credentials.json"
+    credentials.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr("smartapply.email_agent.gmail_draft._ensure_libs", lambda: None)
+    monkeypatch.setattr(
+        "smartapply.email_agent.gmail_draft.get_settings",
+        lambda: SimpleNamespace(
+            gmail_credentials_path=credentials,
+            gmail_token_path=tmp_path / "token.json",
+            gmail_user="me",
+        ),
+    )
+
+    status = check_gmail_setup()
+
+    assert status.credentials_exists is True
+    assert status.token_exists is False
+    assert status.ready_for_auth is True
+    assert status.issues == []
 
 
 # ---------------- Gmail draft: anti-send static guard ----------------
