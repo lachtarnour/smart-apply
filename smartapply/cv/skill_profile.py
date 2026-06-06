@@ -34,7 +34,7 @@ def infer_skill_profile_id(
     fallback_rules = (
         (
             "reinforcement_learning",
-            ("reinforcement", "openai gym", "agent training", "control task"),
+            ("reinforcement", "agent training", "game-based task"),
         ),
         (
             "medical_ai",

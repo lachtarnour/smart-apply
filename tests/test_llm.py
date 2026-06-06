@@ -24,6 +24,7 @@ from smartapply.llm.prompts import job_analysis
 from smartapply.llm.source_metadata import (
     build_analyzer_source_metadata,
     build_francetravail_source_metadata,
+    build_serpapi_source_metadata,
     build_wttj_source_metadata,
     register_source_metadata_builder,
 )
@@ -294,6 +295,66 @@ def test_wttj_source_metadata_fields_are_configurable() -> None:
     assert "Do not include this." not in metadata
 
 
+def test_serpapi_source_metadata_includes_compact_source_signals() -> None:
+    metadata = build_serpapi_source_metadata(
+        {
+            "title": "Data Scientist Expert IA & Machine Learning H/F",
+            "company_name": "StarClay",
+            "location": "Paris, France",
+            "share_link": "https://www.google.com/search?q=jobs",
+            "apply_options": [
+                {"title": "LinkedIn", "link": "https://www.linkedin.com/jobs/view/123"},
+                {"title": "Company site", "link": "https://jobs.starclay.fr/apply"},
+            ],
+            "detected_extensions": {
+                "schedule_type": "Full-time",
+                "work_from_home": True,
+                "posted_at": "3 days ago",
+            },
+            "_smartapply_search": {
+                "result_origin": "fallback",
+                "strict_chips": "date_posted:week",
+                "fallback_reason": "low_result_strict_filters",
+            },
+            "job_highlights": [
+                {
+                    "title": "Responsibilities",
+                    "items": [
+                        "Build NLP and computer vision models.",
+                        "Monitor and retrain machine-learning systems.",
+                    ],
+                },
+                {
+                    "title": "Qualifications",
+                    "items": ["Python", "SQL", "MLOps"],
+                },
+            ],
+        }
+    )
+
+    assert "CONTACT_AND_APPLICATION_METADATA" in metadata
+    assert "source: serpapi" in metadata
+    assert "company_name: StarClay" in metadata
+    assert "apply_options: LinkedIn; Company site" in metadata
+    assert "source_field=apply_options[0].link" in metadata
+    assert "domain=linkedin.com" in metadata
+    assert "url_kind=partner_job_board" in metadata
+    assert "source_field=apply_options[1].link" in metadata
+    assert "company_domain_candidate=starclay.fr" in metadata
+    assert "search.result_origin: fallback" in metadata
+    assert "STRUCTURED_JOB_FACTS" in metadata
+    assert "detected_extensions.schedule_type: Full-time" in metadata
+    assert "detected_extensions.work_from_home: True" in metadata
+    assert "job_highlights.Responsibilities: Build NLP and computer vision models." in metadata
+    assert "MOTIVATION_ANCHORS" in metadata
+    assert '"job_highlights"' not in metadata
+    assert "{'title'" not in metadata
+
+
+def test_serpapi_source_metadata_empty_when_no_useful_fields() -> None:
+    assert build_serpapi_source_metadata({"url": "https://example.com"}) == ""
+
+
 def test_analyzer_source_metadata_uses_wttj_builder() -> None:
     job = SimpleNamespace(
         source="welcometothejungle",
@@ -311,8 +372,24 @@ def test_analyzer_source_metadata_uses_wttj_builder() -> None:
     assert "company_profile.sectors: SaaS / Cloud Services, Santé" in metadata
 
 
+def test_analyzer_source_metadata_uses_serpapi_builder() -> None:
+    job = SimpleNamespace(
+        source="serpapi",
+        source_data={
+            "company_name": "StarClay",
+            "detected_extensions": {"schedule_type": "Full-time"},
+        },
+    )
+
+    metadata = build_analyzer_source_metadata(job)
+
+    assert "source: serpapi" in metadata
+    assert "company_name: StarClay" in metadata
+    assert "detected_extensions.schedule_type: Full-time" in metadata
+
+
 def test_analyzer_source_metadata_unknown_source_returns_empty() -> None:
-    job = SimpleNamespace(source="serpapi", source_data={"url": "https://example.com"})
+    job = SimpleNamespace(source="unknown_api", source_data={"url": "https://example.com"})
 
     assert build_analyzer_source_metadata(job) == ""
 

@@ -39,7 +39,7 @@ _PROJECT_SIGNAL_TERMS: dict[str, tuple[str, ...]] = {
     "proj_svc": ("speech", "vocoder", "hubert", "rmvpe", "hifi-gan"),
     "proj_scifact_rag": ("rag", "faiss", "vector search", "bm25"),
     "proj_aal_stock_forecasting": ("arima/sarima", "forecasting", "time-series analysis"),
-    "proj_rl_gym": ("openai gym", "reinforcement learning"),
+    "proj_rl_gym": ("openai gym", "reinforcement learning","game-based tasks"),
 }
 
 

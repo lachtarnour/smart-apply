@@ -64,7 +64,6 @@
     "forbidden": [
       "FAISS",
       "Vector search",
-      "OpenAI Gym",
       "Markov chains",
       "Whisper",
       "Pyannote",
@@ -121,7 +120,6 @@
     "forbidden": [
       "FAISS",
       "Vector search",
-      "OpenAI Gym",
       "Markov chains",
       "Whisper",
       "Pyannote",
@@ -184,7 +182,6 @@
       ]
     },
     "forbidden": [
-      "OpenAI Gym",
       "Markov chains",
       "ARIMA/SARIMA",
       "Whisper",
@@ -232,7 +229,6 @@
       "LLMs",
       "Transformers",
       "Hugging Face",
-      "OpenAI Gym",
       "Markov chains",
       "Docker",
       "Git",
@@ -307,7 +303,6 @@
       "LLMs",
       "Transformers",
       "Hugging Face",
-      "OpenAI Gym",
       "Markov chains",
       "Anomaly detection",
       "Time-series modeling",
@@ -366,7 +361,6 @@
       "FAISS",
       "RAG",
       "Vector search",
-      "OpenAI Gym",
       "Markov chains",
       "Whisper",
       "Pyannote",
@@ -425,7 +419,6 @@
       "FAISS",
       "RAG",
       "Vector search",
-      "OpenAI Gym",
       "Markov chains",
       "Whisper",
       "Pyannote",
@@ -470,7 +463,6 @@
       "LLMs",
       "Transformers",
       "Hugging Face",
-      "OpenAI Gym",
       "Markov chains",
       "ARIMA/SARIMA",
       "Whisper",
@@ -534,7 +526,6 @@
       "FAISS",
       "RAG",
       "Vector search",
-      "OpenAI Gym",
       "Markov chains",
       "Whisper",
       "Pyannote",
@@ -593,7 +584,6 @@
       "FAISS",
       "RAG",
       "Vector search",
-      "OpenAI Gym",
       "Markov chains"
     ]
   },
@@ -652,7 +642,6 @@
       ]
     },
     "forbidden": [
-      "OpenAI Gym",
       "Markov chains"
     ]
   },
@@ -666,7 +655,8 @@
     ],
     "must_show": {
       "rl": [
-        "OpenAI Gym"
+        "Q-Learning",
+        "Monte Carlo Tree Search (MCTS)"
       ],
       "ml_ai": [
         "PyTorch",
@@ -680,7 +670,8 @@
     "min_total_skills": 9,
     "fill_skills": {
       "rl": [
-        "OpenAI Gym"
+        "Q-Learning",
+        "Monte Carlo Tree Search (MCTS)"
       ],
       "ml_ai": [
         "PyTorch",
@@ -762,7 +753,6 @@
       "Speech-to-text",
       "OpenSMILE",
       "Pyannote",
-      "OpenAI Gym",
       "Markov chains",
       "ARIMA/SARIMA",
       "Forecasting",

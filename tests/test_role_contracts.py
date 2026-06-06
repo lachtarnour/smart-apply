@@ -1,7 +1,7 @@
 """Tests for the role-family classifier and the post-LLM skill contract.
 
 These tests pin the behaviour the V1 contract is meant to guarantee:
-- No FAISS / Markov / OpenAI Gym on roles that don't ask for them.
+- No FAISS / Markov / RL skills on roles that don't ask for them.
 - Data Scientist roles keep a minimal ML/IA baseline.
 - Data Scientist offers with AI/NLP signals get NLP + Transformers + HF.
 - Analytics / Software offers strip Flask/FastAPI/NLP unless explicit.
@@ -283,13 +283,13 @@ def test_data_scientist_ia_offer_adds_nlp_transformers_hf():
 
 
 def test_data_scientist_strips_forbidden_prestige_skills():
-    """FAISS / Markov / OpenAI Gym must disappear even if the LLM picked them."""
+    """FAISS / Markov / RL skills must disappear even if the LLM picked them."""
     cv = _cv(
         {
             "data_analysis": ["Python", "SQL"],
             "rag_retrieval": ["FAISS", "Vector search"],
             "stats_signal": ["Markov chains", "ARIMA/SARIMA"],
-            "rl": ["OpenAI Gym"],
+            "rl": ["Q-Learning"],
         }
     )
     analysis = _analysis(role_type="Data Scientist")

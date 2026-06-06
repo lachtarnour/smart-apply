@@ -220,7 +220,6 @@ def test_allowed_skills_whitelist_includes_known_tech() -> None:
     assert "Data analysis" not in allowed
     assert "Reporting" not in allowed
     assert "Reinforcement learning" not in allowed
-    assert "Control tasks" not in allowed
     assert "MLOps" not in allowed
     # Skill not in any category should NOT be allowed
     assert "Kubernetes" not in allowed

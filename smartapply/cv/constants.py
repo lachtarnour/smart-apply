@@ -5,8 +5,6 @@ NON_DISPLAY_DOMAIN_TERMS = {
     "analytics",
     "artificial intelligence",
     "computer vision",
-    "control task",
-    "control tasks",
     "data analysis",
     "data science",
     "deep learning",

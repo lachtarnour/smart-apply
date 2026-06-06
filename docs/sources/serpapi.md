@@ -12,7 +12,7 @@ des champs Google Jobs et des `detected_extensions`.
 | --- | --- |
 | Collecte | Recherche Google Jobs avec localisation, langue, pays, chips et pagination. |
 | Filtre local | Utilise les extensions détectées, le lieu et l'audit de recherche. |
-| Analyse LLM | Pas de metadata builder dédié aujourd'hui ; l'analyse repose sur `RawJob`. |
+| Analyse LLM | Envoie un bloc SerpAPI compact : options de candidature, audit recherche, extensions détectées et résumés de `job_highlights`. |
 | Limite | Google Jobs peut renvoyer peu ou zéro résultat avec des chips trop stricts. |
 
 ## Configuration
@@ -85,10 +85,10 @@ filtre global retombe sur le titre, la description et les règles communes.
 
 ## Stratégie analyse
 
-Il n'y a pas encore de `build_serpapi_source_metadata` enregistré dans
-`smartapply.llm.source_metadata`.
+Builder : `build_serpapi_source_metadata`.
 
-Le LLM reçoit donc :
+Le LLM reçoit les champs communs habituels, plus un bloc compact quand
+`source_data` contient des signaux utiles :
 
 | Entrée analyzer | Contenu |
 | --- | --- |
@@ -96,8 +96,11 @@ Le LLM reçoit donc :
 | `application_url` | URL de candidature choisie. |
 | `offer_body` | Description enrichie avec `job_highlights`. |
 | `source` | `serpapi`. |
-| `source_metadata` | Vide actuellement. |
+| `source_metadata.CONTACT_AND_APPLICATION_METADATA` | Source, entreprise, options de candidature classées par domaine, audit strict/fallback. |
+| `source_metadata.STRUCTURED_JOB_FACTS` | `detected_extensions`, lieu structuré, résumés courts des sections `job_highlights`. |
+| `source_metadata.MOTIVATION_ANCHORS` | Titre, entreprise et points saillants courts utiles à `company_context` / `offer_interest_points`. |
 
-Implication : les `apply_options`, le `search_origin` et les extensions SerpAPI
-servent surtout au filtre/ranking/audit, sauf si elles ont été injectées dans
-les champs `RawJob`.
+Le builder n'envoie pas le JSON brut SerpAPI et ne duplique pas toute la
+description. Il expose seulement les faits source qui aident l'analyzer à
+normaliser vers le schéma commun `JobAnalysis`. Le générateur CV/lettre/email ne
+sait toujours pas que l'offre vient de SerpAPI.
