@@ -470,6 +470,25 @@ def test_scrape_matches_requests_stops_after_api_page_count(mocker) -> None:  # 
     fetch_api.assert_called_once()
 
 
+def test_scrape_matches_requests_stops_after_empty_api_page_without_page_count(mocker) -> None:  # noqa: ANN001
+    fetch_api = mocker.patch(
+        "smartapply.scrapers.welcometothejungle.fetch_matches_api_page",
+        return_value={"data": [], "metadata": {}},
+    )
+
+    jobs = list(
+        scrape_matches_requests(
+            pages=[1, 2, 3],
+            cookie_header="wttj_session=abc",
+            include_company_profile=False,
+            delay_seconds=0,
+        )
+    )
+
+    assert jobs == []
+    fetch_api.assert_called_once()
+
+
 def test_scrape_matches_requests_skips_missing_page_by_default(mocker) -> None:  # noqa: ANN001
     fetch_api = mocker.patch(
         "smartapply.scrapers.welcometothejungle.fetch_matches_api_page",

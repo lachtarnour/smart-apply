@@ -186,7 +186,7 @@ def scrape_matches_requests(
     page_count: int | None = None
     for page_number in pages:
         if page_count is not None and page_number > page_count:
-            continue
+            break
         try:
             payload = (fetch_matches_api_page_fn or fetch_matches_api_page)(
                 page=page_number,
@@ -202,9 +202,15 @@ def scrape_matches_requests(
             continue
 
         page_count = _matches_api_page_count(payload) or page_count
-        for link in parse_matches_api_links(payload):
+        links = parse_matches_api_links(payload)
+        if not links:
+            break
+
+        page_has_new_link = False
+        for link in links:
             if link.url in seen:
                 continue
+            page_has_new_link = True
             seen.add(link.url)
             try:
                 detail_response = requests.get(link.url, headers=WTTJ_HEADERS, timeout=timeout)
@@ -245,6 +251,8 @@ def scrape_matches_requests(
                 return
             if delay_seconds > 0:
                 sleep(delay_seconds)
+        if not page_has_new_link:
+            break
 
 def scrape_matches_live(
     *,
