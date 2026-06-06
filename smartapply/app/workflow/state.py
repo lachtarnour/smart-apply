@@ -103,10 +103,23 @@ def _workflow_counts() -> dict[str, int]:
         pending_jobs = list_pending_processing(s)
         jobs = s.query(Job).all()
         apps = s.query(Application).all()
+        archived_filter_or_duplicate = 0
+        for job in jobs:
+            components = (
+                job.score.components
+                if job.score is not None and isinstance(job.score.components, dict)
+                else {}
+            )
+            if (
+                job.archived_at is not None
+                and components.get("rejection_stage") in {"local_filter", "deduplication"}
+            ):
+                archived_filter_or_duplicate += 1
     return {
         "pending": len(pending_jobs),
         "analyzed": sum(1 for j in jobs if j.status == JobStatus.ANALYZED),
         "archived": sum(1 for j in jobs if j.status == JobStatus.ARCHIVED),
+        "filter_rejected": archived_filter_or_duplicate,
         "ready": sum(
             1
             for a in apps

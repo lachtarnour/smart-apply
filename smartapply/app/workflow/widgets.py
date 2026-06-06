@@ -79,7 +79,7 @@ def render_stepper() -> None:
     m2.metric("Analysées", counts["analyzed"])
     m3.metric("Prêtes", counts["ready"])
     m4.metric("Brouillons", counts["drafts"])
-    m5.metric("Rejetées", counts["archived"])
+    m5.metric("Filtre/Doublons", counts["filter_rejected"])
 
     if st.session_state.get("wf_last_run_summary"):
         st.caption(f"Dernier résultat : {st.session_state['wf_last_run_summary']}")
@@ -215,4 +215,3 @@ def _download_button(label: str, path: str | None, mime: str, key: str) -> None:
 # ============================================================
 # STEP 1 — Fetch
 # ============================================================
-

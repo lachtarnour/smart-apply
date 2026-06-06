@@ -24,7 +24,7 @@ STATUS_FLOW: list[dict[str, Any]] = [
     {
         "status": JobStatus.FILTERED,
         "label": "Filtrée",
-        "description": "Le filtre local a retiré stages, doublons et hors cible.",
+        "description": "Offre gardée après filtre local, encore active même hors top-K.",
         "group": "Pipeline principal",
         "color": "#78A9FF",
     },

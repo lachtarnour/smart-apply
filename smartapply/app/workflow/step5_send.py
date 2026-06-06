@@ -8,13 +8,13 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
-from smartapply.app._helpers import status_label
+from smartapply.app._helpers import pipeline_singleton, status_label
 from smartapply.app.workflow.state import reset_workflow
 from smartapply.app.workflow.step4_generate import _existing_generated_application_ids
 from smartapply.app.workflow.widgets import _download_button, _status_pill
 from smartapply.database import session_scope
 from smartapply.database.models import Application, JobStatus
-from smartapply.database.repository import update_application_tracking, upsert_document
+from smartapply.database.repository import add_contact, update_application_tracking, upsert_document
 
 
 def step5_send() -> None:
@@ -46,11 +46,21 @@ def step5_send() -> None:
         for app in apps:
             docs = {doc.doc_type: doc for doc in app.documents}
             letter_pdf = docs.get("motivation_letter_pdf")
+            analysis_raw = (
+                app.job.analysis.raw_response
+                if app.job and app.job.analysis and isinstance(app.job.analysis.raw_response, dict)
+                else {}
+            )
             rows.append(
                 {
                     "id": app.id,
+                    "job_id": app.job_id,
                     "title": app.job.title,
                     "company": app.job.company,
+                    "application_url": app.job.application_url,
+                    "job_description": app.job.cleaned_description or app.job.description,
+                    "job_location": app.job.location,
+                    "analysis_raw": analysis_raw,
                     "status": app.status,
                     "status_label": status_label(app.status),
                     "strategy": app.application_strategy,
@@ -221,6 +231,21 @@ def _render_send_card(row: dict[str, Any]) -> None:
             )
             final_subject = str(st.session_state.get(subject_key, "")).strip()
             final_body = str(st.session_state.get(body_key, "")).strip()
+            if row["contact"]:
+                if row["strategy"] == "form_only":
+                    st.caption(
+                        "Stratégie initiale formulaire. Comme un contact est disponible, "
+                        "tu peux aussi préparer un email si tu le choisis."
+                    )
+            else:
+                st.caption("Aucun contact email attaché à cette candidature.")
+                if st.button(
+                    "🔎 Chercher un contact email",
+                    key=f"wf_lookup_contact_{app_id}",
+                    help="Action manuelle. Peut utiliser le fournisseur de contacts configuré.",
+                ):
+                    _lookup_contact_for_application(row)
+                    st.rerun()
 
             # ---- Gmail draft button ----
             if row["gmail_draft_id"]:
@@ -228,7 +253,6 @@ def _render_send_card(row: dict[str, Any]) -> None:
             else:
                 disabled = (
                     not row["contact"]
-                    or row["strategy"] == "form_only"
                     or not reviewed
                     or not final_subject
                     or not final_body
@@ -264,9 +288,12 @@ def _render_send_card(row: dict[str, Any]) -> None:
                     )
                     st.rerun()
                 if row["strategy"] == "form_only":
-                    st.caption("Stratégie formulaire uniquement.")
+                    st.caption(
+                        "Formulaire prioritaire. Le brouillon Gmail reste possible "
+                        "si tu as volontairement attaché un contact."
+                    )
                 elif not row["contact"]:
-                    st.caption("Pas de contact → soumets via le formulaire.")
+                    st.caption("Pas de contact → cherche un contact ou soumets via le formulaire.")
                 elif not reviewed:
                     st.caption("Coche la validation finale avant Gmail.")
                 elif not final_subject or not final_body:
@@ -281,7 +308,7 @@ def _render_send_card(row: dict[str, Any]) -> None:
                 if st.button(
                     "✉ Marquer email envoyé",
                     key=f"wf_mark_email_{app_id}",
-                    disabled=row["strategy"] == "form_only",
+                    disabled=not row["contact"],
                 ):
                     with session_scope() as s:
                         update_application_tracking(s, app_id, email_sent=True)
@@ -300,6 +327,106 @@ def _render_send_card(row: dict[str, Any]) -> None:
                         with session_scope() as s:
                             update_application_tracking(s, app_id, form_submitted=True)
                         st.rerun()
+
+
+def _row_analysis_value(row: dict[str, Any], key: str) -> str:
+    raw = row.get("analysis_raw")
+    if not isinstance(raw, dict):
+        return ""
+    return str(raw.get(key) or "").strip()
+
+
+def _regenerate_final_eml(app: Application, *, recipient: str, cc_recipient: str | None) -> str | None:
+    from smartapply.email_agent import export_eml
+    from smartapply.profile import get_profile
+
+    subject = str(app.email_subject or "").strip()
+    body = str(app.email_body or "").strip()
+    if not subject or not body:
+        return None
+
+    docs = {doc.doc_type: doc for doc in app.documents}
+    cv_pdf_doc = docs.get("cv_pdf")
+    letter_pdf_doc = docs.get("motivation_letter_pdf")
+    attachments = [
+        path
+        for path in (
+            app.cv_pdf_path or (cv_pdf_doc.path if cv_pdf_doc else None) or app.cv_docx_path,
+            letter_pdf_doc.path if letter_pdf_doc else None,
+        )
+        if path and Path(path).exists()
+    ]
+    output_dir = pipeline_singleton().settings.output_dir
+    eml_path = Path(app.eml_path) if app.eml_path else output_dir / f"job-{app.job_id}" / "draft.eml"
+    written = export_eml(
+        subject=subject,
+        body=body,
+        sender=get_profile().identity.email,
+        recipient=recipient,
+        cc_recipient=cc_recipient,
+        attachments=attachments,
+        out_path=eml_path,
+    )
+    app.eml_path = str(written)
+    return str(written)
+
+
+def _lookup_contact_for_application(row: dict[str, Any]) -> None:
+    service = pipeline_singleton().contact_service
+    candidate = service.find(
+        company=str(row.get("company") or ""),
+        application_url=str(row.get("application_url") or "") or None,
+        contact_domain_hint=_row_analysis_value(row, "contact_domain_hint"),
+        contact_domain_kind=_row_analysis_value(row, "contact_domain_kind") or "unknown",
+        job_description=str(row.get("job_description") or "") or None,
+        analysis=row.get("analysis_raw") if isinstance(row.get("analysis_raw"), dict) else None,
+        job_location=_row_analysis_value(row, "extracted_location")
+        or str(row.get("job_location") or "")
+        or None,
+    )
+    if candidate is None:
+        decision = service.last_lookup_decision
+        if decision is not None and decision.warnings:
+            st.warning(
+                "Aucun contact fiable trouvé. "
+                + " · ".join(str(warning) for warning in decision.warnings[:4])
+            )
+        else:
+            st.warning("Aucun contact email fiable trouvé pour cette candidature.")
+        return
+
+    with session_scope() as s:
+        app = s.get(Application, int(row["id"]))
+        if app is None:
+            st.error("Candidature introuvable.")
+            return
+        company = app.job.company if app.job else str(row.get("company") or "")
+        contact_row = add_contact(
+            s,
+            company=company,
+            email=candidate.email,
+            source_url=candidate.source_url,
+            confidence=candidate.confidence,
+            full_name=candidate.full_name,
+            job_title=candidate.job_title,
+            location_hint=candidate.location_hint,
+            decision_reason=candidate.decision_reason or f"final_step:{candidate.provider}",
+        )
+        app.contact_id = contact_row.id
+        app.application_strategy = "email_and_form" if app.form_submission_url else "email_only"
+        if app.status == JobStatus.READY_FOR_FORM_SUBMISSION:
+            app.status = JobStatus.EMAIL_GENERATED
+            if app.job is not None:
+                app.job.status = JobStatus.EMAIL_GENERATED
+        eml_path = _regenerate_final_eml(
+            app,
+            recipient=candidate.email,
+            cc_recipient=app.email_cc,
+        )
+        if eml_path:
+            upsert_document(s, app.id, doc_type="eml", path=eml_path)
+
+    st.success(f"Contact trouvé et attaché : {candidate.email}")
 
 
 def _render_gmail_dry_run_preview(row: dict[str, Any]) -> None:

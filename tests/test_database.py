@@ -74,6 +74,55 @@ def test_upsert_job_inserts_then_updates() -> None:
         assert job.company == "Acme"
 
 
+def test_workflow_counts_filter_rejected_excludes_filtered_top_k() -> None:
+    from smartapply.app.workflow.state import _workflow_counts
+    from smartapply.database import session_scope
+    from smartapply.database.models import JobStatus
+    from smartapply.database.repository import mark_archived, set_score, upsert_job
+
+    with session_scope() as s:
+        not_top_k = upsert_job(
+            s,
+            external_id="serpapi:not-top-k",
+            title="Data Analyst",
+            company="Acme",
+            description="desc",
+            source="serpapi",
+        )
+        not_top_k.status = JobStatus.FILTERED
+
+        local_rejected = upsert_job(
+            s,
+            external_id="serpapi:local-rejected",
+            title="Sales internship",
+            company="Acme",
+            description="desc",
+            source="serpapi",
+        )
+        set_score(
+            s,
+            local_rejected.id,
+            components={"rejection_stage": "local_filter"},
+        )
+        mark_archived(s, local_rejected.id)
+
+        archived_other = upsert_job(
+            s,
+            external_id="serpapi:archived-other",
+            title="Old job",
+            company="Acme",
+            description="desc",
+            source="serpapi",
+        )
+        set_score(s, archived_other.id, components={"rejection_stage": "manual"})
+        mark_archived(s, archived_other.id)
+
+    counts = _workflow_counts()
+
+    assert counts["filter_rejected"] == 1
+    assert counts["archived"] == 2
+
+
 def test_score_and_top_jobs() -> None:
     from smartapply.database import session_scope
     from smartapply.database.repository import set_score, top_jobs_by_score, upsert_job
