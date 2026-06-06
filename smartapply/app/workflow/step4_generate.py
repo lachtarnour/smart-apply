@@ -30,16 +30,18 @@ def _existing_generated_application_ids(limit: int = 50) -> list[int]:
         return [
             int(app.id)
             for app in apps
-            if app.cv_pdf_path
-            or app.cv_docx_path
-            or app.email_body
-            or app.status
-            in {
-                JobStatus.EMAIL_GENERATED,
-                JobStatus.READY_FOR_FORM_SUBMISSION,
-                JobStatus.DRAFT_CREATED,
-                JobStatus.CONTACT_MISSING,
-            }
+            if app.status not in {JobStatus.SENT, JobStatus.ARCHIVED}
+            and (
+                app.cv_pdf_path
+                or app.cv_docx_path
+                or app.email_body
+                or app.status in {
+                    JobStatus.EMAIL_GENERATED,
+                    JobStatus.READY_FOR_FORM_SUBMISSION,
+                    JobStatus.DRAFT_CREATED,
+                    JobStatus.CONTACT_MISSING,
+                }
+            )
         ]
 
 
@@ -467,5 +469,3 @@ def _render_application_detail(application_id: int) -> None:
 # ============================================================
 # STEP 5 — Send
 # ============================================================
-
-

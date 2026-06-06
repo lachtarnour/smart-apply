@@ -24,13 +24,11 @@ from smartapply.database.repository import (
 )
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-CLOSE_ACTION_LABELS = {
-    "done": "Candidature faite",
-    "archive": "Archiver",
-}
+CLOSED_STATUSES = (JobStatus.SENT, JobStatus.ARCHIVED)
 
 
 def step5_send() -> None:
+    _render_close_button_styles()
     st.markdown(
         """
         <div class="sa-panel">
@@ -98,8 +96,11 @@ def step5_send() -> None:
                 }
             )
 
+    rows = _active_rows(rows)
     if not rows:
         st.info("Pas de candidature à envoyer.")
+        st.success("Toutes les candidatures générées pour cette étape sont clôturées.")
+        _render_step5_navigation()
         return
 
     drafts_done = sum(1 for row in rows if row["gmail_draft_id"])
@@ -110,7 +111,7 @@ def step5_send() -> None:
         for row in rows
         if row["email_sent_at"]
         or row["form_submitted_at"]
-        or row["status"] in (JobStatus.SENT, JobStatus.ARCHIVED)
+        or _is_closed_status(str(row["status"]))
     )
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Candidatures", len(rows))
@@ -141,6 +142,41 @@ def step5_send() -> None:
     for row in rows:
         _render_send_card(row)
 
+    _render_step5_navigation()
+    st.divider()
+
+
+def _render_close_button_styles() -> None:
+    st.markdown(
+        """
+        <style>
+        div[class*="st-key-wf_close_done_"] button {
+            background: #1F7A4D !important;
+            border-color: #35B66B !important;
+            color: #FFFFFF !important;
+        }
+        div[class*="st-key-wf_close_done_"] button:hover {
+            background: #24935C !important;
+            border-color: #52C98A !important;
+            color: #FFFFFF !important;
+        }
+        div[class*="st-key-wf_close_archive_"] button {
+            background: #8F2F38 !important;
+            border-color: #D65B66 !important;
+            color: #FFFFFF !important;
+        }
+        div[class*="st-key-wf_close_archive_"] button:hover {
+            background: #A63A44 !important;
+            border-color: #FF7A84 !important;
+            color: #FFFFFF !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_step5_navigation() -> None:
     col_back, col_reset = st.columns([1, 1])
     with col_back:
         if st.button("⬅ Retour à l'étape 4", key="wf_step5_back", width="stretch"):
@@ -151,12 +187,29 @@ def step5_send() -> None:
             reset_workflow()
             st.rerun()
 
-    st.divider()
-
 
 def _reset_final_email(subject_key: str, body_key: str, subject: str, body: str) -> None:
     st.session_state[subject_key] = subject
     st.session_state[body_key] = body
+
+
+def _is_closed_status(status: str) -> bool:
+    return status in CLOSED_STATUSES
+
+
+def _active_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    active = [row for row in rows if not _is_closed_status(str(row["status"]))]
+    st.session_state["wf_generated_app_ids"] = [int(row["id"]) for row in active]
+    return active
+
+
+def _drop_application_from_step5(app_id: int) -> None:
+    current_ids = st.session_state.get("wf_generated_app_ids", [])
+    st.session_state["wf_generated_app_ids"] = [
+        int(current_id)
+        for current_id in current_ids
+        if int(current_id) != int(app_id)
+    ]
 
 
 def _is_valid_email(value: str) -> bool:
@@ -184,6 +237,22 @@ def _close_application(app_id: int, action: str) -> bool:
 
     st.error("Action de clôture inconnue.")
     return False
+
+
+def _update_tracking_and_return_closed(
+    app_id: int,
+    *,
+    email_sent: bool = False,
+    form_submitted: bool = False,
+) -> bool:
+    with session_scope() as s:
+        app = update_application_tracking(
+            s,
+            int(app_id),
+            email_sent=email_sent,
+            form_submitted=form_submitted,
+        )
+        return _is_closed_status(app.status)
 
 
 def _mark_application_done(app: Application) -> None:
@@ -396,8 +465,12 @@ def _render_send_card(row: dict[str, Any]) -> None:
                     key=f"wf_mark_email_{app_id}",
                     disabled=not row["contact"],
                 ):
-                    with session_scope() as s:
-                        update_application_tracking(s, app_id, email_sent=True)
+                    closed = _update_tracking_and_return_closed(
+                        app_id,
+                        email_sent=True,
+                    )
+                    if closed:
+                        _drop_application_from_step5(app_id)
                     st.rerun()
 
             if row["strategy"] in ("email_and_form", "form_only"):
@@ -410,21 +483,33 @@ def _render_send_card(row: dict[str, Any]) -> None:
                         "🗂 Marquer formulaire soumis",
                         key=f"wf_mark_form_{app_id}",
                     ):
-                        with session_scope() as s:
-                            update_application_tracking(s, app_id, form_submitted=True)
+                        closed = _update_tracking_and_return_closed(
+                            app_id,
+                            form_submitted=True,
+                        )
+                        if closed:
+                            _drop_application_from_step5(app_id)
                         st.rerun()
 
             st.divider()
             st.markdown("**Clôture**")
-            close_action = st.selectbox(
-                "Action finale",
-                options=list(CLOSE_ACTION_LABELS),
-                format_func=lambda value: CLOSE_ACTION_LABELS[str(value)],
-                key=f"wf_close_action_{app_id}",
-            )
-            if st.button("Appliquer la clôture", key=f"wf_close_apply_{app_id}"):
-                closed = _close_application(app_id, str(close_action))
-                if closed:
+            close_done, close_archive = st.columns(2)
+            with close_done:
+                if st.button(
+                    "Candidature faite",
+                    key=f"wf_close_done_{app_id}",
+                    type="primary",
+                    width="stretch",
+                ) and _close_application(app_id, "done"):
+                    _drop_application_from_step5(app_id)
+                    st.rerun()
+            with close_archive:
+                if st.button(
+                    "Archiver",
+                    key=f"wf_close_archive_{app_id}",
+                    width="stretch",
+                ) and _close_application(app_id, "archive"):
+                    _drop_application_from_step5(app_id)
                     st.rerun()
 
 

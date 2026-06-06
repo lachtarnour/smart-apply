@@ -511,7 +511,10 @@ def test_workflow_step5_uses_creer_brouillon_label_not_envoyer() -> None:
     assert "Enregistrer le contact" in source
     assert "Candidature faite" in source
     assert "Archiver" in source
-    assert "Appliquer la clôture" in source
+    assert "wf_close_done_" in source
+    assert "wf_close_archive_" in source
+    assert "Appliquer la clôture" not in source
+    assert "Action finale" not in source
     assert "on_click=_reset_final_email" in source
     assert 'or row["strategy"] == "form_only"' not in source
 
@@ -573,3 +576,127 @@ def test_workflow_step5_close_application_marks_done_or_archived(
         assert archive_app.status == JobStatus.ARCHIVED
         assert archive_app.job.status == JobStatus.ARCHIVED
         assert archive_app.job.archived_at is not None
+
+
+def test_workflow_step5_tracking_actions_close_when_strategy_is_complete(
+    isolated_db: Path,
+) -> None:
+    assert isolated_db.exists()
+
+    from importlib import import_module
+
+    step5_module = import_module("smartapply.app.workflow.step5_send")
+    from smartapply.database import session_scope
+    from smartapply.database.models import JobStatus
+    from smartapply.database.repository import create_or_get_application, upsert_job
+
+    with session_scope() as s:
+        email_job = upsert_job(
+            s,
+            external_id="manual:email-only-close",
+            title="Data Scientist",
+            company="Acme",
+            description="desc",
+            source="manual",
+        )
+        email_app = create_or_get_application(s, email_job.id)
+        email_app.application_strategy = "email_only"
+        email_app.status = JobStatus.EMAIL_GENERATED
+
+        combo_job = upsert_job(
+            s,
+            external_id="manual:email-and-form-close",
+            title="ML Engineer",
+            company="Beta",
+            description="desc",
+            source="manual",
+        )
+        combo_app = create_or_get_application(s, combo_job.id)
+        combo_app.application_strategy = "email_and_form"
+        combo_app.status = JobStatus.EMAIL_GENERATED
+
+        email_app_id = email_app.id
+        combo_app_id = combo_app.id
+
+    assert step5_module._update_tracking_and_return_closed(
+        email_app_id,
+        email_sent=True,
+    )
+    assert not step5_module._update_tracking_and_return_closed(
+        combo_app_id,
+        email_sent=True,
+    )
+    assert step5_module._update_tracking_and_return_closed(
+        combo_app_id,
+        form_submitted=True,
+    )
+
+    with session_scope() as s:
+        email_app = s.get(step5_module.Application, email_app_id)
+        combo_app = s.get(step5_module.Application, combo_app_id)
+        assert email_app is not None
+        assert combo_app is not None
+        assert email_app.status == JobStatus.SENT
+        assert email_app.job.status == JobStatus.SENT
+        assert combo_app.status == JobStatus.SENT
+        assert combo_app.job.status == JobStatus.SENT
+        assert combo_app.email_sent_at is not None
+        assert combo_app.form_submitted_at is not None
+
+
+def test_existing_generated_application_ids_excludes_closed_applications(
+    isolated_db: Path,
+) -> None:
+    assert isolated_db.exists()
+
+    from smartapply.app.workflow.step4_generate import _existing_generated_application_ids
+    from smartapply.database import session_scope
+    from smartapply.database.models import JobStatus
+    from smartapply.database.repository import create_or_get_application, upsert_job
+
+    with session_scope() as s:
+        active_job = upsert_job(
+            s,
+            external_id="manual:active-generated",
+            title="Data Scientist",
+            company="Acme",
+            description="desc",
+            source="manual",
+        )
+        active_app = create_or_get_application(s, active_job.id)
+        active_app.status = JobStatus.EMAIL_GENERATED
+        active_app.cv_pdf_path = "/tmp/active.pdf"
+
+        sent_job = upsert_job(
+            s,
+            external_id="manual:sent-generated",
+            title="ML Engineer",
+            company="Beta",
+            description="desc",
+            source="manual",
+        )
+        sent_app = create_or_get_application(s, sent_job.id)
+        sent_app.status = JobStatus.SENT
+        sent_app.cv_pdf_path = "/tmp/sent.pdf"
+
+        archived_job = upsert_job(
+            s,
+            external_id="manual:archived-generated",
+            title="Analytics Engineer",
+            company="Gamma",
+            description="desc",
+            source="manual",
+        )
+        archived_app = create_or_get_application(s, archived_job.id)
+        archived_app.status = JobStatus.ARCHIVED
+        archived_app.email_body = "Bonjour"
+
+        active_app_id = active_app.id
+        sent_app_id = sent_app.id
+        archived_app_id = archived_app.id
+
+    ids = _existing_generated_application_ids()
+
+    assert active_app_id in ids
+    assert sent_app_id not in ids
+    assert archived_app_id not in ids
