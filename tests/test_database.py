@@ -186,6 +186,33 @@ def test_contact_and_application_flow() -> None:
         assert tracked.notes == "Relancer dans une semaine."
 
 
+def test_add_contact_reuses_existing_normalized_identity() -> None:
+    from smartapply.database import session_scope
+    from smartapply.database.repository import add_contact
+
+    with session_scope() as s:
+        first = add_contact(
+            s,
+            company=" Acme ",
+            email=" Jobs@Acme.Example ",
+            full_name="Jane Doe",
+            confidence=0.5,
+        )
+        second = add_contact(
+            s,
+            company="Acme",
+            email="jobs@acme.example",
+            confidence=0.9,
+            full_name=None,
+        )
+
+        assert second.id == first.id
+        assert second.company == "Acme"
+        assert second.email == "jobs@acme.example"
+        assert second.confidence == 0.9
+        assert second.full_name == "Jane Doe"
+
+
 def test_contact_lookup_cache_upsert_reuses_unique_key() -> None:
     from datetime import datetime, timezone
 

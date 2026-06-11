@@ -10,6 +10,7 @@ import streamlit as st
 from smartapply.app._helpers import pipeline_singleton, render_section_header
 from smartapply.app.workflow.state import _begin_run, _end_run, settings
 from smartapply.app.workflow.step1_fetch import (
+    _archive_jobs_for_workflow,
     _render_filter_rejected_picker,
     _restore_archived_jobs_for_manual_flow,
 )
@@ -18,7 +19,7 @@ from smartapply.app.workflow.step2_score import (
     _selected_analysis_ids_from_df,
     _sync_analysis_keep_state,
 )
-from smartapply.app.workflow.widgets import _filter_table, _render_action_strip
+from smartapply.app.workflow.widgets import _filter_table, _render_action_strip, _sort_table
 from smartapply.database import session_scope
 from smartapply.database.models import Job, JobStatus
 
@@ -38,6 +39,7 @@ def _analyzed_jobs_df(job_ids: list[int] | None = None) -> pd.DataFrame:
             rows.append(
                 {
                     "keep": True,
+                    "archive": False,
                     "id": job.id,
                     "title": job.title,
                     "company": job.company,
@@ -159,31 +161,63 @@ def step3_analyze() -> None:
             key="wf_step3_candidate_search",
         )
         visible_candidate_df = _filter_table(candidate_df, candidate_search)
-        edited_candidates = st.data_editor(
+        visible_candidate_df = _sort_table(
             visible_candidate_df,
-            column_config={
-                "analyze": st.column_config.CheckboxColumn("Analyser", default=True),
-                "id": st.column_config.NumberColumn("id", disabled=True, width="small"),
-                "title": st.column_config.TextColumn("Titre", disabled=True, width="large"),
-                "company": st.column_config.TextColumn("Entreprise", disabled=True, width="medium"),
-                "location": st.column_config.TextColumn("Lieu", disabled=True, width="small"),
-                "contract": st.column_config.TextColumn("Contrat", disabled=True, width="small"),
-                "source": st.column_config.TextColumn("Source", disabled=True, width="small"),
-                "status": st.column_config.TextColumn("Statut", disabled=True, width="small"),
-                "score": st.column_config.NumberColumn("Score final", disabled=True, format="%.3f", width="small"),
-                "semantic": st.column_config.NumberColumn("Sémantique", disabled=True, format="%.3f", width="small"),
-                "skills": st.column_config.NumberColumn("Skills", disabled=True, format="%.3f", width="small"),
-                "seniority_score": st.column_config.NumberColumn("Seniorité", disabled=True, format="%.3f", width="small"),
-                "location_score": st.column_config.NumberColumn("Lieu score", disabled=True, format="%.3f", width="small"),
-                "reasons": st.column_config.TextColumn("Raisons", disabled=True, width="large"),
-                "preview": st.column_config.TextColumn("Aperçu", disabled=True, width="large"),
-                "url": st.column_config.LinkColumn("URL", disabled=True, width="small"),
-            },
-            hide_index=True,
-            width="stretch",
-            key="wf_step3_candidate_editor",
+            state_prefix="wf_step3_candidate_editor",
+            default_sort="score",
+            default_desc=True,
         )
-        _sync_analysis_keep_state(edited_candidates)
+        with st.form("wf_step3_candidate_editor_form"):
+            edited_candidates = st.data_editor(
+                visible_candidate_df,
+                column_config={
+                    "analyze": st.column_config.CheckboxColumn("Analyser", default=True),
+                    "archive": st.column_config.CheckboxColumn("Archiver", default=False),
+                    "id": st.column_config.NumberColumn("id", disabled=True, width="small"),
+                    "title": st.column_config.TextColumn("Titre", disabled=True, width="large"),
+                    "company": st.column_config.TextColumn("Entreprise", disabled=True, width="medium"),
+                    "location": st.column_config.TextColumn("Lieu", disabled=True, width="small"),
+                    "contract": st.column_config.TextColumn("Contrat", disabled=True, width="small"),
+                    "source": st.column_config.TextColumn("Source", disabled=True, width="small"),
+                    "status": st.column_config.TextColumn("Statut", disabled=True, width="small"),
+                    "score": st.column_config.NumberColumn("Score final", disabled=True, format="%.3f", width="small"),
+                    "semantic": st.column_config.NumberColumn("Sémantique", disabled=True, format="%.3f", width="small"),
+                    "skills": st.column_config.NumberColumn("Skills", disabled=True, format="%.3f", width="small"),
+                    "seniority_score": st.column_config.NumberColumn("Seniorité", disabled=True, format="%.3f", width="small"),
+                    "location_score": st.column_config.NumberColumn("Lieu score", disabled=True, format="%.3f", width="small"),
+                    "reasons": st.column_config.TextColumn("Raisons", disabled=True, width="large"),
+                    "preview": st.column_config.TextColumn("Aperçu", disabled=True, width="large"),
+                    "url": st.column_config.LinkColumn("URL", disabled=True, width="small"),
+                },
+                hide_index=True,
+                width="stretch",
+                key="wf_step3_candidate_editor",
+            )
+            col_apply, col_archive = st.columns(2)
+            with col_apply:
+                apply_candidates = st.form_submit_button(
+                    "Appliquer les coches",
+                    type="primary",
+                    width="stretch",
+                )
+            with col_archive:
+                archive_candidates = st.form_submit_button(
+                    "Archiver les offres cochées",
+                    width="stretch",
+                )
+        if archive_candidates:
+            archive_ids = edited_candidates.loc[
+                edited_candidates["archive"], "id"
+            ].astype(int).tolist()
+            if not archive_ids:
+                st.warning("Coche au moins une offre dans la colonne Archiver.")
+            else:
+                count = _archive_jobs_for_workflow(archive_ids)
+                st.success(f"{count} offre(s) archivée(s).")
+                st.rerun()
+        if apply_candidates:
+            _sync_analysis_keep_state(edited_candidates)
+            st.success("Sélection mise à jour.")
         ids_to_analyze = _selected_analysis_ids_from_df(candidate_df)
 
     if selected_rejected_analysis_ids:
@@ -346,33 +380,63 @@ def step3_analyze() -> None:
     visible_df = _filter_table(df.rename(columns={"reasons": "preview"}), analyze_search)
     if "preview" in visible_df.columns:
         visible_df = visible_df.rename(columns={"preview": "reasons"})
-
-    edited = st.data_editor(
+    visible_df = _sort_table(
         visible_df,
-        column_config={
-            "keep": st.column_config.CheckboxColumn("Garder", default=True),
-            "id": st.column_config.NumberColumn("id", disabled=True, width="small"),
-            "title": st.column_config.TextColumn("Titre", disabled=True, width="large"),
-            "company": st.column_config.TextColumn("Entreprise", disabled=True, width="medium"),
-            "score": st.column_config.NumberColumn("Score", disabled=True, format="%.3f", width="small"),
-            "seniority": st.column_config.TextColumn("Seniority", disabled=True, width="small"),
-            "company_size": st.column_config.TextColumn("Taille", disabled=True, width="small"),
-            "lang": st.column_config.TextColumn("Lang", disabled=True, width="small"),
-            "manual_contact": st.column_config.TextColumn(
-                "Contact manuel",
-                width="medium",
-                help="Optionnel. Email recruteur/RH à utiliser pour cette offre.",
-            ),
-            "domain": st.column_config.TextColumn("Domaine", disabled=True, width="medium"),
-            "reasons": st.column_config.TextColumn("Pourquoi ça match", disabled=True, width="large"),
-            "risks": st.column_config.TextColumn("Risques", disabled=True, width="medium"),
-        },
-        hide_index=True,
-        width="stretch",
-        key="wf_step2_editor",
+        state_prefix="wf_step3_analyzed_editor",
+        default_sort="score",
+        default_desc=True,
     )
-    _sync_manual_contacts(edited)
-    _sync_keep_state(edited, state_key="wf_apply_keep_map")
+
+    with st.form("wf_step3_analyzed_editor_form"):
+        edited = st.data_editor(
+            visible_df,
+            column_config={
+                "keep": st.column_config.CheckboxColumn("Garder", default=True),
+                "archive": st.column_config.CheckboxColumn("Archiver", default=False),
+                "id": st.column_config.NumberColumn("id", disabled=True, width="small"),
+                "title": st.column_config.TextColumn("Titre", disabled=True, width="large"),
+                "company": st.column_config.TextColumn("Entreprise", disabled=True, width="medium"),
+                "score": st.column_config.NumberColumn("Score", disabled=True, format="%.3f", width="small"),
+                "seniority": st.column_config.TextColumn("Seniority", disabled=True, width="small"),
+                "company_size": st.column_config.TextColumn("Taille", disabled=True, width="small"),
+                "lang": st.column_config.TextColumn("Lang", disabled=True, width="small"),
+                "manual_contact": st.column_config.TextColumn(
+                    "Contact manuel",
+                    width="medium",
+                    help="Optionnel. Email recruteur/RH à utiliser pour cette offre.",
+                ),
+                "domain": st.column_config.TextColumn("Domaine", disabled=True, width="medium"),
+                "reasons": st.column_config.TextColumn("Pourquoi ça match", disabled=True, width="large"),
+                "risks": st.column_config.TextColumn("Risques", disabled=True, width="medium"),
+            },
+            hide_index=True,
+            width="stretch",
+            key="wf_step2_editor",
+        )
+        col_apply, col_archive = st.columns(2)
+        with col_apply:
+            apply_analyzed = st.form_submit_button(
+                "Appliquer les coches",
+                type="primary",
+                width="stretch",
+            )
+        with col_archive:
+            archive_analyzed = st.form_submit_button(
+                "Archiver les offres cochées",
+                width="stretch",
+            )
+    if archive_analyzed:
+        archive_ids = edited.loc[edited["archive"], "id"].astype(int).tolist()
+        if not archive_ids:
+            st.warning("Coche au moins une offre dans la colonne Archiver.")
+        else:
+            count = _archive_jobs_for_workflow(archive_ids)
+            st.success(f"{count} offre(s) archivée(s).")
+            st.rerun()
+    if apply_analyzed:
+        _sync_manual_contacts(edited)
+        _sync_keep_state(edited, state_key="wf_apply_keep_map")
+        st.success("Sélection mise à jour.")
     selected = _kept_ids_from_full_df(df, state_key="wf_apply_keep_map")
 
     st.write(f"→ **{len(selected)} offre(s) à transformer en candidature**")
@@ -396,5 +460,3 @@ def step3_analyze() -> None:
 # ============================================================
 # STEP 4 — Generate (CV + email)
 # ============================================================
-
-

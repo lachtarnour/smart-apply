@@ -10,6 +10,7 @@ import streamlit as st
 from smartapply.app._helpers import pipeline_singleton, render_section_header, status_label
 from smartapply.app.workflow.state import _begin_run, _end_run, settings
 from smartapply.app.workflow.step1_fetch import (
+    _archive_jobs_for_workflow,
     _filter_override_ids,
     _job_editor,
     _pending_jobs_df,
@@ -17,7 +18,12 @@ from smartapply.app.workflow.step1_fetch import (
     _render_job_detail,
     _restore_archived_jobs_for_manual_flow,
 )
-from smartapply.app.workflow.widgets import _filter_table, _render_action_strip, _status_pill
+from smartapply.app.workflow.widgets import (
+    _filter_table,
+    _render_action_strip,
+    _sort_table,
+    _status_pill,
+)
 from smartapply.database import session_scope
 from smartapply.database.models import Job, JobStatus
 
@@ -46,6 +52,7 @@ def _ranked_jobs_df(job_ids: list[int] | None = None) -> pd.DataFrame:
             rows.append(
                 {
                     "analyze": analysis_keep_map.get(int(job.id), default_keep),
+                    "archive": False,
                     "id": int(job.id),
                     "title": job.title,
                     "company": job.company,
@@ -316,31 +323,61 @@ def step2_score() -> None:
         key="wf_step2_rank_search",
     )
     visible_ranked_df = _filter_table(ranked_df, rank_search)
-    edited = st.data_editor(
+    visible_ranked_df = _sort_table(
         visible_ranked_df,
-        column_config={
-            "analyze": st.column_config.CheckboxColumn("Analyser", default=True),
-            "id": st.column_config.NumberColumn("id", disabled=True, width="small"),
-            "title": st.column_config.TextColumn("Titre", disabled=True, width="large"),
-            "company": st.column_config.TextColumn("Entreprise", disabled=True, width="medium"),
-            "location": st.column_config.TextColumn("Lieu", disabled=True, width="small"),
-            "contract": st.column_config.TextColumn("Contrat", disabled=True, width="small"),
-            "source": st.column_config.TextColumn("Source", disabled=True, width="small"),
-            "status": st.column_config.TextColumn("Statut", disabled=True, width="small"),
-            "score": st.column_config.NumberColumn("Score final", disabled=True, format="%.3f", width="small"),
-            "semantic": st.column_config.NumberColumn("Sémantique", disabled=True, format="%.3f", width="small"),
-            "skills": st.column_config.NumberColumn("Skills", disabled=True, format="%.3f", width="small"),
-            "seniority_score": st.column_config.NumberColumn("Seniorité", disabled=True, format="%.3f", width="small"),
-            "location_score": st.column_config.NumberColumn("Lieu score", disabled=True, format="%.3f", width="small"),
-            "reasons": st.column_config.TextColumn("Raisons", disabled=True, width="large"),
-            "preview": st.column_config.TextColumn("Aperçu", disabled=True, width="large"),
-            "url": st.column_config.LinkColumn("URL", disabled=True, width="small"),
-        },
-        hide_index=True,
-        width="stretch",
-        key="wf_step2_ranked_editor",
+        state_prefix="wf_step2_ranked_editor",
+        default_sort="score",
+        default_desc=True,
     )
-    _sync_analysis_keep_state(edited)
+    with st.form("wf_step2_ranked_editor_form"):
+        edited = st.data_editor(
+            visible_ranked_df,
+            column_config={
+                "analyze": st.column_config.CheckboxColumn("Analyser", default=True),
+                "archive": st.column_config.CheckboxColumn("Archiver", default=False),
+                "id": st.column_config.NumberColumn("id", disabled=True, width="small"),
+                "title": st.column_config.TextColumn("Titre", disabled=True, width="large"),
+                "company": st.column_config.TextColumn("Entreprise", disabled=True, width="medium"),
+                "location": st.column_config.TextColumn("Lieu", disabled=True, width="small"),
+                "contract": st.column_config.TextColumn("Contrat", disabled=True, width="small"),
+                "source": st.column_config.TextColumn("Source", disabled=True, width="small"),
+                "status": st.column_config.TextColumn("Statut", disabled=True, width="small"),
+                "score": st.column_config.NumberColumn("Score final", disabled=True, format="%.3f", width="small"),
+                "semantic": st.column_config.NumberColumn("Sémantique", disabled=True, format="%.3f", width="small"),
+                "skills": st.column_config.NumberColumn("Skills", disabled=True, format="%.3f", width="small"),
+                "seniority_score": st.column_config.NumberColumn("Seniorité", disabled=True, format="%.3f", width="small"),
+                "location_score": st.column_config.NumberColumn("Lieu score", disabled=True, format="%.3f", width="small"),
+                "reasons": st.column_config.TextColumn("Raisons", disabled=True, width="large"),
+                "preview": st.column_config.TextColumn("Aperçu", disabled=True, width="large"),
+                "url": st.column_config.LinkColumn("URL", disabled=True, width="small"),
+            },
+            hide_index=True,
+            width="stretch",
+            key="wf_step2_ranked_editor",
+        )
+        col_apply, col_archive = st.columns(2)
+        with col_apply:
+            apply_ranked = st.form_submit_button(
+                "Appliquer les coches",
+                type="primary",
+                width="stretch",
+            )
+        with col_archive:
+            archive_ranked = st.form_submit_button(
+                "Archiver les offres cochées",
+                width="stretch",
+            )
+    if archive_ranked:
+        archive_ids = edited.loc[edited["archive"], "id"].astype(int).tolist()
+        if not archive_ids:
+            st.warning("Coche au moins une offre dans la colonne Archiver.")
+        else:
+            count = _archive_jobs_for_workflow(archive_ids)
+            st.success(f"{count} offre(s) archivée(s).")
+            st.rerun()
+    if apply_ranked:
+        _sync_analysis_keep_state(edited)
+        st.success("Sélection mise à jour.")
     selected = _selected_analysis_ids_from_df(ranked_df)
     st.session_state["wf_selected_for_analysis"] = selected
     st.markdown(
@@ -383,4 +420,3 @@ def step2_score() -> None:
 # ============================================================
 # STEP 3 — Analyze (LLM)
 # ============================================================
-

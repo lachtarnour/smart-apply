@@ -149,14 +149,12 @@ def _attach_company_profile(
     if company_profile is None:
         company_profile = dict(existing_profile)
         try:
-            response = requests.get(profile_url, headers=WTTJ_HEADERS, timeout=timeout)
-            if response.status_code == 202 and not response.text:
-                raise requests.RequestException("WTTJ returned an empty 202 company page")
-            response.raise_for_status()
+            html = _fetch_company_profile_html(profile_url, timeout=timeout)
             company_profile = _merge_company_profiles(
                 company_profile,
-                parse_company_html(response.text, url=profile_url),
+                parse_company_html(html, url=profile_url),
             )
+            company_profile.pop("scrape_error", None)
         except requests.RequestException as exc:
             company_profile = _merge_company_profiles(
                 company_profile,
@@ -175,6 +173,22 @@ def _attach_company_profile(
     source_data["company_website"] = website
     source_data["company_domain"] = _domain_from_url(website)
     job.source_data = source_data
+
+def _fetch_company_profile_html(
+    profile_url: str,
+    *,
+    timeout: int,
+    attempts: int = 2,
+) -> str:
+    last_error: requests.RequestException | None = None
+    for _ in range(max(1, attempts)):
+        response = requests.get(profile_url, headers=WTTJ_HEADERS, timeout=timeout)
+        if response.status_code == 202 and not response.text.strip():
+            last_error = requests.RequestException("WTTJ returned an empty 202 company page")
+            continue
+        response.raise_for_status()
+        return response.text
+    raise last_error or requests.RequestException("WTTJ company page did not return HTML")
 
 def _merge_company_profiles(
     base: dict[str, Any],

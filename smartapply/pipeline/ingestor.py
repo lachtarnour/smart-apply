@@ -9,12 +9,14 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlsplit
 
 from smartapply.database import session_scope
 from smartapply.database.models import JobStatus
 from smartapply.database.repository import (
     get_job_by_external_id,
     get_known_external_ids,
+    list_known_jobs,
     upsert_job,
 )
 from smartapply.logging_setup import get_logger
@@ -122,6 +124,8 @@ class IngestReport:
     inserted: int = 0
     updated_pending: int = 0
     skipped_processed: int = 0
+    skipped_existing_during_collect: int = 0
+    skipped_existing_during_persist: int = 0
     # Raw offers whose external_id was already in the DB and were dropped
     # during the round-robin *before* counting against ``max_results``.
     # This is the metric that surfaces "the scraper paginated past known
@@ -151,7 +155,71 @@ class _CollectResult:
 
     raw_jobs: list[RawJob]
     skipped_known: int
+    skipped_existing: int
     hit_raw_seen_cap: bool
+
+
+@dataclass(frozen=True)
+class _KnownJobIndex:
+    external_ids: frozenset[str]
+    application_urls: frozenset[str]
+
+    @classmethod
+    def from_jobs(cls, jobs: list[Any]) -> _KnownJobIndex:
+        urls: set[str] = set()
+        external_ids: set[str] = set()
+        for job in jobs:
+            if job.external_id:
+                external_ids.add(str(job.external_id))
+            url_key = _normalize_application_url(job.application_url)
+            if url_key:
+                urls.add(url_key)
+        return cls(
+            external_ids=frozenset(external_ids),
+            application_urls=frozenset(urls),
+        )
+
+    def matches(self, raw: RawJob) -> bool:
+        if raw.external_id and raw.external_id in self.external_ids:
+            return True
+        url_key = _normalize_application_url(raw.application_url)
+        return bool(url_key and url_key in self.application_urls)
+
+
+def _normalize_application_url(url: str | None) -> str:
+    value = (url or "").strip()
+    if not value or value.startswith("mailto:"):
+        return ""
+    parsed = urlsplit(value if "://" in value else f"https://{value}")
+    host = parsed.netloc.lower().removeprefix("www.")
+    if not host:
+        return ""
+    path = re.sub(r"/+", "/", parsed.path).rstrip("/")
+    query = _normalized_non_tracking_query(parsed.query)
+    normalized = f"{host}{path}".lower()
+    if query:
+        normalized = f"{normalized}?{query}"
+    return normalized
+
+
+def _normalized_non_tracking_query(query: str) -> str:
+    tracking_prefixes = ("utm_",)
+    tracking_names = {
+        "fbclid",
+        "gclid",
+        "mc_cid",
+        "mc_eid",
+        "ref",
+        "source",
+        "utm",
+    }
+    kept = [
+        (key, value)
+        for key, value in parse_qsl(query, keep_blank_values=True)
+        if key.lower() not in tracking_names
+        and not key.lower().startswith(tracking_prefixes)
+    ]
+    return urlencode(sorted(kept), doseq=True)
 
 
 class Ingestor:
@@ -194,6 +262,7 @@ class Ingestor:
         )
         with session_scope() as s:
             known_external_ids = get_known_external_ids(s, source)
+            known_index = _KnownJobIndex.from_jobs(list_known_jobs(s))
         collect_result = self._collect_round_robin(
             scraper=scraper,
             queries=queries,
@@ -201,6 +270,7 @@ class Ingestor:
             max_results=max_results,
             search_kwargs=search_kwargs,
             known_external_ids=known_external_ids,
+            known_index=known_index,
         )
         search_audit = _build_search_audit(collect_result.raw_jobs)
         return self._persist(
@@ -208,6 +278,7 @@ class Ingestor:
             collect_result.raw_jobs,
             search_audit=search_audit,
             collect_skipped_known=collect_result.skipped_known,
+            collect_skipped_existing=collect_result.skipped_existing,
             hit_raw_seen_cap=collect_result.hit_raw_seen_cap,
         )
 
@@ -220,6 +291,7 @@ class Ingestor:
         max_results: int | None,
         search_kwargs: dict,
         known_external_ids: set[str] | None = None,
+        known_index: _KnownJobIndex | None = None,
     ) -> _CollectResult:
         """Collect results fairly across expanded queries.
 
@@ -235,11 +307,13 @@ class Ingestor:
         top of the API feed do not collapse the budget to zero.
         """
         if not queries:
-            return _CollectResult([], 0, False)
+            return _CollectResult([], 0, 0, False)
         known = known_external_ids or set()
+        known_jobs = known_index or _KnownJobIndex(frozenset(), frozenset())
         raw_jobs: list[RawJob] = []
         seen_external_ids: set[str] = set()
         skipped_known = 0
+        skipped_existing = 0
         raw_seen = 0
         # Give each iterator generous room so the scraper paginates deep
         # enough to surface new offers. The round-robin enforces the real
@@ -269,10 +343,10 @@ class Ingestor:
                 if not active[i]:
                     continue
                 if max_results is not None and len(raw_jobs) >= max_results:
-                    return _CollectResult(raw_jobs, skipped_known, hit_cap)
+                    return _CollectResult(raw_jobs, skipped_known, skipped_existing, hit_cap)
                 if raw_seen_cap is not None and raw_seen >= raw_seen_cap:
                     hit_cap = True
-                    return _CollectResult(raw_jobs, skipped_known, hit_cap)
+                    return _CollectResult(raw_jobs, skipped_known, skipped_existing, hit_cap)
                 try:
                     raw = next(iterator)
                 except StopIteration:
@@ -290,10 +364,13 @@ class Ingestor:
                     # offers further down the API feed.
                     skipped_known += 1
                     continue
+                if known_jobs.matches(raw):
+                    skipped_existing += 1
+                    continue
                 raw_jobs.append(raw)
                 if max_results is not None and len(raw_jobs) >= max_results:
-                    return _CollectResult(raw_jobs, skipped_known, hit_cap)
-        return _CollectResult(raw_jobs, skipped_known, hit_cap)
+                    return _CollectResult(raw_jobs, skipped_known, skipped_existing, hit_cap)
+        return _CollectResult(raw_jobs, skipped_known, skipped_existing, hit_cap)
 
     def from_url(self, url: str) -> IngestReport:
         return self._persist("manual", [ManualScraper().from_url(url)])
@@ -323,16 +400,22 @@ class Ingestor:
         *,
         search_audit: list[dict[str, Any]] | None = None,
         collect_skipped_known: int = 0,
+        collect_skipped_existing: int = 0,
         hit_raw_seen_cap: bool = False,
     ) -> IngestReport:
         job_ids: list[int] = []
         inserted = 0
         updated_pending = 0
         skipped_processed = 0
+        skipped_existing = 0
         with session_scope() as s:
+            known_index = _KnownJobIndex.from_jobs(list_known_jobs(s))
             for raw in raws:
                 existing = get_job_by_external_id(s, raw.external_id)
                 existing_status = existing.status if existing is not None else None
+                if existing is None and known_index.matches(raw):
+                    skipped_existing += 1
+                    continue
                 job = upsert_job(
                     s,
                     external_id=raw.external_id,
@@ -365,6 +448,8 @@ class Ingestor:
             inserted=inserted,
             updated_pending=updated_pending,
             skipped_processed=skipped_processed,
+            skipped_existing_during_collect=collect_skipped_existing,
+            skipped_existing_during_persist=skipped_existing,
             skipped_known_during_collect=collect_skipped_known,
             hit_raw_seen_cap=hit_raw_seen_cap,
             search_audit=search_audit or [],

@@ -24,10 +24,11 @@ from smartapply.app.workflow.widgets import (
     _filter_table,
     _render_action_strip,
     _render_compact_job_cards,
+    _sort_table,
 )
 from smartapply.database import session_scope
 from smartapply.database.models import Job, JobStatus
-from smartapply.database.repository import list_pending_processing
+from smartapply.database.repository import list_pending_processing, mark_archived
 from smartapply.jobsearch import AutopilotRunner
 from smartapply.pipeline.pipeline import freshness_kwargs
 from smartapply.scrapers import SERPAPI_DATE_POSTED_LABELS
@@ -47,6 +48,7 @@ def _pending_jobs_df(keep_map: dict[int, bool], recent_ids: list[int]) -> pd.Dat
             rows.append(
                 {
                     "keep": keep_map.get(job.id, True),
+                    "archive": False,
                     "id": job.id,
                     "new": "🆕" if job.id in recent_ids else "",
                     "title": job.title,
@@ -65,6 +67,79 @@ def _pending_jobs_df(keep_map: dict[int, bool], recent_ids: list[int]) -> pd.Dat
     # New ones (this session) first, then by company
     df = df.sort_values(["new", "company"], ascending=[False, True])
     return df
+
+
+def _remove_ids_from_session_list(key: str, job_ids: set[int]) -> None:
+    values = st.session_state.get(key, [])
+    st.session_state[key] = [
+        int(value)
+        for value in values
+        if int(value) not in job_ids
+    ]
+
+
+def _remove_ids_from_session_map(key: str, job_ids: set[int]) -> None:
+    values = dict(st.session_state.get(key, {}))
+    for job_id in job_ids:
+        values.pop(job_id, None)
+        values.pop(str(job_id), None)
+    st.session_state[key] = values
+
+
+def _forget_archived_jobs_in_workflow(job_ids: set[int], app_ids: set[int]) -> None:
+    for key in (
+        "wf_fetched_ids",
+        "wf_filter_override_ids",
+        "wf_selected_for_scoring",
+        "wf_ranked_ids",
+        "wf_selected_for_analysis",
+        "wf_selected_for_apply",
+    ):
+        _remove_ids_from_session_list(key, job_ids)
+    for key in (
+        "wf_keep_map",
+        "wf_analysis_keep_map",
+        "wf_apply_keep_map",
+        "wf_generate_keep_map",
+        "wf_manual_contacts",
+        "wf_contact_lookup_map",
+    ):
+        _remove_ids_from_session_map(key, job_ids)
+    if app_ids:
+        values = st.session_state.get("wf_generated_app_ids", [])
+        st.session_state["wf_generated_app_ids"] = [
+            int(value)
+            for value in values
+            if int(value) not in app_ids
+        ]
+
+
+def _archive_jobs_for_workflow(job_ids: list[int]) -> int:
+    unique_ids = {int(job_id) for job_id in job_ids}
+    if not unique_ids:
+        return 0
+    archived_ids: set[int] = set()
+    app_ids: set[int] = set()
+    with session_scope() as s:
+        for job_id in sorted(unique_ids):
+            job = s.get(Job, job_id)
+            if job is None:
+                continue
+            if job.application is not None:
+                app_ids.add(int(job.application.id))
+                if job.application.status != JobStatus.SENT:
+                    job.application.status = JobStatus.ARCHIVED
+            mark_archived(s, job_id)
+            archived_ids.add(job_id)
+    if archived_ids:
+        _forget_archived_jobs_in_workflow(archived_ids, app_ids)
+    return len(archived_ids)
+
+
+def _archive_ids_from_df(df: pd.DataFrame) -> list[int]:
+    if df.empty or not {"id", "archive"}.issubset(df.columns):
+        return []
+    return df.loc[df["archive"], "id"].astype(int).tolist()
 
 
 def _filter_override_ids() -> set[int]:
@@ -261,28 +336,41 @@ def _render_filter_rejected_picker(
             key=f"{editor_key}_search",
         )
         visible_df = _filter_table(df, rejected_search)
-        edited = st.data_editor(
+        visible_df = _sort_table(
             visible_df,
-            column_config={
-                "include": st.column_config.CheckboxColumn(checkbox_label, default=False),
-                "id": st.column_config.NumberColumn("id", disabled=True, width="small"),
-                "title": st.column_config.TextColumn("Titre", disabled=True, width="large"),
-                "company": st.column_config.TextColumn("Entreprise", disabled=True, width="medium"),
-                "location": st.column_config.TextColumn("Lieu", disabled=True, width="small"),
-                "source": st.column_config.TextColumn("Source", disabled=True, width="small"),
-                "phase": st.column_config.TextColumn("Origine", disabled=True, width="small"),
-                "reason": st.column_config.TextColumn("Raison", disabled=True, width="large"),
-                "preview": st.column_config.TextColumn("Aperçu", disabled=True, width="large"),
-                "url": st.column_config.LinkColumn("URL", disabled=True, width="small"),
-            },
-            hide_index=True,
-            width="stretch",
-            key=editor_key,
+            state_prefix=editor_key,
+            default_sort="company",
+            default_desc=False,
         )
-        if not edited.empty and {"id", "include"}.issubset(edited.columns):
+        with st.form(f"{editor_key}_form"):
+            edited = st.data_editor(
+                visible_df,
+                column_config={
+                    "include": st.column_config.CheckboxColumn(checkbox_label, default=False),
+                    "id": st.column_config.NumberColumn("id", disabled=True, width="small"),
+                    "title": st.column_config.TextColumn("Titre", disabled=True, width="large"),
+                    "company": st.column_config.TextColumn("Entreprise", disabled=True, width="medium"),
+                    "location": st.column_config.TextColumn("Lieu", disabled=True, width="small"),
+                    "source": st.column_config.TextColumn("Source", disabled=True, width="small"),
+                    "phase": st.column_config.TextColumn("Origine", disabled=True, width="small"),
+                    "reason": st.column_config.TextColumn("Raison", disabled=True, width="large"),
+                    "preview": st.column_config.TextColumn("Aperçu", disabled=True, width="large"),
+                    "url": st.column_config.LinkColumn("URL", disabled=True, width="small"),
+                },
+                hide_index=True,
+                width="stretch",
+                key=editor_key,
+            )
+            apply_selection = st.form_submit_button(
+                "Appliquer la sélection",
+                type="primary",
+                width="stretch",
+            )
+        if apply_selection and not edited.empty and {"id", "include"}.issubset(edited.columns):
             for _, row in edited[["id", "include"]].iterrows():
                 selection_map[int(row["id"])] = bool(row["include"])
             st.session_state[state_key] = selection_map
+            st.success("Sélection mise à jour.")
         selected_ids = [
             int(row["id"])
             for _, row in df.iterrows()
@@ -335,29 +423,37 @@ def _render_rejected_offer_controls() -> None:
             "Ces offres ont été retirées automatiquement avant l'analyse IA. "
             "Si le filtre est trop strict pour une offre précise, réactive-la ici."
         )
-        edited = st.data_editor(
+        sorted_df = _sort_table(
             df,
-            column_config={
-                "restore": st.column_config.CheckboxColumn("Réactiver", default=False),
-                "id": st.column_config.NumberColumn("id", disabled=True, width="small"),
-                "title": st.column_config.TextColumn("Titre", disabled=True, width="large"),
-                "company": st.column_config.TextColumn("Entreprise", disabled=True, width="medium"),
-                "reason": st.column_config.TextColumn("Raison", disabled=True, width="large"),
-                "url": st.column_config.LinkColumn("URL", disabled=True, width="small"),
-            },
-            hide_index=True,
-            width="stretch",
-            key="wf_rejected_editor",
+            state_prefix="wf_rejected_editor",
+            default_sort="company",
+            default_desc=False,
         )
-        restore_ids = edited.loc[edited["restore"], "id"].astype(int).tolist()
-        col_restore, col_reset = st.columns([2, 1])
-        with col_restore:
-            if st.button(
+        with st.form("wf_rejected_editor_form"):
+            edited = st.data_editor(
+                sorted_df,
+                column_config={
+                    "restore": st.column_config.CheckboxColumn("Réactiver", default=False),
+                    "id": st.column_config.NumberColumn("id", disabled=True, width="small"),
+                    "title": st.column_config.TextColumn("Titre", disabled=True, width="large"),
+                    "company": st.column_config.TextColumn("Entreprise", disabled=True, width="medium"),
+                    "reason": st.column_config.TextColumn("Raison", disabled=True, width="large"),
+                    "url": st.column_config.LinkColumn("URL", disabled=True, width="small"),
+                },
+                hide_index=True,
+                width="stretch",
+                key="wf_rejected_editor",
+            )
+            restore_selected = st.form_submit_button(
                 "Réactiver les offres sélectionnées",
-                disabled=not restore_ids,
-                key="wf_restore_rejected",
                 type="primary",
-            ):
+                width="stretch",
+            )
+        if restore_selected:
+            restore_ids = edited.loc[edited["restore"], "id"].astype(int).tolist()
+            if not restore_ids:
+                st.warning("Coche au moins une offre à réactiver.")
+            else:
                 overrides = _filter_override_ids()
                 overrides.update(restore_ids)
                 with session_scope() as s:
@@ -374,14 +470,13 @@ def _render_rejected_offer_controls() -> None:
                 st.session_state["wf_filter_override_ids"] = sorted(overrides)
                 st.success(f"{len(restore_ids)} offre(s) réactivée(s).")
                 st.rerun()
-        with col_reset:
-            if st.button(
-                "Réinitialiser les réactivations",
-                disabled=not st.session_state.get("wf_filter_override_ids"),
-                key="wf_clear_overrides",
-            ):
-                st.session_state["wf_filter_override_ids"] = []
-                st.rerun()
+        if st.button(
+            "Réinitialiser les réactivations",
+            disabled=not st.session_state.get("wf_filter_override_ids"),
+            key="wf_clear_overrides",
+        ):
+            st.session_state["wf_filter_override_ids"] = []
+            st.rerun()
 
 
 
@@ -439,38 +534,73 @@ def _job_editor(df: pd.DataFrame, key: str) -> list[int]:
     """
     if df.empty:
         return []
-    edited = st.data_editor(
+    df = _sort_table(
         df,
-        column_config={
-            "keep": st.column_config.CheckboxColumn("Garder", default=True),
-            "id": st.column_config.NumberColumn("id", disabled=True, width="small"),
-            "new": st.column_config.TextColumn("New", disabled=True, width="small"),
-            "title": st.column_config.TextColumn("Titre", disabled=True, width="large"),
-            "company": st.column_config.TextColumn("Entreprise", disabled=True, width="medium"),
-            "location": st.column_config.TextColumn("Lieu", disabled=True, width="small"),
-            "contract": st.column_config.TextColumn("Contrat", disabled=True, width="small"),
-            "source": st.column_config.TextColumn("Source", disabled=True, width="small"),
-            "phase": st.column_config.TextColumn("Phase", disabled=True, width="small"),
-            "status": st.column_config.TextColumn("Statut", disabled=True, width="small"),
-            "score": st.column_config.NumberColumn(
-                "Score", disabled=True, format="%.3f", width="small"
-            ),
-            "preview": st.column_config.TextColumn("Aperçu", disabled=True, width="large"),
-            "url": st.column_config.LinkColumn("URL", disabled=True, width="small"),
-        },
-        width="stretch",
-        hide_index=True,
-        key=key,
+        state_prefix=key,
+        default_sort="score" if "score" in df.columns else "new",
+        default_desc=True,
     )
-    keep_map = {
-        int(row["id"]): bool(row["keep"])
-        for _, row in edited[["id", "keep"]].iterrows()
-    }
-    st.session_state["wf_keep_map"] = {
-        **st.session_state.get("wf_keep_map", {}),
-        **keep_map,
-    }
-    return edited.loc[edited["keep"], "id"].astype(int).tolist()
+    with st.form(f"{key}_form"):
+        edited = st.data_editor(
+            df,
+            column_config={
+                "keep": st.column_config.CheckboxColumn("Garder", default=True),
+                "archive": st.column_config.CheckboxColumn("Archiver", default=False),
+                "id": st.column_config.NumberColumn("id", disabled=True, width="small"),
+                "new": st.column_config.TextColumn("New", disabled=True, width="small"),
+                "title": st.column_config.TextColumn("Titre", disabled=True, width="large"),
+                "company": st.column_config.TextColumn("Entreprise", disabled=True, width="medium"),
+                "location": st.column_config.TextColumn("Lieu", disabled=True, width="small"),
+                "contract": st.column_config.TextColumn("Contrat", disabled=True, width="small"),
+                "source": st.column_config.TextColumn("Source", disabled=True, width="small"),
+                "phase": st.column_config.TextColumn("Phase", disabled=True, width="small"),
+                "status": st.column_config.TextColumn("Statut", disabled=True, width="small"),
+                "score": st.column_config.NumberColumn(
+                    "Score", disabled=True, format="%.3f", width="small"
+                ),
+                "preview": st.column_config.TextColumn("Aperçu", disabled=True, width="large"),
+                "url": st.column_config.LinkColumn("URL", disabled=True, width="small"),
+            },
+            width="stretch",
+            hide_index=True,
+            key=key,
+        )
+        col_apply, col_archive = st.columns(2)
+        with col_apply:
+            apply_clicked = st.form_submit_button(
+                "Appliquer les coches",
+                type="primary",
+                width="stretch",
+            )
+        with col_archive:
+            archive_clicked = st.form_submit_button(
+                "Archiver les offres cochées",
+                width="stretch",
+            )
+    if archive_clicked:
+        archive_ids = _archive_ids_from_df(edited)
+        if not archive_ids:
+            st.warning("Coche au moins une offre dans la colonne Archiver.")
+        else:
+            count = _archive_jobs_for_workflow(archive_ids)
+            st.success(f"{count} offre(s) archivée(s).")
+            st.rerun()
+    if apply_clicked:
+        keep_map = {
+            int(row["id"]): bool(row["keep"])
+            for _, row in edited[["id", "keep"]].iterrows()
+        }
+        st.session_state["wf_keep_map"] = {
+            **st.session_state.get("wf_keep_map", {}),
+            **keep_map,
+        }
+        st.success("Sélection mise à jour.")
+    all_keep_map = st.session_state.get("wf_keep_map", {})
+    return [
+        int(row["id"])
+        for _, row in df.iterrows()
+        if bool(all_keep_map.get(int(row["id"]), bool(row.get("keep", True))))
+    ]
 
 
 
@@ -706,6 +836,14 @@ def step1_fetch() -> None:
                                 **kwargs,
                             )
                             summary_bits = [f"{report.inserted} nouvelle(s)"]
+                            skipped_existing = (
+                                report.skipped_existing_during_collect
+                                + report.skipped_existing_during_persist
+                            )
+                            if skipped_existing:
+                                summary_bits.append(
+                                    f"{skipped_existing} déjà en base ignorée(s)"
+                                )
                             if report.skipped_known_during_collect:
                                 summary_bits.append(
                                     f"{report.skipped_known_during_collect} déjà connue(s) ignorée(s) en collecte"

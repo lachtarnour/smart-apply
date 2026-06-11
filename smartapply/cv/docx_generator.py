@@ -364,9 +364,6 @@ class CvDocxRenderer:
         name = p.add_run(proj.name)
         name.bold = True
         name.font.size = Pt(self.style.body_font_size)
-        if proj.status == "Ongoing":
-            status = p.add_run(" — Ongoing Project")
-            status.font.size = Pt(self.style.body_font_size)
         desc = p.add_run(f"  {proj.description}")
         desc.font.size = Pt(self.style.body_font_size)
 

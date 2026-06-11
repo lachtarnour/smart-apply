@@ -14,9 +14,11 @@ from smartapply.filtering.text import has_word as _has_word
 from smartapply.filtering.text import norm as _norm
 from smartapply.filtering.types import FilterResult, HasJobFields
 from smartapply.utils.contracts import (
-    INCOMPATIBLE_CONTRACT_TAGS,
+    CDD_EQUIVALENT_TAGS,
     TAG_CONTRACTOR,
     TAG_PART_TIME,
+    blocked_contract_tags,
+    blocked_contract_tags_from_tags,
     contract_matches_accepted,
     contract_type_tags,
     contract_types_to_tags,
@@ -81,6 +83,8 @@ _PRESTATAIRE_SOURCE_MARKERS = (
     "lehibou",
     "comet",
 )
+_POWER_BI_DESCRIPTION_TOKENS = ("power bi", "powerbi")
+_BLOCKED_DESCRIPTION_TECH_TOKENS = ("terraform", "snowflake", "databricks")
 
 
 def _fact_source_suffix(facts: FilterFacts) -> str:
@@ -150,6 +154,15 @@ def _search_context_reason(facts: FilterFacts) -> str | None:
     return "search_context:" + ",".join(parts)
 
 
+def _description_hard_reject_reason(description: str) -> str | None:
+    if _contains_any(description, _POWER_BI_DESCRIPTION_TOKENS):
+        return "description_hard_reject:power_bi"
+    for token in _BLOCKED_DESCRIPTION_TECH_TOKENS:
+        if _has_word(description, token):
+            return f"description_hard_reject:{token}"
+    return None
+
+
 __all__ = [
     "FilterResult",
     "HasJobFields",
@@ -206,6 +219,13 @@ class JobFilter:
             reasons.append(f"location_rejected_foreign_text:{foreign_marker}")
             return FilterResult(kept=False, score=0.0, reasons=reasons)
 
+        # --- Hard reject: blocked description terms ---
+        # User preference: offers mentioning these terms in the description
+        # should be ignored before scoring/analyzing.
+        if hard_reject_reason := _description_hard_reject_reason(description):
+            reasons.append(hard_reject_reason)
+            return FilterResult(kept=False, score=0.0, reasons=reasons)
+
         # --- Hard reject: too-many years of experience required ---
         # Bilingual regex extraction (FR + EN). See utils.experience.
         # We check both title and description because senior signals often
@@ -240,8 +260,9 @@ class JobFilter:
             reasons.append("blocked_contract_structured:alternance (tag 'apprenticeship')")
             return FilterResult(kept=False, score=0.0, reasons=reasons)
 
-        contract_tags = contract_type_tags(job.contract_type)
-        incompatible_tags = sorted(contract_tags & INCOMPATIBLE_CONTRACT_TAGS)
+        incompatible_tags = sorted(
+            blocked_contract_tags(job.contract_type, self.rules.accepted_contract_types)
+        )
         if contract and incompatible_tags:
             reasons.append(
                 f"blocked_contract_type:{contract} (tag '{incompatible_tags[0]}')"
@@ -262,7 +283,10 @@ class JobFilter:
             else:
                 reasons.append("contract_structured_uncorroborated:prestataire")
         structured_incompatible = sorted(
-            structured_contract_tags & INCOMPATIBLE_CONTRACT_TAGS
+            blocked_contract_tags_from_tags(
+                structured_contract_tags,
+                self.rules.accepted_contract_types,
+            )
         )
         if structured_contract_norm and structured_incompatible:
             reasons.append(
@@ -307,10 +331,8 @@ class JobFilter:
                 reasons.append(f"blocked_contract_visible_text:{matched}")
                 return FilterResult(kept=False, score=0.0, reasons=reasons)
 
-        accepted_contract_text = " ".join(
-            _norm(contract_type) for contract_type in self.rules.accepted_contract_types
-        )
-        if "cdd" not in accepted_contract_text and _has_cdd_contract_context(
+        accepted_contract_tags = contract_types_to_tags(self.rules.accepted_contract_types)
+        if not (accepted_contract_tags & CDD_EQUIVALENT_TAGS) and _has_cdd_contract_context(
             title,
             description,
         ):

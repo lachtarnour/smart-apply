@@ -62,6 +62,12 @@ def get_known_external_ids(session: Session, source: str) -> set[str]:
     return {row for row in rows if row}
 
 
+def list_known_jobs(session: Session) -> Sequence[Job]:
+    """Return every job already persisted in the database."""
+    stmt = select(Job)
+    return session.execute(stmt).scalars().all()
+
+
 def list_jobs(
     session: Session,
     *,
@@ -253,6 +259,8 @@ def set_analysis(session: Session, job_id: int, **fields: Any) -> JobAnalysis:
 def add_contact(
     session: Session, *, company: str, email: str, **fields: Any
 ) -> Contact:
+    company = company.strip()
+    email = email.strip().lower()
     existing = session.execute(
         select(Contact).where(Contact.company == company, Contact.email == email)
     ).scalar_one_or_none()
@@ -261,6 +269,22 @@ def add_contact(
             if value is not None:
                 setattr(existing, key, value)
         return existing
+    if session.get_bind().dialect.name == "sqlite":
+        insert_fields = {"company": company, "email": email, **fields}
+        update_fields = {key: value for key, value in fields.items() if value is not None}
+        stmt = sqlite_insert(Contact).values(**insert_fields)
+        if update_fields:
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["company", "email"],
+                set_=update_fields,
+            )
+        else:
+            stmt = stmt.on_conflict_do_nothing(index_elements=["company", "email"])
+        session.execute(stmt)
+        session.flush()
+        return session.execute(
+            select(Contact).where(Contact.company == company, Contact.email == email)
+        ).scalar_one()
     contact = Contact(company=company, email=email, **fields)
     session.add(contact)
     session.flush()

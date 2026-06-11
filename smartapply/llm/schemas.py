@@ -174,7 +174,11 @@ class AdaptedCV(BaseModel):
         description="Experiences to keep, in order"
     )
     selected_project_ids: list[str] = Field(
-        description="IDs of profile projects to keep"
+        description=(
+            "IDs of profile projects to keep. Select at least 4 projects whenever "
+            "4 profile projects are available; otherwise select every relevant "
+            "provided project."
+        )
     )
     skills_profile_id: str = Field(
         default="",
@@ -258,7 +262,11 @@ class ApplicationDraft(BaseModel):
         description="Experiences to keep, in order"
     )
     selected_project_ids: list[str] = Field(
-        description="IDs of profile projects to keep"
+        description=(
+            "IDs of profile projects to keep. Select at least 4 projects whenever "
+            "4 profile projects are available; otherwise select every relevant "
+            "provided project."
+        )
     )
     skills_profile_id: str = Field(
         default="",
@@ -284,8 +292,9 @@ class ApplicationDraft(BaseModel):
     motivation_letter_subject: str = Field(description="Motivation letter subject line")
     motivation_letter_body: str = Field(
         description=(
-            "180-280 words, natural and professional. Must reuse evidence from "
-            "selected_experiences or selected_project_ids."
+            "Natural and professional motivation letter, usually 250-350 words. "
+            "Must reuse evidence from selected_experiences or selected_project_ids "
+            "without going into project details."
         )
     )
 

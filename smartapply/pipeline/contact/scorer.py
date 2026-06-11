@@ -97,6 +97,13 @@ class ContactLookupDecision:
     rejected_domains: list[str] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class SourceDomainCandidate:
+    domain: str
+    url: str | None
+    source_field: str
+
+
 def _ascii_lower(text: str | None) -> str:
     normalized = unicodedata.normalize("NFKD", text or "")
     ascii_text = normalized.encode("ascii", "ignore").decode("ascii")
@@ -123,6 +130,10 @@ def _analysis_value(analysis: Any | None, key: str) -> str:
         return ""
     value = analysis.get(key) if isinstance(analysis, Mapping) else getattr(analysis, key, None)
     return str(value or "").strip()
+
+
+def _mapping_value(value: Any, key: str) -> Any:
+    return value.get(key) if isinstance(value, Mapping) else None
 
 
 def _normalize_domain_candidate(value: str | None) -> str | None:
@@ -294,12 +305,110 @@ def _domain_confirmed_by_sources(
     *,
     body_domains: list[str],
     application_domain: str | None,
+    source_domains: list[str] | None = None,
 ) -> bool:
-    return domain in body_domains or (
+    return domain in body_domains or any(
+        _same_company_domain(domain, source_domain)
+        for source_domain in (source_domains or [])
+    ) or (
         bool(application_domain)
         and domain == application_domain
         and is_reliable_company_domain(application_domain)
     )
+
+
+def _source_metadata_company_name(source_data: Any | None) -> str:
+    profile = _mapping_value(source_data, "company_profile")
+    organization = _mapping_value(source_data, "hiring_organization")
+    source_company = _mapping_value(source_data, "company")
+    for value in (
+        _mapping_value(profile, "name"),
+        _mapping_value(organization, "name"),
+        _mapping_value(source_company, "name"),
+        _mapping_value(source_company, "nom"),
+        _mapping_value(source_data, "company_name"),
+    ):
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
+
+
+def _source_domain_url(raw_value: str) -> str | None:
+    raw_value = raw_value.strip()
+    return raw_value if "://" in raw_value else None
+
+
+def _source_domain_candidate(
+    value: Any,
+    source_field: str,
+) -> SourceDomainCandidate | None:
+    raw_value = str(value or "").strip()
+    domain = _normalize_domain_candidate(raw_value)
+    if not domain:
+        return None
+    return SourceDomainCandidate(
+        domain=domain,
+        url=_source_domain_url(raw_value),
+        source_field=source_field,
+    )
+
+
+def _append_source_domain_candidate(
+    candidates: list[SourceDomainCandidate],
+    value: Any,
+    source_field: str,
+) -> None:
+    candidate = _source_domain_candidate(value, source_field)
+    if candidate is None:
+        return
+    if any(existing.domain == candidate.domain for existing in candidates):
+        return
+    candidates.append(candidate)
+
+
+def source_domain_candidates(source_data: Any | None) -> list[SourceDomainCandidate]:
+    """Extract source-provided company domains without relying on source names.
+
+    This intentionally reads only structured company/organization fields.
+    Broad URLs such as application links or job-board profile URLs are left out;
+    they are already handled by the application URL path.
+    """
+    if not isinstance(source_data, Mapping):
+        return []
+
+    candidates: list[SourceDomainCandidate] = []
+    for key in (
+        "company_website",
+        "company_url",
+        "employer_website",
+        "employer_url",
+        "organization_website",
+        "organization_url",
+        "company_domain",
+        "employer_domain",
+        "organization_domain",
+    ):
+        _append_source_domain_candidate(candidates, source_data.get(key), key)
+
+    nested_fields = {
+        "company_profile": ("website", "external_url", "domain"),
+        "hiring_organization": ("sameAs", "website", "url", "domain"),
+        "organization": ("sameAs", "website", "url", "domain"),
+        "company": ("website", "url", "domain"),
+        "employer": ("website", "url", "domain"),
+    }
+    for parent_key, keys in nested_fields.items():
+        parent = source_data.get(parent_key)
+        if not isinstance(parent, Mapping):
+            continue
+        for key in keys:
+            _append_source_domain_candidate(
+                candidates,
+                parent.get(key),
+                f"{parent_key}.{key}",
+            )
+    return candidates
 
 
 def _best_lookup_company(
@@ -326,6 +435,7 @@ def resolve_contact_lookup_strategy(
     job_description: str | None,
     analysis: Any | None,
     job_location: str | None,
+    source_data: Any | None = None,
 ) -> ContactLookupDecision:
     """Choose the safest lookup strategy before calling a contact provider."""
     reasons: list[str] = []
@@ -336,6 +446,14 @@ def resolve_contact_lookup_strategy(
     application_domain = domain_from_url(job_application_url)
     if application_domain:
         candidate_domains.append(application_domain)
+    source_candidates = source_domain_candidates(source_data)
+    source_domains = [candidate.domain for candidate in source_candidates]
+    trusted_source_domains = [
+        candidate.domain
+        for candidate in source_candidates
+        if _domain_is_usable(candidate.domain)[0]
+    ]
+    candidate_domains.extend(source_domains)
 
     llm_hint_raw = _analysis_value(analysis, "contact_domain_hint")
     llm_hint_kind = _analysis_value(analysis, "contact_domain_kind") or "unknown"
@@ -345,10 +463,11 @@ def resolve_contact_lookup_strategy(
 
     extracted_company = _analysis_value(analysis, "extracted_company_name")
     extracted_location = _analysis_value(analysis, "extracted_location")
+    source_company = _source_metadata_company_name(source_data)
     lookup_location = extracted_location or job_location
     lookup_company, company_fallback_strategy = _best_lookup_company(
         job_company,
-        extracted_company,
+        extracted_company or source_company,
     )
 
     if llm_hint_raw:
@@ -366,11 +485,12 @@ def resolve_contact_lookup_strategy(
                 llm_hint_domain,
                 body_domains=body_domains,
                 application_domain=application_domain,
+                source_domains=trusted_source_domains,
             ):
                 warnings.append("llm_domain_hint_not_visible")
                 rejected_domains.append(llm_hint_domain)
             else:
-                reasons.append("validated_llm_domain_hint_visible_locally")
+                reasons.append("validated_llm_domain_hint_confirmed_by_sources")
                 return ContactLookupDecision(
                     lookup_company=lookup_company or _clean_company_name(job_company) or None,
                     lookup_application_url=_domain_url(llm_hint_domain),
@@ -395,6 +515,23 @@ def resolve_contact_lookup_strategy(
 
     if reliable_body_domains:
         body_domain = reliable_body_domains[0]
+        if trusted_source_domains and not any(
+            _same_company_domain(body_domain, source_domain)
+            for source_domain in trusted_source_domains
+        ):
+            warnings.append("source_metadata_domain_conflicts_with_offer_body_domain")
+            return ContactLookupDecision(
+                lookup_company=lookup_company,
+                lookup_application_url=None,
+                lookup_domain=None,
+                lookup_location=lookup_location,
+                strategy="manual_review_domain_conflict",
+                confidence=0.2,
+                reasons=["conflicting_reliable_domains"],
+                warnings=warnings,
+                candidate_domains=_unique_domains(candidate_domains),
+                rejected_domains=_unique_domains(rejected_domains),
+            )
         if (
             application_domain
             and application_domain != body_domain
@@ -420,6 +557,44 @@ def resolve_contact_lookup_strategy(
             lookup_domain=body_domain,
             lookup_location=lookup_location,
             strategy="domain_from_offer_body",
+            confidence=0.9,
+            reasons=reasons,
+            warnings=warnings,
+            candidate_domains=_unique_domains(candidate_domains),
+            rejected_domains=_unique_domains(rejected_domains),
+        )
+
+    for source_candidate in source_candidates:
+        usable, warning = _domain_is_usable(source_candidate.domain)
+        if not usable:
+            warnings.append(f"source_metadata_{warning}:{source_candidate.domain}")
+            rejected_domains.append(source_candidate.domain)
+            continue
+        if (
+            application_domain
+            and is_reliable_company_domain(application_domain)
+            and not _same_company_domain(source_candidate.domain, application_domain)
+        ):
+            warnings.append("source_metadata_domain_conflicts_with_application_domain")
+            return ContactLookupDecision(
+                lookup_company=lookup_company,
+                lookup_application_url=None,
+                lookup_domain=None,
+                lookup_location=lookup_location,
+                strategy="manual_review_domain_conflict",
+                confidence=0.2,
+                reasons=["conflicting_reliable_domains"],
+                warnings=warnings,
+                candidate_domains=_unique_domains(candidate_domains),
+                rejected_domains=_unique_domains(rejected_domains),
+            )
+        reasons.append(f"company_domain_from_source_metadata:{source_candidate.source_field}")
+        return ContactLookupDecision(
+            lookup_company=lookup_company or _clean_company_name(job_company) or None,
+            lookup_application_url=source_candidate.url or _domain_url(source_candidate.domain),
+            lookup_domain=source_candidate.domain,
+            lookup_location=lookup_location,
+            strategy="domain_from_source_metadata",
             confidence=0.9,
             reasons=reasons,
             warnings=warnings,

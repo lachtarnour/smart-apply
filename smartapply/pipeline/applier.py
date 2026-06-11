@@ -282,6 +282,7 @@ class Applier(GmailDispatcherMixin, EmailWriterMixin, CvWriterMixin):
             job_description=job.cleaned_description or job.description,
             analysis=analysis,
             job_location=analysis.extracted_location or job.location,
+            source_data=job.source_data,
         )
         return (candidate.email if candidate else None), candidate
 

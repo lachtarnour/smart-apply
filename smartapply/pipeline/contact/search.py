@@ -30,6 +30,7 @@ class ContactSearchMixin:
         job_description: str | None = None,
         analysis: Any | None = None,
         job_location: str | None = None,
+        source_data: Any | None = None,
     ) -> ContactCandidate | None:
         """Find a contact once per company/domain and reuse cached outcomes."""
         provider_key = self.chain.provider_key
@@ -43,6 +44,7 @@ class ContactSearchMixin:
             job_description=job_description,
             analysis=analysis_for_decision,
             job_location=job_location,
+            source_data=source_data,
         )
         self.last_lookup_decision = decision
         logger.info(

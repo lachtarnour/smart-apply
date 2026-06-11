@@ -164,6 +164,7 @@
       ],
       "rag_retrieval": [
         "RAG",
+        "LangChain",
         "Vector search",
         "FAISS"
       ],

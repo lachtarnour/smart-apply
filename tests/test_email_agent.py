@@ -516,12 +516,17 @@ def test_workflow_step5_uses_creer_brouillon_label_not_envoyer() -> None:
     assert "wf_send_card_" in source
     assert "sa-wf-card-slide-up" in source
     assert "wf_closed_slide_target_ids" in source
+    assert "wf_step5_has_loaded_app_ids" in source
     assert "Questions formulaire" in source
     assert "Générer les réponses" in source
     assert "form_question_answers" in source
     assert "Appliquer la clôture" not in source
     assert "Action finale" not in source
+    assert "_update_tracking_and_return_closed" not in source
     assert "on_click=_reset_final_email" in source
+    assert "on_click=_close_application_from_step5" in source
+    assert "on_click=_track_application_action_from_step5" in source
+    assert "will-change: transform, opacity" not in source
     assert 'or row["strategy"] == "form_only"' not in source
 
 
@@ -572,7 +577,7 @@ def test_form_questions_prompt_includes_offer_profile_and_questions() -> None:
     from smartapply.llm.prompts.form_questions import build_form_questions_prompt
     from smartapply.profile import get_profile
 
-    _system, user = build_form_questions_prompt(
+    system, user = build_form_questions_prompt(
         profile=get_profile(),
         row={
             "id": 10,
@@ -591,6 +596,8 @@ def test_form_questions_prompt_includes_offer_profile_and_questions() -> None:
     assert "What makes Joko special according to you?" in user
     assert "CANDIDATE PROFILE JSON" in user
     assert "Lachtar Nour" in user
+    assert "Humanize the wording" in system
+    assert "If several questions are provided" in system
 
 
 def test_workflow_step5_close_application_marks_done_or_archived(
@@ -652,7 +659,7 @@ def test_workflow_step5_close_application_marks_done_or_archived(
         assert archive_app.job.archived_at is not None
 
 
-def test_workflow_step5_tracking_actions_close_when_strategy_is_complete(
+def test_workflow_step5_tracking_actions_close_only_when_email_and_form_are_done(
     isolated_db: Path,
 ) -> None:
     assert isolated_db.exists()
@@ -667,7 +674,7 @@ def test_workflow_step5_tracking_actions_close_when_strategy_is_complete(
     with session_scope() as s:
         email_job = upsert_job(
             s,
-            external_id="manual:email-only-close",
+            external_id="manual:email-only-track",
             title="Data Scientist",
             company="Acme",
             description="desc",
@@ -679,7 +686,7 @@ def test_workflow_step5_tracking_actions_close_when_strategy_is_complete(
 
         combo_job = upsert_job(
             s,
-            external_id="manual:email-and-form-close",
+            external_id="manual:email-and-form-track",
             title="ML Engineer",
             company="Beta",
             description="desc",
@@ -692,26 +699,34 @@ def test_workflow_step5_tracking_actions_close_when_strategy_is_complete(
         email_app_id = email_app.id
         combo_app_id = combo_app.id
 
-    assert step5_module._update_tracking_and_return_closed(
+    email_updated, email_closed = step5_module._track_application_action(
         email_app_id,
         email_sent=True,
     )
-    assert not step5_module._update_tracking_and_return_closed(
+    combo_email_updated, combo_email_closed = step5_module._track_application_action(
         combo_app_id,
         email_sent=True,
     )
-    assert step5_module._update_tracking_and_return_closed(
+    combo_form_updated, combo_form_closed = step5_module._track_application_action(
         combo_app_id,
         form_submitted=True,
     )
+    assert email_updated
+    assert not email_closed
+    assert combo_email_updated
+    assert not combo_email_closed
+    assert combo_form_updated
+    assert combo_form_closed
 
     with session_scope() as s:
         email_app = s.get(step5_module.Application, email_app_id)
         combo_app = s.get(step5_module.Application, combo_app_id)
         assert email_app is not None
         assert combo_app is not None
-        assert email_app.status == JobStatus.SENT
-        assert email_app.job.status == JobStatus.SENT
+        assert email_app.status == JobStatus.EMAIL_GENERATED
+        assert email_app.job.status != JobStatus.SENT
+        assert email_app.email_sent_at is not None
+        assert email_app.form_submitted_at is None
         assert combo_app.status == JobStatus.SENT
         assert combo_app.job.status == JobStatus.SENT
         assert combo_app.email_sent_at is not None

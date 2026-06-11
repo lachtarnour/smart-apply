@@ -1,0 +1,2 @@
+"""Independent spontaneous application module."""
+

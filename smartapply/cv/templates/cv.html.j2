@@ -281,7 +281,7 @@
     <h2 class="section-title">Projects</h2>
     {% for project in projects %}
     <p class="project-row">
-      <strong>{{ project.name }}</strong>{% if project.status == "Ongoing" %} &mdash; Ongoing Project{% endif %}{% if project.url %}<a class="project-link" href="{{ project.url }}" aria-label="Project repository"></a>{% endif %}
+      <strong>{{ project.name }}</strong>{% if project.url %}<a class="project-link" href="{{ project.url }}" aria-label="Project repository"></a>{% endif %}
       &nbsp;{{ project.description }}
     </p>
     {% endfor %}

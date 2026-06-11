@@ -594,6 +594,132 @@ def test_contact_strategy_uses_validated_llm_hint_only_when_visible(
     assert service.last_lookup_decision.strategy == "domain_from_llm_hint_validated"
 
 
+def test_contact_strategy_validates_llm_hint_with_source_metadata(
+    contact_service_factory,
+) -> None:
+    provider = RecordingContactProvider()
+    service = contact_service_factory(provider)
+
+    service.find(
+        company="MARGO",
+        application_url=(
+            "https://welcometothejungle.com/fr/companies/margo/jobs/"
+            "data-scientist-machine-learning-engineer-practice-ia-margo_paris"
+        ),
+        job_description="Nous recrutons un Data Scientist.",
+        analysis={
+            "contact_domain_kind": "company_domain",
+            "contact_domain_hint": "margo.com",
+        },
+        source_data={
+            "company_website": "http://www.margo.com/",
+            "company_domain": "margo.com",
+        },
+        job_location="Paris",
+    )
+
+    assert provider.calls[0]["company"] == "MARGO"
+    assert provider.calls[0]["application_url"] == "https://margo.com"
+    assert service.last_lookup_decision is not None
+    assert service.last_lookup_decision.strategy == "domain_from_llm_hint_validated"
+    assert service.last_lookup_decision.lookup_domain == "margo.com"
+
+
+def test_contact_strategy_uses_source_metadata_domain_when_analyzer_has_no_hint(
+    contact_service_factory,
+) -> None:
+    provider = RecordingContactProvider()
+    service = contact_service_factory(provider)
+
+    service.find(
+        company="Welcome to the Jungle",
+        application_url=(
+            "https://welcometothejungle.com/fr/companies/margo/jobs/"
+            "data-scientist-machine-learning-engineer-practice-ia-margo_paris"
+        ),
+        job_description="Nous recrutons un Data Scientist.",
+        analysis={},
+        source_data={
+            "company_profile": {
+                "name": "MARGO",
+                "website": "http://www.margo.com/",
+            }
+        },
+        job_location="Paris",
+    )
+
+    assert provider.calls == [
+        {
+            "company": "MARGO",
+            "application_url": "http://www.margo.com/",
+            "job_location": "Paris",
+        }
+    ]
+    assert service.last_lookup_decision is not None
+    assert service.last_lookup_decision.strategy == "domain_from_source_metadata"
+    assert service.last_lookup_decision.lookup_domain == "margo.com"
+
+
+def test_contact_strategy_ignores_job_board_source_metadata_domain(
+    contact_service_factory,
+) -> None:
+    provider = RecordingContactProvider()
+    service = contact_service_factory(provider)
+
+    service.find(
+        company="MARGO",
+        application_url=(
+            "https://welcometothejungle.com/fr/companies/margo/jobs/"
+            "data-scientist-machine-learning-engineer-practice-ia-margo_paris"
+        ),
+        job_description="Nous recrutons un Data Scientist.",
+        analysis={},
+        source_data={
+            "company_website": "https://www.welcometothejungle.com/fr/companies/margo",
+        },
+        job_location="Paris",
+    )
+
+    assert provider.calls == [
+        {
+            "company": "MARGO",
+            "application_url": None,
+            "job_location": "Paris",
+        }
+    ]
+    assert service.last_lookup_decision is not None
+    assert service.last_lookup_decision.strategy == "company_name_fallback"
+    assert (
+        "source_metadata_domain_is_job_board:welcometothejungle.com"
+        in service.last_lookup_decision.warnings
+    )
+
+
+def test_contact_strategy_source_job_board_domain_does_not_conflict_with_body_domain(
+    contact_service_factory,
+) -> None:
+    provider = RecordingContactProvider()
+    service = contact_service_factory(provider)
+
+    service.find(
+        company="MARGO",
+        application_url=(
+            "https://welcometothejungle.com/fr/companies/margo/jobs/"
+            "data-scientist-machine-learning-engineer-practice-ia-margo_paris"
+        ),
+        job_description="Site entreprise : www.margo.com.",
+        analysis={},
+        source_data={
+            "company_website": "https://www.welcometothejungle.com/fr/companies/margo",
+        },
+        job_location="Paris",
+    )
+
+    assert provider.calls[0]["application_url"] == "https://margo.com"
+    assert service.last_lookup_decision is not None
+    assert service.last_lookup_decision.strategy == "domain_from_offer_body"
+
+
 def test_contact_strategy_rejects_invented_llm_hint(contact_service_factory) -> None:
     provider = RecordingContactProvider()
     service = contact_service_factory(provider)

@@ -195,6 +195,7 @@ _SYSTEM_NETWORK_ADMIN_RE = re.compile(
     r"\badministrateur\b.{0,50}\b(?:systeme|système|reseau|réseau)\b"
 )
 _OFF_TARGET_TITLE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("business", re.compile(r"\bbusiness\b")),
     (
         "qa/test",
         re.compile(

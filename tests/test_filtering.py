@@ -8,6 +8,7 @@ import pytest
 
 from smartapply.filtering import JobFilter, RuleSet, ruleset_from_preferences
 from smartapply.profile import get_profile
+from smartapply.utils.contracts import normalize_contract_preferences
 from smartapply.utils.location import is_foreign_location
 
 
@@ -295,6 +296,20 @@ def test_sales_role_rejected_by_negative_title() -> None:
     )
 
 
+def test_filter_rejects_business_title() -> None:
+    f = JobFilter(_real_rules())
+    job = FakeJob(
+        title="Business Data Analyst",
+        company="Acme",
+        description="SQL, Python, data analysis and forecasting.",
+        location="Paris",
+        contract_type="CDI",
+    )
+    res = f.evaluate(job)
+    assert not res.kept
+    assert "title_hard_reject:business" in res.reasons
+
+
 def test_sales_deal_breaker_uses_word_boundaries() -> None:
     f = JobFilter(_real_rules())
     kept_jobs = [
@@ -574,7 +589,7 @@ def test_filter_rejects_reporting_bi_without_analytical_ownership() -> None:
     )
     res = f.evaluate(job)
     assert not res.kept
-    assert "reporting_bi_without_analytical_ownership" in res.reasons
+    assert "description_hard_reject:power_bi" in res.reasons
 
 
 def test_filter_rejects_finance_reporting_bi_without_core_data_tech() -> None:
@@ -592,10 +607,10 @@ def test_filter_rejects_finance_reporting_bi_without_core_data_tech() -> None:
     )
     res = f.evaluate(job)
     assert not res.kept
-    assert "finance_reporting_bi_without_core_data_tech" in res.reasons
+    assert "description_hard_reject:power_bi" in res.reasons
 
 
-def test_filter_keeps_data_analyst_bi_with_python_or_sql_ownership() -> None:
+def test_filter_rejects_power_bi_description_even_with_python_or_sql_ownership() -> None:
     f = JobFilter(_real_rules())
     job = FakeJob(
         title="Data Analyst BI",
@@ -605,7 +620,42 @@ def test_filter_keeps_data_analyst_bi_with_python_or_sql_ownership() -> None:
         contract_type="CDI",
     )
     res = f.evaluate(job)
-    assert res.kept
+    assert not res.kept
+    assert "description_hard_reject:power_bi" in res.reasons
+
+
+@pytest.mark.parametrize(
+    ("description", "expected_reason"),
+    [
+        (
+            "Construire des pipelines ML avec Python, SQL et Terraform.",
+            "description_hard_reject:terraform",
+        ),
+        (
+            "Analyse avancée avec Python, statistiques et entrepôt Snowflake.",
+            "description_hard_reject:snowflake",
+        ),
+        (
+            "Déployer des modèles machine learning sur Databricks.",
+            "description_hard_reject:databricks",
+        ),
+    ],
+)
+def test_filter_rejects_blocked_description_tech_terms(
+    description: str,
+    expected_reason: str,
+) -> None:
+    f = JobFilter(_real_rules())
+    job = FakeJob(
+        title="Data Scientist H/F",
+        company="Acme",
+        description=description,
+        location="Paris",
+        contract_type="CDI",
+    )
+    res = f.evaluate(job)
+    assert not res.kept
+    assert expected_reason in res.reasons
 
 
 def test_filter_keeps_data_analyst_with_predictive_ownership() -> None:
@@ -1131,6 +1181,41 @@ def test_filter_rejects_cdd_even_when_fulltime_is_visible() -> None:
     assert any("blocked_contract_type" in reason for reason in res.reasons)
 
 
+def test_filter_rejects_interim_like_cdd_by_default() -> None:
+    f = JobFilter(_real_rules())
+    for contract in ("Intérim", "Interim", "Temporary"):
+        job = FakeJob(
+            title="Data Scientist",
+            company="Acme",
+            description="Build pipelines with Python.",
+            location="Paris",
+            contract_type=contract,
+        )
+        res = f.evaluate(job)
+
+        assert not res.kept, contract
+        assert any("blocked_contract_type" in reason for reason in res.reasons)
+
+
+def test_filter_accepts_interim_when_cdd_is_accepted() -> None:
+    rules = _real_rules()
+    rules.accepted_contract_types = normalize_contract_preferences(["CDI", "CDD"])
+    f = JobFilter(rules)
+
+    for contract in ("CDD temps plein", "Intérim", "Temporary"):
+        job = FakeJob(
+            title="Data Scientist",
+            company="Acme",
+            description="Build pipelines with Python and machine learning.",
+            location="Paris",
+            contract_type=contract,
+        )
+        res = f.evaluate(job)
+
+        assert res.kept, (contract, res.reasons)
+        assert any(reason.startswith("contract_ok:") for reason in res.reasons)
+
+
 def test_filter_rejects_visible_cdd_in_title_or_current_offer_context() -> None:
     f = JobFilter(_real_rules())
     jobs = [
@@ -1162,11 +1247,42 @@ def test_filter_rejects_visible_cdd_in_title_or_current_offer_context() -> None:
             location="Paris",
             contract_type="CDI",
         ),
+        FakeJob(
+            title="Data Scientist Intérim H/F",
+            company="Acme",
+            description="Python, SQL et machine learning.",
+            location="Paris",
+            contract_type="CDI",
+        ),
+        FakeJob(
+            title="Data Analyst H/F",
+            company="Acme",
+            description="Mission intérim de 6 mois avec SQL et Python.",
+            location="Paris",
+            contract_type="CDI",
+        ),
     ]
     for job in jobs:
         res = f.evaluate(job)
         assert not res.kept, job.title
         assert "blocked_contract_visible_text:cdd" in res.reasons
+
+
+def test_filter_keeps_visible_interim_when_cdd_is_accepted() -> None:
+    rules = _real_rules()
+    rules.accepted_contract_types = normalize_contract_preferences(["CDI", "CDD"])
+    f = JobFilter(rules)
+    job = FakeJob(
+        title="Data Scientist H/F",
+        company="Acme",
+        description="Mission intérim de 6 mois avec Python et machine learning.",
+        location="Paris",
+        contract_type="CDI",
+    )
+    res = f.evaluate(job)
+
+    assert res.kept, res.reasons
+    assert "blocked_contract_visible_text:cdd" not in res.reasons
 
 
 def test_filter_keeps_generic_contract_listing_with_cdd_word() -> None:
@@ -1357,10 +1473,7 @@ def test_bi_analyst_without_python_is_penalized() -> None:
     )
     res = f.evaluate(job)
     assert not res.kept
-    assert any(
-        reason in res.reasons
-        for reason in ("analytics_without_python", "reporting_without_core_data_tech")
-    )
+    assert "description_hard_reject:power_bi" in res.reasons
 
 
 def test_reporting_analyst_without_python_sql_is_rejected() -> None:

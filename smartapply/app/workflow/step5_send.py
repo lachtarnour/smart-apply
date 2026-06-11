@@ -13,13 +13,12 @@ import streamlit as st
 from smartapply.app._helpers import pipeline_singleton, status_label
 from smartapply.app.workflow.state import reset_workflow
 from smartapply.app.workflow.step4_generate import _existing_generated_application_ids
-from smartapply.app.workflow.widgets import _download_button, _status_pill
+from smartapply.app.workflow.widgets import _download_button, _sort_table, _status_pill
 from smartapply.database import session_scope
 from smartapply.database.models import Application, JobStatus
 from smartapply.database.repository import (
     add_contact,
     mark_archived,
-    update_application_tracking,
     upsert_document,
 )
 from smartapply.llm import FormQuestionAnswers, LLMError
@@ -41,16 +40,25 @@ def step5_send() -> None:
         """,
         unsafe_allow_html=True,
     )
+    _render_step5_notice()
     app_ids = st.session_state["wf_generated_app_ids"]
     if not app_ids:
+        if st.session_state.get("wf_step5_has_loaded_app_ids"):
+            st.info("Pas de candidature à envoyer.")
+            st.success("Toutes les candidatures générées pour cette étape sont clôturées.")
+            _render_step5_navigation()
+            return
         app_ids = _existing_generated_application_ids()
         if not app_ids:
             st.warning("Aucune candidature générée. Retourne à l'étape 4.")
             return
         st.session_state["wf_generated_app_ids"] = app_ids
+        st.session_state["wf_step5_has_loaded_app_ids"] = True
         st.info(
             "Mode reprise : j'affiche les candidatures déjà générées en base."
         )
+    else:
+        st.session_state["wf_step5_has_loaded_app_ids"] = True
 
     with session_scope() as s:
         apps = s.query(Application).filter(Application.id.in_(app_ids)).all()
@@ -74,6 +82,7 @@ def step5_send() -> None:
                     "application_url": app.job.application_url,
                     "job_description": app.job.cleaned_description or app.job.description,
                     "job_location": app.job.location,
+                    "source_data": app.job.source_data if app.job else None,
                     "analysis_raw": analysis_raw,
                     "status": app.status,
                     "status_label": status_label(app.status),
@@ -140,6 +149,12 @@ def step5_send() -> None:
             for row in rows
         ]
     )
+    summary_df = _sort_table(
+        summary_df,
+        state_prefix="wf_step5_summary",
+        default_sort="id",
+        default_desc=False,
+    )
     st.dataframe(summary_df, hide_index=True, width="stretch")
 
     st.caption(
@@ -194,18 +209,16 @@ def _render_card_animation_styles(app_ids: list[int]) -> None:
         <style>
         @keyframes sa-wf-card-slide-up {{
             from {{
-                opacity: 0.35;
                 transform: translateY(22px);
             }}
             to {{
-                opacity: 1;
                 transform: translateY(0);
             }}
         }}
         {selectors} {{
             animation: sa-wf-card-slide-up 260ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
             transform-origin: top center;
-            will-change: transform, opacity;
+            will-change: transform;
         }}
         @media (prefers-reduced-motion: reduce) {{
             {selectors} {{
@@ -233,6 +246,28 @@ def _render_step5_navigation() -> None:
 def _reset_final_email(subject_key: str, body_key: str, subject: str, body: str) -> None:
     st.session_state[subject_key] = subject
     st.session_state[body_key] = body
+
+
+def _set_step5_notice(kind: str, message: str) -> None:
+    st.session_state["wf_step5_notice"] = {"kind": kind, "message": message}
+
+
+def _render_step5_notice() -> None:
+    notice = st.session_state.pop("wf_step5_notice", None)
+    if not isinstance(notice, dict):
+        return
+    message = str(notice.get("message") or "").strip()
+    if not message:
+        return
+    kind = str(notice.get("kind") or "info")
+    if kind == "success":
+        st.success(message)
+    elif kind == "warning":
+        st.warning(message)
+    elif kind == "error":
+        st.error(message)
+    else:
+        st.info(message)
 
 
 def _is_closed_status(status: str) -> bool:
@@ -306,7 +341,10 @@ def _render_form_questions_assistant(row: dict[str, Any]) -> None:
                 "Why do you think your qualities and your profile are relevant for this role?"
             ),
         )
-        st.caption("Le clic de génération envoie l'offre, ton profil complet et ces questions au LLM.")
+        st.caption(
+            "Tu peux coller plusieurs questions : un seul clic envoie l'offre, ton profil complet et "
+            "toutes les questions au LLM."
+        )
         col_generate, col_clear = st.columns(2)
         with col_generate:
             if st.button(
@@ -469,39 +507,80 @@ def _close_application(app_id: int, action: str) -> bool:
     with session_scope() as s:
         app = s.get(Application, int(app_id))
         if app is None:
-            st.error("Candidature introuvable.")
             return False
 
         if action == "done":
             _mark_application_done(app)
-            st.success("Candidature marquée comme faite.")
             return True
 
         if action == "archive":
             app.status = JobStatus.ARCHIVED
             if app.job is not None:
                 mark_archived(s, app.job.id)
-            st.success("Candidature archivée.")
             return True
 
-    st.error("Action de clôture inconnue.")
     return False
 
 
-def _update_tracking_and_return_closed(
+def _close_application_from_step5(app_id: int, action: str) -> None:
+    if _close_application(app_id, action):
+        _drop_application_from_step5(app_id)
+        if action == "done":
+            _set_step5_notice("success", "Candidature marquée comme faite.")
+        else:
+            _set_step5_notice("success", "Candidature archivée.")
+    else:
+        _set_step5_notice("error", "Impossible de clôturer cette candidature.")
+
+
+def _track_application_action(
     app_id: int,
     *,
     email_sent: bool = False,
     form_submitted: bool = False,
-) -> bool:
+) -> tuple[bool, bool]:
     with session_scope() as s:
-        app = update_application_tracking(
-            s,
-            int(app_id),
-            email_sent=email_sent,
-            form_submitted=form_submitted,
+        app = s.get(Application, int(app_id))
+        if app is None:
+            return False, False
+        now = datetime.now(timezone.utc)
+        if email_sent and app.email_sent_at is None:
+            app.email_sent_at = now
+        if form_submitted and app.form_submitted_at is None:
+            app.form_submitted_at = now
+        should_close = app.email_sent_at is not None and app.form_submitted_at is not None
+        if should_close:
+            app.status = JobStatus.SENT
+            if app.job is not None:
+                app.job.status = JobStatus.SENT
+        return True, should_close
+
+
+def _track_application_action_from_step5(
+    app_id: int,
+    *,
+    email_sent: bool = False,
+    form_submitted: bool = False,
+) -> None:
+    updated, closed = _track_application_action(
+        app_id,
+        email_sent=email_sent,
+        form_submitted=form_submitted,
+    )
+    if not updated:
+        _set_step5_notice("error", "Impossible de mettre à jour cette candidature.")
+        return
+    if closed:
+        _drop_application_from_step5(app_id)
+        _set_step5_notice(
+            "success",
+            "Email et formulaire enregistrés : candidature clôturée automatiquement.",
         )
-        return _is_closed_status(app.status)
+    else:
+        _set_step5_notice(
+            "success",
+            "Action enregistrée. La candidature reste visible tant que l'autre action n'est pas faite.",
+        )
 
 
 def _mark_application_done(app: Application) -> None:
@@ -711,18 +790,14 @@ def _render_send_card(row: dict[str, Any]) -> None:
             if row["email_sent_at"]:
                 st.markdown(f"✓ Email envoyé : `{row['email_sent_at'].strftime('%d/%m %H:%M')}`")
             else:
-                if st.button(
+                st.button(
                     "✉ Marquer email envoyé",
                     key=f"wf_mark_email_{app_id}",
                     disabled=not row["contact"],
-                ):
-                    closed = _update_tracking_and_return_closed(
-                        app_id,
-                        email_sent=True,
-                    )
-                    if closed:
-                        _drop_application_from_step5(app_id)
-                    st.rerun()
+                    on_click=_track_application_action_from_step5,
+                    args=(app_id,),
+                    kwargs={"email_sent": True},
+                )
 
             if row["strategy"] in ("email_and_form", "form_only"):
                 if row["form_submitted_at"]:
@@ -730,38 +805,34 @@ def _render_send_card(row: dict[str, Any]) -> None:
                         f"✓ Form soumis : `{row['form_submitted_at'].strftime('%d/%m %H:%M')}`"
                     )
                 else:
-                    if st.button(
+                    st.button(
                         "🗂 Marquer formulaire soumis",
                         key=f"wf_mark_form_{app_id}",
-                    ):
-                        closed = _update_tracking_and_return_closed(
-                            app_id,
-                            form_submitted=True,
-                        )
-                        if closed:
-                            _drop_application_from_step5(app_id)
-                        st.rerun()
+                        on_click=_track_application_action_from_step5,
+                        args=(app_id,),
+                        kwargs={"form_submitted": True},
+                    )
 
             st.divider()
             st.markdown("**Clôture**")
             close_done, close_archive = st.columns(2)
             with close_done:
-                if st.button(
+                st.button(
                     "Candidature faite",
                     key=f"wf_close_done_{app_id}",
                     type="primary",
                     width="stretch",
-                ) and _close_application(app_id, "done"):
-                    _drop_application_from_step5(app_id)
-                    st.rerun()
+                    on_click=_close_application_from_step5,
+                    args=(app_id, "done"),
+                )
             with close_archive:
-                if st.button(
+                st.button(
                     "Archiver",
                     key=f"wf_close_archive_{app_id}",
                     width="stretch",
-                ) and _close_application(app_id, "archive"):
-                    _drop_application_from_step5(app_id)
-                    st.rerun()
+                    on_click=_close_application_from_step5,
+                    args=(app_id, "archive"),
+                )
 
 
 def _row_analysis_value(row: dict[str, Any], key: str) -> str:
@@ -859,6 +930,7 @@ def _lookup_contact_for_application(row: dict[str, Any]) -> bool:
         job_location=_row_analysis_value(row, "extracted_location")
         or str(row.get("job_location") or "")
         or None,
+        source_data=row.get("source_data") if isinstance(row.get("source_data"), dict) else None,
     )
     if candidate is None:
         decision = service.last_lookup_decision

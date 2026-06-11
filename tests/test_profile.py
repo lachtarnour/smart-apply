@@ -111,6 +111,14 @@ def test_aal_stock_forecasting_project_is_available_for_selection() -> None:
     assert "blt_proj_aal_forecasting_main" in profile.bullet_index()
 
 
+def test_smartapply_project_is_available_for_selection() -> None:
+    profile = load_profile()
+    proj = next(p for p in profile.projects if p.id == "proj_smartapply")
+    assert str(proj.url).rstrip("/") == "https://github.com/lachtarnour/smart-apply"
+    assert "llm pipeline" in [kw.lower() for kw in proj.keywords]
+    assert "blt_proj_smartapply_pipeline" in profile.bullet_index()
+
+
 def test_project_repository_links_are_available() -> None:
     profile = load_profile()
     links = {
@@ -122,6 +130,7 @@ def test_project_repository_links_are_available() -> None:
     assert links["proj_bot_traffic_anomaly"] == (
         "https://github.com/lachtarnour/bot-traffic-anomaly-detection"
     )
+    assert links["proj_smartapply"] == "https://github.com/lachtarnour/smart-apply"
     assert links["proj_rl_gym"] == "https://github.com/lachtarnour/Reinforcement-learning"
     assert links["proj_ner_camembert"] == "https://github.com/lachtarnour/Token-classification"
     assert links["proj_aal_stock_forecasting"] == (
@@ -212,6 +221,7 @@ def test_allowed_skills_whitelist_includes_known_tech() -> None:
     assert "R" in allowed
     assert "ARIMA/SARIMA" in allowed
     assert "FAISS" in allowed
+    assert "LangChain" in allowed
     assert "ONNX" in allowed
     assert "Weights & Biases" in allowed
     # Matching keywords are detection cues, not displayable CV skills.
@@ -281,6 +291,7 @@ def test_effective_skills_surface_profile_specific_first() -> None:
     ml_ai = merged["ml_ai"]
     assert ml_ai.index("LLMs") < ml_ai.index("PyTorch")
     assert "RAG" in merged["rag_retrieval"]
+    assert "LangChain" in merged["rag_retrieval"]
 
 
 def test_matching_keywords_are_kept_separate_from_display_skills() -> None:

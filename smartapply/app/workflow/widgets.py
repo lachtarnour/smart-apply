@@ -157,6 +157,86 @@ def _filter_table(df: pd.DataFrame, query: str) -> pd.DataFrame:
     return df[mask]
 
 
+_SORTABLE_COLUMN_LABELS = {
+    "include": "Sélection",
+    "restore": "Réactiver",
+    "keep": "Garder",
+    "analyze": "Analyser",
+    "lookup_contact": "Chercher contact",
+    "id": "id",
+    "new": "New",
+    "title": "Titre",
+    "company": "Entreprise",
+    "location": "Lieu",
+    "contract": "Contrat",
+    "source": "Source",
+    "phase": "Phase",
+    "status": "Statut",
+    "score": "Score",
+    "semantic": "Sémantique",
+    "skills": "Skills",
+    "seniority_score": "Seniorité score",
+    "location_score": "Lieu score",
+    "seniority": "Seniority",
+    "company_size": "Taille entreprise",
+    "lang": "Langue",
+    "manual_contact": "Contact manuel",
+    "domain": "Domaine",
+    "strategy": "Stratégie",
+    "contact": "Contact",
+    "gmail": "Gmail",
+    "form": "Formulaire",
+    "reason": "Raison",
+    "reasons": "Raisons",
+    "risks": "Risques",
+}
+
+
+def _sort_table(
+    df: pd.DataFrame,
+    *,
+    state_prefix: str,
+    default_sort: str = "score",
+    default_desc: bool = True,
+) -> pd.DataFrame:
+    if df.empty:
+        return df
+
+    options = {
+        column: _SORTABLE_COLUMN_LABELS[column]
+        for column in _SORTABLE_COLUMN_LABELS
+        if column in df.columns
+    }
+    if not options:
+        return df
+
+    sort_key = f"{state_prefix}_sort_by"
+    desc_key = f"{state_prefix}_sort_desc"
+    default_column = default_sort if default_sort in options else next(iter(options))
+    st.session_state.setdefault(sort_key, default_column)
+    st.session_state.setdefault(desc_key, default_desc)
+    if st.session_state.get(sort_key) not in options:
+        st.session_state[sort_key] = default_column
+
+    sort_col, order_col = st.columns([2, 1])
+    with sort_col:
+        selected_column = st.selectbox(
+            "Trier le tableau par",
+            options=list(options),
+            format_func=lambda column: options[column],
+            key=sort_key,
+        )
+    with order_col:
+        descending = st.toggle("Ordre décroissant", key=desc_key)
+
+    return df.sort_values(
+        by=str(selected_column),
+        ascending=not bool(descending),
+        na_position="last",
+        kind="stable",
+    ).reset_index(drop=True)
+
+
 def _render_compact_job_cards(df: pd.DataFrame, selected_ids: list[int]) -> None:
     if df.empty:
         return

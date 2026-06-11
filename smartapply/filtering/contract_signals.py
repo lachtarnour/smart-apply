@@ -18,7 +18,7 @@ APPRENTICESHIP_CONTRACT_MARKERS = {
 }
 FREELANCE_CONTRACT_MARKERS = {"freelance", "contractor"}
 INDEPENDENT_CONTRACT_MARKERS = {"independant", "independent"}
-CDD_CONTRACT_MARKERS = {"cdd", "fixed term", "fixed-term"}
+CDD_CONTRACT_MARKERS = {"cdd", "fixed term", "fixed-term", "interim"}
 
 _APPRENTICESHIP_SAFE_PHRASES = (
     "apprentissage statistique",
@@ -108,14 +108,23 @@ _CDD_SAFE_CONTEXT_PATTERNS = (
 )
 _CDD_CONTRACT_PATTERNS = (
     r"\btype\s+de\s+contrat\s*:\s*cdd\b",
+    r"\btype\s+de\s+contrat\s*:\s*interim\b",
     r"\bcontrat\s+(?:de\s+)?cdd\b",
+    r"\bcontrat\s+(?:d[' ]?)?interim\b",
     r"\bposte\s+(?:en|de)\s+cdd\b",
+    r"\bposte\s+(?:en|d[' ]?)interim\b",
     r"\boffre\s+(?:en|de)\s+cdd\b",
+    r"\boffre\s+(?:en|d[' ]?)interim\b",
     r"\bmission\s+(?:en|de)\s+cdd\b",
+    r"\bmission\s+(?:en|d[' ]?)interim\b",
     r"\ben\s+cdd\b",
+    r"\ben\s+interim\b",
     r"\bcdd\s+(?:de|d[' ]?une|d[' ]?un|\d{1,2}\s*(?:mois|ans?))\b",
+    r"\binterim\s+(?:de|d[' ]?une|d[' ]?un|\d{1,2}\s*(?:mois|ans?))\b",
     r"\bcdd\s+temps\s+plein\b",
+    r"\binterim\s+temps\s+plein\b",
     r"\bfixed[- ]term\b",
+    r"\btravail\s+temporaire\b",
 )
 
 
@@ -164,9 +173,11 @@ def has_independent_contract_context(title: str, description: str) -> bool:
 
 def has_cdd_contract_context(title: str, description: str) -> bool:
     """Detect visible CDD/fixed-term offers without flagging generic listings."""
-    if has_word(title, "cdd") or has_word(title, "fixed term") or has_word(
-        title,
-        "fixed-term",
+    if (
+        has_word(title, "cdd")
+        or has_word(title, "fixed term")
+        or has_word(title, "fixed-term")
+        or has_word(title, "interim")
     ):
         return True
     if matches_any_pattern(description, _CDD_SAFE_CONTEXT_PATTERNS):

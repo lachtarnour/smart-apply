@@ -16,6 +16,8 @@ TAG_FREELANCE = "freelance"
 TAG_INTERNSHIP = "internship"
 TAG_APPRENTICESHIP = "apprenticeship"
 
+CDD_EQUIVALENT_TAGS = {TAG_FIXED_TERM, TAG_TEMPORARY}
+
 INCOMPATIBLE_CONTRACT_TAGS = {
     TAG_PART_TIME,
     TAG_FIXED_TERM,
@@ -172,10 +174,23 @@ def contract_type_tags(value: str | None) -> set[str]:
     return tags
 
 
+def equivalent_contract_tags(tags: set[str]) -> set[str]:
+    """Expand tags that should be treated the same by the filter.
+
+    Intérim/temporary missions are considered equivalent to CDD/fixed-term
+    contracts for accept/reject decisions, while preserving their source label
+    for display.
+    """
+    expanded = set(tags)
+    if expanded & CDD_EQUIVALENT_TAGS:
+        expanded.update(CDD_EQUIVALENT_TAGS)
+    return expanded
+
+
 def contract_types_to_tags(values: list[str] | tuple[str, ...] | set[str]) -> set[str]:
     tags: set[str] = set()
     for value in values:
-        tags.update(contract_type_tags(value))
+        tags.update(equivalent_contract_tags(contract_type_tags(value)))
     return tags
 
 
@@ -184,7 +199,7 @@ def normalize_contract_preferences(values: list[str]) -> list[str]:
     normalized: list[str] = []
     seen: set[str] = set()
     for value in values:
-        tags = contract_type_tags(value)
+        tags = equivalent_contract_tags(contract_type_tags(value))
         tokens = sorted(tags) if tags else [_contract_words(value)]
         for token in tokens:
             if token and token not in seen:
@@ -193,15 +208,43 @@ def normalize_contract_preferences(values: list[str]) -> list[str]:
     return normalized
 
 
+def blocked_contract_tags_from_tags(
+    contract_tags: set[str],
+    accepted_values: list[str],
+) -> set[str]:
+    """Return incompatible tags that are not explicitly accepted."""
+    if not contract_tags:
+        return set()
+
+    accepted_tags = contract_types_to_tags(accepted_values)
+    blocked = contract_tags & (INCOMPATIBLE_CONTRACT_TAGS - CDD_EQUIVALENT_TAGS)
+    if contract_tags & CDD_EQUIVALENT_TAGS and not accepted_tags & CDD_EQUIVALENT_TAGS:
+        blocked.update(contract_tags & CDD_EQUIVALENT_TAGS)
+    return blocked
+
+
+def blocked_contract_tags(contract_type: str | None, accepted_values: list[str]) -> set[str]:
+    """Return incompatible tags that are not explicitly accepted.
+
+    CDD/fixed-term and intérim/temporary are profile-dependent: rejected by
+    default, but allowed when either CDD or intérim is accepted.
+    """
+    return blocked_contract_tags_from_tags(
+        contract_type_tags(contract_type),
+        accepted_values,
+    )
+
+
 def contract_matches_accepted(contract_type: str | None, accepted_values: list[str]) -> bool:
     if not contract_type or not accepted_values:
         return False
 
     contract_tags = contract_type_tags(contract_type)
-    if contract_tags & INCOMPATIBLE_CONTRACT_TAGS:
+    if blocked_contract_tags(contract_type, accepted_values):
         return False
     accepted_tags = contract_types_to_tags(accepted_values)
-    if contract_tags and accepted_tags and contract_tags & accepted_tags:
+    expanded_contract_tags = equivalent_contract_tags(contract_tags)
+    if expanded_contract_tags and accepted_tags and expanded_contract_tags & accepted_tags:
         return True
 
     contract_words = _contract_words(contract_type)

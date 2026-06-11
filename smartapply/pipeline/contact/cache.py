@@ -30,6 +30,7 @@ class ContactCacheMixin:
         contact_domain_kind: str = "unknown",
         job_description: str | None = None,
         company: str = "",
+        source_data: Any | None = None,
     ) -> str | None:
         """Pick the best URL to pass to the contact provider.
 
@@ -46,6 +47,7 @@ class ContactCacheMixin:
                 "contact_domain_kind": contact_domain_kind,
             },
             job_location=None,
+            source_data=source_data,
         )
         return decision.lookup_application_url
 

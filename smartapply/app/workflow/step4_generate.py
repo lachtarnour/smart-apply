@@ -7,6 +7,7 @@ import streamlit as st
 
 from smartapply.app._helpers import pipeline_singleton, render_section_header, status_label
 from smartapply.app.workflow.state import _begin_run, _end_run, _stop_requested, settings
+from smartapply.app.workflow.step1_fetch import _archive_jobs_for_workflow
 from smartapply.app.workflow.step3_analyze import (
     _analyzed_jobs_df,
     _kept_ids_from_full_df,
@@ -19,6 +20,7 @@ from smartapply.app.workflow.widgets import (
     _filter_table,
     _render_action_strip,
     _render_pdf,
+    _sort_table,
 )
 from smartapply.database import session_scope
 from smartapply.database.models import Application, JobStatus
@@ -144,44 +146,74 @@ def step4_generate() -> None:
     )
     if "preview" in visible_resume_df.columns:
         visible_resume_df = visible_resume_df.rename(columns={"preview": "reasons"})
-    edited_resume = st.data_editor(
+    visible_resume_df = _sort_table(
         visible_resume_df,
-        column_config={
-            "keep": st.column_config.CheckboxColumn("Générer", default=True),
-            "lookup_contact": st.column_config.CheckboxColumn(
-                "Chercher contact",
-                default=bool(contact_lookup_default),
-                help=(
-                    "Appelle Anymail uniquement pour cette offre si aucun contact "
-                    "manuel n'est renseigné."
-                ),
-                disabled=not bool(settings.anymailfinder_api_key),
-            ),
-            "id": st.column_config.NumberColumn("id", disabled=True, width="small"),
-            "title": st.column_config.TextColumn("Titre", disabled=True, width="large"),
-            "company": st.column_config.TextColumn("Entreprise", disabled=True, width="medium"),
-            "score": st.column_config.NumberColumn(
-                "Score", disabled=True, format="%.3f", width="small"
-            ),
-            "seniority": st.column_config.TextColumn("Seniority", disabled=True, width="small"),
-            "company_size": st.column_config.TextColumn("Taille", disabled=True, width="small"),
-            "lang": st.column_config.TextColumn("Lang", disabled=True, width="small"),
-            "manual_contact": st.column_config.TextColumn(
-                "Contact manuel",
-                width="medium",
-                help="Optionnel. Email recruteur/RH à utiliser pour cette offre.",
-            ),
-            "domain": st.column_config.TextColumn("Domaine", disabled=True, width="medium"),
-            "reasons": st.column_config.TextColumn("Pourquoi ça match", disabled=True, width="large"),
-            "risks": st.column_config.TextColumn("Risques", disabled=True, width="medium"),
-        },
-        hide_index=True,
-        width="stretch",
-        key="wf_step3_resume_editor",
+        state_prefix="wf_step4",
+        default_sort="score",
+        default_desc=True,
     )
-    _sync_manual_contacts(edited_resume)
-    _sync_contact_lookup_state(edited_resume)
-    _sync_keep_state(edited_resume, state_key="wf_generate_keep_map")
+    with st.form("wf_step4_resume_editor_form"):
+        edited_resume = st.data_editor(
+            visible_resume_df,
+            column_config={
+                "keep": st.column_config.CheckboxColumn("Générer", default=True),
+                "archive": st.column_config.CheckboxColumn("Archiver", default=False),
+                "lookup_contact": st.column_config.CheckboxColumn(
+                    "Chercher contact",
+                    default=bool(contact_lookup_default),
+                    help=(
+                        "Appelle Anymail uniquement pour cette offre si aucun contact "
+                        "manuel n'est renseigné."
+                    ),
+                    disabled=not bool(settings.anymailfinder_api_key),
+                ),
+                "id": st.column_config.NumberColumn("id", disabled=True, width="small"),
+                "title": st.column_config.TextColumn("Titre", disabled=True, width="large"),
+                "company": st.column_config.TextColumn("Entreprise", disabled=True, width="medium"),
+                "score": st.column_config.NumberColumn(
+                    "Score", disabled=True, format="%.3f", width="small"
+                ),
+                "seniority": st.column_config.TextColumn("Seniority", disabled=True, width="small"),
+                "company_size": st.column_config.TextColumn("Taille", disabled=True, width="small"),
+                "lang": st.column_config.TextColumn("Lang", disabled=True, width="small"),
+                "manual_contact": st.column_config.TextColumn(
+                    "Contact manuel",
+                    width="medium",
+                    help="Optionnel. Email recruteur/RH à utiliser pour cette offre.",
+                ),
+                "domain": st.column_config.TextColumn("Domaine", disabled=True, width="medium"),
+                "reasons": st.column_config.TextColumn("Pourquoi ça match", disabled=True, width="large"),
+                "risks": st.column_config.TextColumn("Risques", disabled=True, width="medium"),
+            },
+            hide_index=True,
+            width="stretch",
+            key="wf_step3_resume_editor",
+        )
+        col_apply, col_archive = st.columns(2)
+        with col_apply:
+            apply_resume = st.form_submit_button(
+                "Appliquer les coches",
+                type="primary",
+                width="stretch",
+            )
+        with col_archive:
+            archive_resume = st.form_submit_button(
+                "Archiver les offres cochées",
+                width="stretch",
+            )
+    if archive_resume:
+        archive_ids = edited_resume.loc[edited_resume["archive"], "id"].astype(int).tolist()
+        if not archive_ids:
+            st.warning("Coche au moins une offre dans la colonne Archiver.")
+        else:
+            count = _archive_jobs_for_workflow(archive_ids)
+            st.success(f"{count} offre(s) archivée(s).")
+            st.rerun()
+    if apply_resume:
+        _sync_manual_contacts(edited_resume)
+        _sync_contact_lookup_state(edited_resume)
+        _sync_keep_state(edited_resume, state_key="wf_generate_keep_map")
+        st.success("Sélection mise à jour.")
     ids = _kept_ids_from_full_df(resume_df, state_key="wf_generate_keep_map")
     st.session_state["wf_selected_for_apply"] = ids
     if not ids:
@@ -302,6 +334,12 @@ def step4_generate() -> None:
         return
 
     apps_df = pd.DataFrame(apps_rows)
+    apps_df = _sort_table(
+        apps_df,
+        state_prefix="wf_step4_apps",
+        default_sort="id",
+        default_desc=False,
+    )
     st.dataframe(
         apps_df[["id", "status", "strategy", "contact"]],
         hide_index=True,

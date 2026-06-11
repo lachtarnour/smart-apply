@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from smartapply.llm.prompts.cv_adaptation import (
     _format_core_skills,
     _format_experiences,
@@ -48,24 +50,24 @@ Hard rules:
 15. Choose exactly one skills_profile_id from the provided skill profile choices. Use matching_keywords only to understand the role family; they are NOT display skills.
 16. The motivation letter body must have exactly 3 paragraphs separated by blank lines, plain and human, with no bullet list.
 17. Paragraph 1: interest in the role/company/context, using 1 or 2 visible offer anchors only. Never invent company facts.
-18. Paragraph 2: profile-to-role fit with 2 or 3 proofs maximum from selected evidence. Do not rewrite the CV.
+18. Paragraph 2: profile-to-role fit with 2 or 3 concise proofs maximum from selected evidence. Do not rewrite the CV.
 19. Paragraph 3: concrete contribution plus a sober invitation to exchange. Do not add a fourth closing paragraph.
-20. The motivation letter must cite one concrete project, stack or experience from the profile.
+20. The motivation letter must cite one concrete project, stack or experience from the profile, but only as high-level evidence. Do not explain project objectives, datasets, architecture, implementation details or metrics.
 21. The motivation letter must reuse evidence from selected_experiences or selected_project_ids.
 22. The motivation letter must be written only in French or English with Latin-script characters. Never output Arabic, Armenian, Cyrillic, Hebrew, CJK or mixed-script words.
 23. selected_skills is the exact Skills section to display. Build organized category blocks from allowed_skills_by_category only.
 24. Skill selection strategy: include offer-required skills that exist in allowed_skills; add core/profile skills only when they strengthen the application for this offer; omit generic or unrelated skills even if the candidate has them.
 25. Unsupported offer terms are a no-claim list: do not describe the candidate as having those skills in the summary, bullets, title, skills, motivation letter or warnings.
 26. Do not place unsupported_offer_terms_not_to_claim in cv_title or professional_summary as role anchors. Use supported adjacent anchors only when they are listed in allowed_skills_by_category or source evidence.
-27. Never mention a lack, gap, missing experience, limited knowledge, junior status, willingness to learn, or apologies. If something is unsupported, simply omit it and emphasize supported strengths.
+27. Never mention a lack, gap, missing experience, limited knowledge, junior status, willingness to learn, or apologies, except the conditional LangChain/LangGraph motivation-letter note when explicitly requested below. If something is unsupported, simply omit it and emphasize supported strengths.
 28. The motivation letter may reference only selected_project_ids and selected_experiences. Do not name or hint at projects that are not selected.
-29. selected_project_ids must contain 2 to 4 projects. Include at least 3 only when 3 genuinely relevant projects are available. Do not select a project only as filler.
+29. selected_project_ids must contain at least 4 projects whenever 4 profile projects are provided. Prefer 4 to 5 projects, ranked by relevance; if fewer than 4 profile projects are provided, select every relevant provided project.
 30. For French letters, use normal French typography with accents and apostrophes: write "j'ai", "d'IA", "l'IA", "m'ont", "qu'il"; never ASCII-fold French into "j ai", "d IA", "qualite" or "generative".
 31. Output ONLY the requested JSON. No prose, no commentary.
 
 Good motivation-letter pattern:
 - Opening: mention a concrete company/context or offer anchor when available.
-- Middle: connect a role mission/responsibility to one selected experience and one selected project/stack.
+- Middle: connect a role mission/responsibility to one selected experience and one selected project/stack, without entering into project details.
 - Close: short professional call to action.
 
 Forbidden motivation-letter patterns:
@@ -95,6 +97,33 @@ def _format_offer_interest_anchors(analysis: JobAnalysis) -> str:
     )
 
 
+def _format_langchain_langgraph_letter_instruction(analysis: JobAnalysis) -> str:
+    fields = [
+        analysis.role_type,
+        analysis.domain,
+        analysis.company_context,
+        *analysis.main_tasks,
+        *analysis.required_skills,
+        *analysis.cv_keywords_to_include,
+        *analysis.offer_interest_points,
+        *analysis.match_reasons,
+        *analysis.risks,
+    ]
+    text = " ".join(field for field in fields if field)
+    if not re.search(r"\blang\s*(?:chain|graph)\b", text, flags=re.IGNORECASE):
+        return ""
+    # This note is letter-only. LangChain remains a CV skill only through the
+    # whitelist; LangGraph is not a display skill.
+    return (
+        "LangChain/LangGraph note (motivation letter only): include exactly one short, "
+        "positive sentence in paragraph 2 or 3 saying the candidate has started "
+        "actively exploring LangChain/LangGraph, is still deepening them, and plans "
+        "to build a concrete Text-to-SQL assistant project soon; do not present "
+        "these tools as mastered in the letter. In CV fields, mention LangChain "
+        "only if it is selected from allowed_skills; do not mention LangGraph."
+    )
+
+
 def build_user_prompt(
     *,
     profile: Profile,
@@ -110,13 +139,16 @@ def build_user_prompt(
     dont = "\n  - ".join(style.dont)
     do = "\n  - ".join(style.do)
     main_tasks_block = "\n".join(f"- {t}" for t in analysis.main_tasks)
-    project_hint = ", ".join(p.name for p in selected_projects[:3])
+    project_hint = ", ".join(p.name for p in selected_projects[:4])
     skill_profiles = format_skill_profiles(profile)
     skill_catalog = _format_skill_catalog(profile)
     core_skills = _format_core_skills(profile)
     matching_keywords = _format_matching_keywords(profile)
     unsupported_offer_terms = _format_unsupported_offer_terms(profile, analysis)
     offer_interest_anchors = _format_offer_interest_anchors(analysis)
+    langchain_langgraph_letter_instruction = (
+        _format_langchain_langgraph_letter_instruction(analysis)
+    )
 
     return f"""Produce a complete CV and motivation-letter draft for this role.
 
@@ -161,11 +193,12 @@ projects:
 Motivation letter language: {"French" if language == "fr" else "English"}
 Project hints for the letter: {project_hint}
 Subject: concise, mentions the role and the candidate name. For French, use "Candidature - ..." rather than "Application for ...".
-Body: exactly 3 paragraphs separated by blank lines. French: 180-260 words, target 200-230. English: 160-230 words, target 180-210. Natural, professional, no buzzwords, no bullet list.
+Body: exactly 3 paragraphs separated by blank lines. French and English: 250-350 words. Natural, professional, no buzzwords, no bullet list.
+{langchain_langgraph_letter_instruction}
 Use only French or English Latin script. No Arabic, Armenian, Cyrillic, Hebrew, CJK or mixed-script words.
 For French, keep normal apostrophes and accents; do not remove apostrophes after j, d, l, m, n, s, t, qu, jusqu, lorsqu or puisqu.
 Paragraph 1: interest in the role/company/context, using 1 or 2 visible offer anchors only.
-Paragraph 2: fit between profile and role, with 2 or 3 selected proofs maximum.
+Paragraph 2: fit between profile and role, with 2 or 3 selected proofs maximum. Use projects, stacks or experiences as high-level proof only; do not enter into project details.
 Paragraph 3: concrete contribution plus a sober invitation to exchange. Do not add a fourth closing paragraph.
 Together, these three paragraphs must answer: why this company/context, why this role, why this candidate.
 Use one concrete offer/company anchor from "Offer/company anchors for letter" when available, but never invent company facts or use "leader dans son domaine" / "industry leader" unless the offer proves it.
@@ -173,13 +206,14 @@ If no reliable company/about-us anchor is available, do not invent one; ground t
 Connect the offer anchor to one role mission/responsibility and one selected candidate proof.
 Do not turn the letter into a CV summary; keep candidate evidence selective and directly tied to the role.
 The motivation letter must reuse evidence from selected_experiences or selected_project_ids.
-It must cite one concrete project, stack or experience from the profile.
+It must cite one concrete project, stack or experience from the profile, but do not explain project internals, datasets, architecture, metrics, or implementation steps.
 Do not claim unsupported_offer_terms_not_to_claim as candidate skills.
 Do not copy unsupported_offer_terms_not_to_claim into the CV title or summary just because they appear in the job title or missions.
 Do not claim "production", "mise en production", "industrialisation" or "deployment" as candidate experience unless the selected source evidence explicitly supports that wording. Safer alternatives are "pipelines", "API", "structured code" or "usable models" when supported.
 If a required term is unsupported, emphasize adjacent allowed skills and concrete evidence.
 Never mention a gap, missing experience, limited knowledge, learning need, apology, or defensive caveat. Do not use "Bien que", "Je reconnais", "Je suis conscient", "je n'ai pas", "limited", "although", or "ready to learn".
-Only name projects that appear in selected_project_ids. If you name a project in the letter, that exact project id MUST be present in selected_project_ids. Do not use a real project as generic filler when it is not directly relevant.
+Only name projects that appear in selected_project_ids. Name at most one project in the motivation letter. If you name a project in the letter, that exact project id MUST be present in selected_project_ids. Do not describe project details or use a real project as generic filler when it is not directly relevant.
+If the offer does not explicitly mention LLM, RAG, retrieval-augmented generation, GenAI, generative AI or IA générative, do not mention SciFact RAG Verifier in the motivation letter; choose the selected project closest to the offer instead.
 Do not include a sign-off, signature, "Cordialement", "Best regards", or the candidate name in the motivation_letter_body; the renderer adds the canonical signature.
 
 === STYLE ===
@@ -199,10 +233,11 @@ Return JSON conforming to ApplicationDraft:
 - Motivation letter fields: motivation_letter_subject, motivation_letter_body.
 
 Project output rule:
-- selected_project_ids must contain 2 to 4 projects.
-- Include at least 3 only when 3 genuinely relevant projects are available.
+- selected_project_ids must contain at least 4 projects whenever 4 profile projects are provided.
+- Prefer 4 to 5 projects, ranked by direct relevance to the role.
+- If fewer than 4 profile projects are provided, select every relevant provided project.
 - Rank projects by direct relevance to the job tasks, required skills and keywords.
-- Do not pick a project only as filler.
+- Do not invent projects or project claims; every selected id must come from the provided profile projects.
 
 Skills output rule:
 - Fill selected_skills as a list of blocks: {{"category_id": "...", "skills": ["..."]}}.

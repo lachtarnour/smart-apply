@@ -1,0 +1,15 @@
+[database]
+path = "data/db/spontaneous_apply.sqlite"
+
+[paths]
+companies_seed_csv = "data/input/companies_seed.csv"
+company_profiles_jsonl = "data/processed/company_profiles.jsonl"
+email_drafts_jsonl = "data/processed/email_drafts.jsonl"
+wttj_raw_dir = "data/raw/wttj_pages"
+official_raw_dir = "data/raw/official_pages"
+log_file = "data/logs/pipeline.log"
+
+[llm]
+model = "gpt-4o"
+temperature = 0.2
+

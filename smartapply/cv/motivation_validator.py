@@ -89,6 +89,7 @@ _PROJECT_ALIASES = {
         "modelisation acoustique",
     ),
     "proj_scifact_rag": ("scifact", "scifact rag verifier"),
+    "proj_smartapply": ("smartapply", "smart apply"),
     "proj_bot_traffic_anomaly": ("bot traffic anomaly detection",),
     "proj_aal_stock_forecasting": ("aal stock forecasting", "american airlines group"),
     "proj_gpt2": ("gpt-2-style language model", "gpt-2"),

@@ -40,8 +40,13 @@ data/smartapply.db
 data/cache/
 data/output/
 data/scraped/
+spontaneous_apply/data/db/*.sqlite
+spontaneous_apply/data/raw/
+spontaneous_apply/data/processed/
+spontaneous_apply/data/logs/
 
 # ---- Editors ----
+.claude/
 .vscode/
 .idea/
 *.swp

@@ -199,6 +199,138 @@ def test_ingest_skips_already_processed_duplicate() -> None:
     assert second.job_ids == []
 
 
+def test_ingest_skips_known_offer_by_url_not_title_company(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from smartapply.database import session_scope
+    from smartapply.database.repository import mark_archived
+    from smartapply.pipeline import Pipeline
+    from smartapply.pipeline.ingestor import Ingestor
+
+    p = Pipeline(embeddings=MockEmbeddingsProvider(), llm=MockLLMProvider())
+    first = p.ingest_text(
+        text="Build ML pipelines with Python.",
+        title="Data Scientist",
+        company="Acme",
+        location="Paris",
+        application_url="https://jobs.example.com/offers/abc?utm=old",
+    )
+    with session_scope() as s:
+        mark_archived(s, first.job_ids[0])
+
+    jobs = [
+        RawJob(
+            external_id="fake:different-source-copy",
+            title="Data Scientist",
+            company="Acme",
+            location="Paris",
+            description="Build ML pipelines with Python.",
+            application_url="https://jobs.example.com/offers/abc?utm=new",
+            source="fake",
+        ),
+        RawJob(
+            external_id="fake:new",
+            title="Data Scientist",
+            company="Acme",
+            location="Paris",
+            description="Train models for another team.",
+            application_url="https://jobs.example.com/offers/new",
+            source="fake",
+        ),
+    ]
+
+    monkeypatch.setattr(
+        "smartapply.pipeline.ingestor.get_scraper",
+        lambda source: _yielding_scraper(jobs)(),
+    )
+
+    report = Ingestor().from_source("fake", "q", max_results=1, split_or=False)
+
+    assert report.inserted == 1
+    assert report.skipped_existing_during_collect == 1
+    assert report.job_ids
+
+
+def test_known_offer_url_matching_preserves_non_tracking_query_params() -> None:
+    from smartapply.pipeline.ingestor import _normalize_application_url
+
+    assert _normalize_application_url(
+        "https://ats.example.com/jobs?job_id=123&utm_source=google"
+    ) == _normalize_application_url(
+        "https://ats.example.com/jobs?utm_source=serpapi&job_id=123"
+    )
+    assert _normalize_application_url(
+        "https://ats.example.com/jobs?job_id=123&utm_source=google"
+    ) != _normalize_application_url(
+        "https://ats.example.com/jobs?job_id=456&utm_source=google"
+    )
+
+
+@pytest.mark.parametrize("source", ["serpapi", "francetravail", "welcometothejungle"])
+@pytest.mark.parametrize("existing_status", ["scraped", "archived", "sent"])
+def test_ingest_skips_known_offer_for_real_sources(
+    monkeypatch: pytest.MonkeyPatch,
+    source: str,
+    existing_status: str,
+) -> None:
+    from smartapply.database import session_scope
+    from smartapply.database.repository import (
+        create_or_get_application,
+        mark_archived,
+        update_application_tracking,
+    )
+    from smartapply.pipeline import Pipeline
+    from smartapply.pipeline.ingestor import Ingestor
+
+    p = Pipeline(embeddings=MockEmbeddingsProvider(), llm=MockLLMProvider())
+    first = p.ingest_text(
+        text="Build ML pipelines with Python.",
+        title="Data Scientist",
+        company="Acme",
+        location="Paris",
+        application_url="https://ats.example.com/jobs?job_id=123&utm_source=old",
+    )
+    with session_scope() as s:
+        if existing_status == "archived":
+            mark_archived(s, first.job_ids[0])
+        elif existing_status == "sent":
+            app = create_or_get_application(s, first.job_ids[0])
+            app.application_strategy = "email_only"
+            update_application_tracking(s, app.id, email_sent=True)
+
+    jobs = [
+        RawJob(
+            external_id=f"{source}:same-offer-from-source",
+            title="Data Scientist",
+            company="Acme",
+            location="Paris",
+            description="Build ML pipelines with Python.",
+            application_url="https://ats.example.com/jobs?utm_source=new&job_id=123",
+            source=source,
+        ),
+        RawJob(
+            external_id=f"{source}:different-offer",
+            title="Data Scientist",
+            company="Acme",
+            location="Paris",
+            description="Build ML pipelines for another team.",
+            application_url="https://ats.example.com/jobs?job_id=456",
+            source=source,
+        ),
+    ]
+
+    monkeypatch.setattr(
+        "smartapply.pipeline.ingestor.get_scraper",
+        lambda requested_source: _yielding_scraper(jobs)(),
+    )
+
+    report = Ingestor().from_source(source, "Data Scientist", max_results=1, split_or=False)
+
+    assert report.inserted == 1
+    assert report.skipped_existing_during_collect == 1
+    assert report.job_ids
+
+
 def test_ingestor_splits_or_queries_and_balances_results(monkeypatch: pytest.MonkeyPatch) -> None:
     from smartapply.pipeline.ingestor import (
         Ingestor,

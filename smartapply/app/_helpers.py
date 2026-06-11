@@ -175,6 +175,7 @@ def apply_app_style() -> None:
                 linear-gradient(135deg, #262626 0%, #2B2B2B 58%, #1F1F1F 100%) !important;
             color: var(--sa-text) !important;
             font-family: 'Inter', -apple-system, sans-serif;
+            font-size: 15.5px;
         }
         [data-testid="stHeader"] {
             background-color: rgba(38, 38, 38, 0.90) !important;
@@ -236,16 +237,31 @@ def apply_app_style() -> None:
             color: var(--sa-text) !important;
         }
         h1, h2, h3 { color: var(--sa-ink) !important; letter-spacing: 0 !important; }
-        h1 { font-size: clamp(1.75rem, 2.7vw, 2.25rem) !important; }
-        h2 { font-size: clamp(1.42rem, 2.1vw, 1.85rem) !important; }
-        h3 { font-size: clamp(1.12rem, 1.7vw, 1.35rem) !important; }
+        h1 { font-size: clamp(1.82rem, 2.7vw, 2.35rem) !important; }
+        h2 { font-size: clamp(1.48rem, 2.1vw, 1.92rem) !important; }
+        h3 { font-size: clamp(1.17rem, 1.7vw, 1.42rem) !important; }
         p, li, label, span { letter-spacing: 0 !important; }
+        [data-testid="stMarkdownContainer"],
+        [data-testid="stText"],
+        [data-testid="stMetricLabel"],
+        [data-testid="stMetricValue"],
+        [data-testid="stDataFrame"],
+        [data-testid="stDataEditor"],
+        .stTextInput input,
+        .stTextArea textarea,
+        .stSelectbox,
+        .stMultiSelect,
+        .stNumberInput input,
+        .stDateInput input {
+            font-size: 0.96rem !important;
+        }
         .stButton > button,
         .stDownloadButton > button,
         [data-testid="stBaseButton-secondary"],
         [data-testid="stBaseButton-primary"] {
             border-radius: 8px !important;
             border: 1px solid var(--sa-border-strong) !important;
+            font-size: 0.96rem !important;
             font-weight: 750 !important;
             min-height: 2.5rem;
             box-shadow: var(--sa-shadow-sm);
