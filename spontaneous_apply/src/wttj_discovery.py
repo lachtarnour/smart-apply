@@ -7,6 +7,16 @@ from pathlib import Path
 from spontaneous_apply.src.models import WTTJProfile
 
 
+def profile_from_wttj_url(company_name: str, wttj_url: str) -> WTTJProfile:
+    return WTTJProfile(
+        company_name=company_name,
+        has_wttj_profile=True,
+        wttj_url=wttj_url,
+        wttj_status="active_profile",
+        discovery_method="input_csv",
+    )
+
+
 def discover_wttj_profile(
     company_name: str,
     preverified_csv_path: str | Path | None = None,
@@ -69,4 +79,3 @@ def probable_wttj_slugs(company_name: str) -> list[str]:
 
 def _normalize(value: str) -> str:
     return re.sub(r"\s+", " ", value.strip().casefold())
-

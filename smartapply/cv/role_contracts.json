@@ -23,6 +23,12 @@
       "data_infra",
       "stats_signal"
     ],
+    "category_order": [
+      "ml_ai",
+      "data_analysis",
+      "stats_signal",
+      "data_infra"
+    ],
     "must_show": {
       "ml_ai": [
         "PyTorch",
@@ -51,14 +57,12 @@
         "Pandas",
         "NumPy",
         "Statistical analysis",
-        "Forecasting",
-        "Data visualization"
+        "Forecasting"
       ],
       "data_infra": [
         "Git",
         "Docker",
-        "FastAPI",
-        "Data pipelines"
+        "FastAPI"
       ]
     },
     "forbidden": [
@@ -77,6 +81,11 @@
       "data_analysis",
       "data_infra"
     ],
+    "category_order": [
+      "ml_ai",
+      "data_infra",
+      "data_analysis"
+    ],
     "must_show": {
       "ml_ai": [
         "PyTorch",
@@ -84,8 +93,6 @@
       ],
       "data_infra": [
         "FastAPI",
-        "REST APIs",
-        "Data pipelines",
         "Docker",
         "Git",
         "Spark"
@@ -108,13 +115,11 @@
       ],
       "data_infra": [
         "FastAPI",
-        "REST APIs",
-        "Data pipelines",
         "Docker",
         "Git",
         "Spark",
         "CI/CD",
-        "Model monitoring"
+        "Grafana"
       ]
     },
     "forbidden": [
@@ -130,41 +135,45 @@
     "profile_id": "llm",
     "allowed_categories": [
       "ml_ai",
-      "rag_retrieval",
+      "generative_agentic_ai",
       "data_analysis",
       "data_infra"
+    ],
+    "category_order": [
+      "generative_agentic_ai",
+      "ml_ai",
+      "data_infra",
+      "data_analysis"
     ],
     "must_show": {
       "ml_ai": [
         "NLP",
-        "LLMs",
         "Transformers",
         "Hugging Face"
       ],
-      "rag_retrieval": [
+      "generative_agentic_ai": [
+        "LangChain",
         "RAG",
         "Vector search",
         "FAISS"
       ],
       "data_infra": [
-        "FastAPI",
-        "REST APIs"
+        "FastAPI"
       ]
     },
     "min_total_skills": 13,
     "fill_skills": {
       "ml_ai": [
         "NLP",
-        "LLMs",
         "Transformers",
         "Hugging Face",
         "Fine-tuning",
         "PyTorch",
         "Scikit-learn"
       ],
-      "rag_retrieval": [
-        "RAG",
+      "generative_agentic_ai": [
         "LangChain",
+        "RAG",
         "Vector search",
         "FAISS"
       ],
@@ -176,7 +185,6 @@
       ],
       "data_infra": [
         "FastAPI",
-        "REST APIs",
         "Docker",
         "Git",
         "CI/CD"
@@ -196,13 +204,16 @@
       "data_analysis",
       "stats_signal"
     ],
+    "category_order": [
+      "data_analysis",
+      "stats_signal"
+    ],
     "must_show": {
       "data_analysis": [
         "SQL",
         "Python",
         "R",
-        "Pandas",
-        "Data visualization"
+        "Pandas"
       ]
     },
     "min_total_skills": 10,
@@ -213,7 +224,6 @@
         "R",
         "Pandas",
         "NumPy",
-        "Data visualization",
         "Statistical analysis",
         "Statistical modeling",
         "Forecasting",
@@ -227,26 +237,23 @@
       "FAISS",
       "RAG",
       "Vector search",
-      "LLMs",
+      "NLP",
       "Transformers",
       "Hugging Face",
       "Markov chains",
       "Docker",
       "Git",
-      "Data pipelines",
       "Whisper",
       "Pyannote",
       "OpenSMILE",
       "FastAPI",
       "Flask",
-      "REST APIs",
       "CI/CD",
       "AWS",
       "Spark",
       "ARIMA/SARIMA",
-      "ONNX",
-      "Model quantization",
-      "Model monitoring"
+      "Model quantization (ONNX)",
+      "Grafana"
     ]
   },
   "analytics_engineer": {
@@ -255,6 +262,11 @@
       "ml_ai",
       "data_analysis",
       "data_infra"
+    ],
+    "category_order": [
+      "data_analysis",
+      "data_infra",
+      "ml_ai"
     ],
     "must_show": {
       "ml_ai": [
@@ -265,11 +277,9 @@
         "SQL",
         "Python",
         "R",
-        "Pandas",
-        "Data visualization"
+        "Pandas"
       ],
       "data_infra": [
-        "Data pipelines",
         "Git",
         "Spark"
       ]
@@ -286,11 +296,9 @@
         "R",
         "Pandas",
         "NumPy",
-        "Data visualization",
         "Statistical analysis"
       ],
       "data_infra": [
-        "Data pipelines",
         "Git",
         "Spark",
         "Docker"
@@ -301,7 +309,6 @@
       "RAG",
       "Vector search",
       "NLP",
-      "LLMs",
       "Transformers",
       "Hugging Face",
       "Markov chains",
@@ -309,9 +316,8 @@
       "Time-series modeling",
       "FastAPI",
       "Flask",
-      "ONNX",
-      "Model quantization",
-      "Model monitoring"
+      "Model quantization (ONNX)",
+      "Grafana"
     ]
   },
   "data_engineer": {
@@ -320,13 +326,16 @@
       "data_analysis",
       "data_infra"
     ],
+    "category_order": [
+      "data_infra",
+      "data_analysis"
+    ],
     "must_show": {
       "data_analysis": [
         "Python",
         "SQL"
       ],
       "data_infra": [
-        "Data pipelines",
         "Spark",
         "Docker",
         "Git",
@@ -342,12 +351,10 @@
         "NumPy"
       ],
       "data_infra": [
-        "Data pipelines",
         "Spark",
         "Docker",
         "Git",
-        "CI/CD",
-        "REST APIs"
+        "CI/CD"
       ]
     },
     "forbidden": [
@@ -355,7 +362,6 @@
       "TensorFlow",
       "Scikit-learn",
       "NLP",
-      "LLMs",
       "Transformers",
       "Hugging Face",
       "Fine-tuning",
@@ -368,8 +374,7 @@
       "OpenSMILE",
       "FastAPI",
       "Flask",
-      "ONNX",
-      "Model quantization"
+      "Model quantization (ONNX)"
     ]
   },
   "mlops": {
@@ -379,14 +384,18 @@
       "data_infra",
       "ml_ai"
     ],
+    "category_order": [
+      "data_infra",
+      "ml_ai",
+      "data_analysis"
+    ],
     "must_show": {
       "data_infra": [
         "Docker",
         "AWS",
         "CI/CD",
-        "Data pipelines",
         "Spark",
-        "Model monitoring"
+        "Grafana"
       ],
       "data_analysis": [
         "Python",
@@ -399,11 +408,9 @@
         "Docker",
         "AWS",
         "CI/CD",
-        "Data pipelines",
         "Spark",
-        "Model monitoring",
-        "Git",
-        "REST APIs"
+        "Grafana",
+        "Git"
       ],
       "data_analysis": [
         "Python",
@@ -431,6 +438,10 @@
     "allowed_categories": [
       "data_analysis",
       "data_infra"
+    ],
+    "category_order": [
+      "data_infra",
+      "data_analysis"
     ],
     "must_show": {
       "data_analysis": [
@@ -461,7 +472,6 @@
       "RAG",
       "Vector search",
       "NLP",
-      "LLMs",
       "Transformers",
       "Hugging Face",
       "Markov chains",
@@ -471,9 +481,8 @@
       "OpenSMILE",
       "FastAPI",
       "Flask",
-      "ONNX",
-      "Model quantization",
-      "Model monitoring"
+      "Model quantization (ONNX)",
+      "Grafana"
     ]
   },
   "computer_vision": {
@@ -483,6 +492,12 @@
       "ml_ai",
       "data_analysis",
       "data_infra"
+    ],
+    "category_order": [
+      "computer_vision",
+      "ml_ai",
+      "data_infra",
+      "data_analysis"
     ],
     "must_show": {
       "computer_vision": [
@@ -541,6 +556,12 @@
       "data_analysis",
       "data_infra"
     ],
+    "category_order": [
+      "speech_audio",
+      "ml_ai",
+      "data_infra",
+      "data_analysis"
+    ],
     "must_show": {
       "speech_audio": [
         "Speech processing",
@@ -578,7 +599,7 @@
         "Git",
         "Docker",
         "FastAPI",
-        "ONNX"
+        "Model quantization (ONNX)"
       ]
     },
     "forbidden": [
@@ -597,6 +618,14 @@
       "data_analysis",
       "data_infra",
       "stats_signal"
+    ],
+    "category_order": [
+      "ml_ai",
+      "speech_audio",
+      "computer_vision",
+      "stats_signal",
+      "data_analysis",
+      "data_infra"
     ],
     "must_show": {
       "ml_ai": [
@@ -637,7 +666,6 @@
       ],
       "data_infra": [
         "FastAPI",
-        "REST APIs",
         "Docker",
         "Git"
       ]
@@ -653,6 +681,12 @@
       "ml_ai",
       "data_analysis",
       "stats_signal"
+    ],
+    "category_order": [
+      "rl",
+      "ml_ai",
+      "stats_signal",
+      "data_analysis"
     ],
     "must_show": {
       "rl": [
@@ -701,19 +735,20 @@
   "other": {
     "profile_id": "mixed",
     "allowed_categories": [
+      "ml_ai",
+      "data_analysis",
+      "data_infra"
+    ],
+    "category_order": [
+      "ml_ai",
       "data_analysis",
       "data_infra"
     ],
     "must_show": {
-      "data_analysis": [
-        "Python"
+      "ml_ai": [
+        "PyTorch",
+        "Scikit-learn"
       ],
-      "data_infra": [
-        "Git"
-      ]
-    },
-    "min_total_skills": 8,
-    "fill_skills": {
       "data_analysis": [
         "Python",
         "SQL",
@@ -726,12 +761,29 @@
         "CI/CD"
       ]
     },
+    "min_total_skills": 12,
+    "fill_skills": {
+      "ml_ai": [
+        "PyTorch",
+        "Scikit-learn",
+        "TensorFlow",
+        "NLP"
+      ],
+      "data_analysis": [
+        "Python",
+        "SQL",
+        "Pandas",
+        "NumPy",
+        "Statistical analysis"
+      ],
+      "data_infra": [
+        "Git",
+        "Docker",
+        "CI/CD",
+        "AWS"
+      ]
+    },
     "forbidden": [
-      "PyTorch",
-      "TensorFlow",
-      "Scikit-learn",
-      "NLP",
-      "LLMs",
       "Transformers",
       "Time-series modeling",
       "Anomaly detection",
@@ -758,15 +810,11 @@
       "ARIMA/SARIMA",
       "Forecasting",
       "Time-series analysis",
-      "Data visualization",
       "FastAPI",
       "Flask",
-      "AWS",
       "Spark",
-      "Data pipelines",
-      "ONNX",
-      "Model monitoring",
-      "Model quantization",
+      "Model quantization (ONNX)",
+      "Grafana",
       "Weights & Biases"
     ]
   }

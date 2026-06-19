@@ -6,26 +6,208 @@
   <style>
     @page {
       size: A4;
-      margin: 12mm 15mm 10mm 15mm;
+      margin: 10.5mm 13.5mm 9.5mm 13.5mm;
     }
 
     * {
       box-sizing: border-box;
     }
 
+    :root {
+      --ink: #121722;
+      --body: #242a36;
+      --muted: #5c6678;
+      --soft: #788397;
+      --rule: #dde3eb;
+      --rule-soft: #eef2f6;
+      --rule-strong: #aeb8c8;
+      --accent: #0f5f6b;
+      --accent-dark: #083f49;
+      --accent-2: #9a6420;
+      --paper: #ffffff;
+      --surface: #f8fafc;
+      --section-content-indent: 3.5mm;
+    }
+
     body {
       margin: 0;
-      color: #111111;
-      font-family: Arial, Helvetica, sans-serif;
+      min-height: calc(297mm - 20mm);
+      color: var(--body);
+      background: var(--paper);
+      font-family: "Aptos", "Inter", "Segoe UI", Arial, Helvetica, sans-serif;
       font-size: var(--body-size);
       line-height: var(--line-height);
-      min-height: calc(297mm - 22mm);
       display: flex;
       flex-direction: column;
+      letter-spacing: 0;
+    }
+
+    body.cv-very-airy {
+      --body-size: 10.1pt;
+      --line-height: 1.4;
+      --summary-line-height: 1.36;
+      --header-gap: 28px;
+      --header-pad-bottom: 16px;
+      --section-gap: 18px;
+      --section-title-gap: 8px;
+      --entry-gap: 13px;
+      --project-gap: 7px;
+      --bullet-gap: 6px;
+      --skill-row-gap: 7px;
+      --skill-category-gap: 1px;
+      --section-justify: space-between;
+    }
+
+    body.cv-airy {
+      --body-size: 9.75pt;
+      --line-height: 1.34;
+      --summary-line-height: 1.32;
+      --header-gap: 24px;
+      --header-pad-bottom: 14px;
+      --section-gap: 15px;
+      --section-title-gap: 7px;
+      --entry-gap: 11px;
+      --project-gap: 6px;
+      --bullet-gap: 5px;
+      --skill-row-gap: 6px;
+      --skill-category-gap: 1px;
+      --section-justify: space-between;
+    }
+
+    body.cv-balanced {
+      --body-size: 9.35pt;
+      --line-height: 1.28;
+      --summary-line-height: 1.28;
+      --header-gap: 20px;
+      --header-pad-bottom: 12px;
+      --section-gap: 12px;
+      --section-title-gap: 6px;
+      --entry-gap: 9px;
+      --project-gap: 5px;
+      --bullet-gap: 4px;
+      --skill-row-gap: 5px;
+      --skill-category-gap: 1px;
+      --section-justify: space-between;
+    }
+
+    body.cv-compact,
+    body.cv-ultra {
+      --body-size: 8.9pt;
+      --line-height: 1.22;
+      --summary-line-height: 1.22;
+      --header-gap: 16px;
+      --header-pad-bottom: 9px;
+      --section-gap: 9px;
+      --section-title-gap: 5px;
+      --entry-gap: 7px;
+      --project-gap: 4px;
+      --bullet-gap: 3px;
+      --skill-row-gap: 4px;
+      --skill-category-gap: 0.9px;
+      --section-justify: space-between;
+    }
+
+    body.cv-ultra {
+      --body-size: 8.5pt;
+      --line-height: 1.16;
+      --summary-line-height: 1.16;
+      --header-gap: 12px;
+      --header-pad-bottom: 6px;
+      --section-gap: 7px;
+      --section-title-gap: 4px;
+      --entry-gap: 5px;
+      --project-gap: 3px;
+      --bullet-gap: 2px;
+      --skill-row-gap: 3px;
+      --skill-category-gap: 0.8px;
+      --section-justify: space-between;
+    }
+
+    a {
+      color: var(--accent-dark);
+      text-decoration: none;
     }
 
     header {
+      padding-top: 2px;
+      padding-bottom: var(--header-pad-bottom);
+      /* Fixed breathing room between the header and first CV section. */
+      margin-bottom: var(--header-gap);
       flex-shrink: 0;
+    }
+
+    .header-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 58mm;
+      column-gap: 8mm;
+      align-items: start;
+    }
+
+    .identity-line {
+      display: grid;
+      grid-template-columns: max-content 1px minmax(0, 70mm);
+      column-gap: 9px;
+      align-items: baseline;
+      min-width: 0;
+      max-width: 100%;
+    }
+
+    h1 {
+      margin: 0;
+      font-family: "Aptos Display", "Segoe UI", Arial, Helvetica, sans-serif;
+      color: var(--ink);
+      font-size: 21.4pt;
+      line-height: 0.95;
+      font-weight: 780;
+      letter-spacing: 0;
+      white-space: nowrap;
+    }
+
+    .headline {
+      margin: 0;
+      color: var(--accent-dark);
+      font-size: 9.15pt;
+      line-height: 1.15;
+      font-weight: 760;
+      max-width: 70mm;
+      min-width: 0;
+      overflow-wrap: anywhere;
+      white-space: normal;
+    }
+
+    .identity-separator {
+      width: 1px;
+      height: 12px;
+      margin-top: 1px;
+      background: linear-gradient(180deg, var(--rule-soft), var(--rule-strong), var(--rule-soft));
+    }
+
+    .summary {
+      margin: 7px 0 0 0;
+      max-width: 126mm;
+      color: #2d3442;
+      font-size: 9.45pt;
+      line-height: var(--summary-line-height);
+    }
+
+    .contact {
+      margin: 0;
+      padding: 4px 0 4px 7mm;
+      color: var(--muted);
+      font-size: 8.75pt;
+      line-height: 1.28;
+      text-align: right;
+    }
+
+    .contact-item {
+      display: block;
+      margin-bottom: 2px;
+      overflow-wrap: anywhere;
+    }
+
+    .contact a {
+      color: var(--ink);
+      font-weight: 680;
     }
 
     .sections {
@@ -33,124 +215,73 @@
       display: flex;
       flex-direction: column;
       gap: var(--section-gap);
-    }
-
-    body.cv-very-airy {
-      --body-size: 10.6pt;
-      --line-height: 1.42;
-      --header-gap: 22px;
-      --section-gap: 18px;
-      --section-title-gap: 9px;
-      --entry-gap: 13px;
-      --project-gap: 8px;
-    }
-
-    body.cv-airy {
-      --body-size: 10.35pt;
-      --line-height: 1.34;
-      --header-gap: 18px;
-      --section-gap: 14px;
-      --section-title-gap: 8px;
-      --entry-gap: 10px;
-      --project-gap: 6px;
-    }
-
-    body.cv-balanced {
-      --body-size: 9.7pt;
-      --line-height: 1.22;
-      --header-gap: 14px;
-      --section-gap: 10px;
-      --section-title-gap: 6px;
-      --entry-gap: 7px;
-      --project-gap: 4px;
-    }
-
-    body.cv-compact,
-    body.cv-ultra {
-      --body-size: 9pt;
-      --line-height: 1.12;
-      --header-gap: 10px;
-      --section-gap: 7px;
-      --section-title-gap: 4px;
-      --entry-gap: 5px;
-      --project-gap: 2px;
-    }
-
-    body.cv-ultra {
-      --body-size: 8.65pt;
-      --line-height: 1.06;
-      --header-gap: 8px;
-      --section-gap: 5px;
-      --section-title-gap: 3px;
-      --entry-gap: 4px;
-      --project-gap: 1px;
-    }
-
-    h1 {
-      margin: 0 0 3px 0;
-      font-size: 15.8pt;
-      line-height: 1;
-      font-weight: 500;
-      letter-spacing: 0;
-    }
-
-    .summary {
-      margin: 0 0 8px 0;
-      max-width: 183mm;
-      font-size: 9.7pt;
-      font-style: italic;
-    }
-
-    .contact {
-      margin: 0 0 var(--header-gap) 0;
-      font-size: 9.2pt;
-    }
-
-    .contact a {
-      color: #2368d1;
-      text-decoration: none;
-    }
-
-    .contact-separator {
-      color: #333333;
+      justify-content: var(--section-justify);
     }
 
     .section {
       flex-shrink: 0;
-      margin-top: 0;
+      margin: 0;
+      break-inside: avoid;
     }
 
     .section-title {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      align-items: center;
+      gap: 11px;
       margin: 0 0 var(--section-title-gap) 0;
-      padding-bottom: 2px;
-      border-bottom: 1px solid #111111;
-      color: #2368d1;
-      font-size: 10.5pt;
-      line-height: 1.1;
-      font-weight: 700;
-      letter-spacing: 1px;
+      color: var(--accent-dark);
+      font-size: 8.55pt;
+      line-height: 1;
+      font-weight: 850;
+      letter-spacing: 0;
+      text-transform: uppercase;
+    }
+
+    .section-title::after {
+      content: "";
+      height: 1.1px;
+      background: linear-gradient(90deg, var(--accent-dark) 0, var(--accent) 18mm, var(--rule-strong) 45mm, var(--rule) 78%, var(--rule-soft) 100%);
+    }
+
+    .section > :not(.section-title) {
+      margin-left: var(--section-content-indent);
     }
 
     .entry {
       display: grid;
-      grid-template-columns: 38mm 1fr;
-      column-gap: 7mm;
+      grid-template-columns: 34mm 1fr;
+      column-gap: 6.5mm;
       margin-bottom: var(--entry-gap);
       break-inside: avoid;
     }
 
+    .entry:last-child {
+      margin-bottom: 0;
+    }
+
     .entry-left {
-      font-size: 9.2pt;
+      color: var(--soft);
+      font-size: 8.4pt;
+      line-height: 1.18;
+      font-weight: 520;
       white-space: pre-line;
     }
 
     .entry-title {
-      margin-bottom: 1px;
-      font-size: 9.5pt;
+      margin: 0 0 2px 0;
+      color: var(--muted);
+      font-size: 9.25pt;
+      line-height: 1.22;
     }
 
     .entry-title strong {
-      font-weight: 700;
+      color: var(--ink);
+      font-weight: 790;
+    }
+
+    .entry-right {
+      min-width: 0;
     }
 
     .bullets {
@@ -161,38 +292,125 @@
 
     .bullets li {
       position: relative;
-      margin: 0 0 0 12px;
+      margin: 0 0 var(--bullet-gap) 0;
+      padding-left: 10px;
     }
 
     .bullets li::before {
-      content: "-";
+      content: "";
       position: absolute;
-      left: -9px;
+      left: 1px;
+      top: 0.63em;
+      width: 3.4px;
+      height: 3.4px;
+      border-radius: 0.8px;
+      background: var(--accent-2);
+      transform: rotate(45deg);
     }
 
-    .skills p,
-    .languages p,
-    .certificates p,
-    .projects p {
+    .skills {
+      break-inside: avoid;
+    }
+
+    .skill-row {
+      display: grid;
+      grid-template-columns: 42mm 1fr;
+      column-gap: 5mm;
+      align-items: start;
+      margin: 0 0 var(--skill-row-gap) 0;
+      break-inside: avoid;
+    }
+
+    .skill-row + .skill-row {
+      padding-top: var(--skill-category-gap);
+    }
+
+    .skill-row:last-child {
+      margin-bottom: 0;
+    }
+
+    .skill-label {
+      color: var(--accent-dark);
+      font-weight: 500;
+      font-size: 8.8pt;
+      line-height: 1.28;
+    }
+
+    .skill-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 3px 4px;
+      color: #252b36;
+      line-height: 1;
+    }
+
+    .skill-pill {
+      display: inline-block;
+      padding: 1.8px 5.2px;
+      border: 0.65px solid #d9e1ea;
+      border-radius: 2.5px;
+      background: linear-gradient(180deg, #ffffff 0%, var(--surface) 100%);
+      color: #202735;
+      font-size: 8.35pt;
+      line-height: 1.1;
+      white-space: nowrap;
+    }
+
+    .project-row,
+    .certificates p {
       margin: 0 0 var(--project-gap) 0;
     }
 
-    .skills strong,
-    .projects strong,
-    .certificates strong {
-      font-weight: 700;
+    .language-row {
+      display: flex;
+      flex-wrap: nowrap;
+      align-items: baseline;
+      gap: 5px;
+      margin: 0;
+      white-space: nowrap;
+    }
+
+    .language-item {
+      display: inline-flex;
+      align-items: baseline;
+      gap: 3px;
+    }
+
+    .language-name {
+      color: var(--ink);
+      font-weight: 790;
+    }
+
+    .language-level {
+      color: var(--muted);
+    }
+
+    .language-separator {
+      color: var(--rule-strong);
     }
 
     .project-row {
       position: relative;
-      padding-left: 11px;
+      padding-left: 10px;
       break-inside: avoid;
     }
 
     .project-row::before {
-      content: "-";
+      content: "";
       position: absolute;
-      left: 0;
+      left: 1px;
+      top: 0.65em;
+      width: 3.5px;
+      height: 3.5px;
+      border-radius: 0.8px;
+      background: var(--accent-2);
+      transform: rotate(45deg);
+    }
+
+    .projects strong,
+    .certificates strong {
+      color: var(--ink);
+      font-weight: 790;
     }
 
     .inline-link,
@@ -201,32 +419,61 @@
       width: 0.9em;
       height: 0.9em;
       margin-left: 4px;
-      color: #2368d1;
+      color: var(--accent-dark);
+      position: relative;
       text-decoration: none;
-      vertical-align: 0.05em;
+      vertical-align: 0.02em;
+    }
+
+    .inline-link::before,
+    .inline-link::after,
+    .project-link::before,
+    .project-link::after {
+      content: "";
+      position: absolute;
+      width: 0.5em;
+      height: 0.27em;
+      border: 1.15px solid currentColor;
+      border-radius: 0.24em;
+      transform: rotate(-35deg);
     }
 
     .inline-link::before,
     .project-link::before {
-      content: "\2197";
-      font-size: 0.82em;
-      font-weight: 700;
+      left: 0.07em;
+      top: 0.37em;
+    }
+
+    .inline-link::after,
+    .project-link::after {
+      left: 0.35em;
+      top: 0.2em;
     }
 
     .muted {
-      color: #333333;
+      color: var(--muted);
     }
   </style>
 </head>
 <body class="{{ layout_class }}">
   <header>
-    <h1>{{ profile.identity.full_name }}</h1>
-    <p class="summary">{{ adapted.professional_summary }}</p>
-    <p class="contact">
-      {% for item in contact_items -%}
-      {% if item.href %}<a href="{{ item.href }}">{{ item.label }}</a>{% else %}{{ item.label }}{% endif %}{% if not loop.last %}<span class="contact-separator"> | </span>{% endif %}
-      {%- endfor %}
-    </p>
+    <div class="header-grid">
+      <div>
+        <div class="identity-line">
+          <h1>{{ profile.identity.full_name }}</h1>
+        {% if adapted.cv_title %}
+          <span class="identity-separator"></span>
+          <p class="headline">{{ adapted.cv_title }}</p>
+        {% endif %}
+        </div>
+        <p class="summary">{{ adapted.professional_summary }}</p>
+      </div>
+      <p class="contact">
+        {% for item in contact_items -%}
+        <span class="contact-item">{% if item.href %}<a href="{{ item.href }}">{{ item.label }}</a>{% else %}{{ item.label }}{% endif %}</span>
+        {%- endfor %}
+      </p>
+    </div>
   </header>
 
   <div class="sections">
@@ -271,7 +518,14 @@
   <section class="section skills">
     <h2 class="section-title">Skills</h2>
     {% for category in skill_categories %}
-    <p><strong>{{ category.name }}:</strong> {{ category.skills | join(", ") }}</p>
+    <div class="skill-row">
+      <strong class="skill-label">{{ category.name }}</strong>
+      <span class="skill-list">
+        {% for skill in category.skills -%}
+        <span class="skill-pill">{{ skill }}</span>
+        {%- endfor %}
+      </span>
+    </div>
     {% endfor %}
   </section>
   {% endif %}
@@ -291,10 +545,10 @@
   {% if languages %}
   <section class="section languages">
     <h2 class="section-title">Languages</h2>
-    <p>
-      {% for language in languages -%}
-      {{ language.name }} &mdash; {{ language.level }}{% if not loop.last %} | {% endif %}
-      {%- endfor %}
+    <p class="language-row">
+      {% for language in languages %}
+      <span class="language-item"><span class="language-name">{{ language.name }}</span><span class="language-level">{{ language.level }}</span></span>{% if not loop.last %}<span class="language-separator">/</span>{% endif %}
+      {% endfor %}
     </p>
   </section>
   {% endif %}
@@ -303,7 +557,7 @@
   <section class="section certificates">
     <h2 class="section-title">Certificates</h2>
     {% for certificate in certificates %}
-    <p><strong>{{ certificate.name }}</strong> &mdash; {{ certificate.issuer }}{% if certificate.description %} &mdash; <span class="muted">{{ certificate.description }}</span>{% endif %}</p>
+    <p><strong>{{ certificate.name }}</strong>{% if certificate.url %}<a class="inline-link" href="{{ certificate.url }}" aria-label="Certificate verification"></a>{% endif %} &mdash; {{ certificate.issuer }}{% if certificate.description %} &mdash; <span class="muted">{{ certificate.description }}</span>{% endif %}</p>
     {% endfor %}
   </section>
   {% endif %}

@@ -381,6 +381,8 @@ class CvDocxRenderer:
             r1 = p.add_run(cert.name)
             r1.bold = True
             r1.font.size = Pt(self.style.body_font_size)
+            if cert.url:
+                _add_hyperlink_run(p, " ↗", str(cert.url), Pt(self.style.body_font_size))
             r2 = p.add_run(f" — {cert.issuer}")
             r2.font.size = Pt(self.style.body_font_size)
             if cert.description:

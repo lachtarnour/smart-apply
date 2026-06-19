@@ -258,7 +258,7 @@ def test_adapter_adds_summary_mentioned_allowed_skill_to_skills() -> None:
     cv = _valid_adapted_cv().model_copy(
         update={
             "professional_summary": (
-                "Data Scientist for production-flavored ML using monitoring and FAISS."
+                "Data Scientist for production-flavored ML using Streamlit dashboards."
             ),
             "selected_skills": [
                 SkillSelectionBlock(category_id="ml_ai", skills=["PyTorch"])
@@ -292,7 +292,55 @@ def test_adapter_adds_summary_mentioned_allowed_skill_to_skills() -> None:
         for block in adapted.selected_skills
         for skill in block.skills
     }
-    assert "FAISS" in selected
+    assert "Streamlit" in selected
+
+
+def test_adapter_does_not_readd_contract_forbidden_summary_skill() -> None:
+    MockLLMProvider.clear()
+    cv = _valid_adapted_cv().model_copy(
+        update={
+            "cv_title": "C++ Software Engineer",
+            "professional_summary": (
+                "Software engineer working with NLP and FastAPI in applied systems."
+            ),
+            "selected_skills": [
+                SkillSelectionBlock(category_id="data_analysis", skills=["Python"])
+            ],
+            "skills_order": ["data_analysis"],
+        }
+    )
+    MockLLMProvider.register(
+        "application_draft",
+        ApplicationDraft(
+            cv_title=cv.cv_title,
+            professional_summary=cv.professional_summary,
+            selected_experiences=cv.selected_experiences,
+            selected_project_ids=cv.selected_project_ids,
+            selected_skills=cv.selected_skills,
+            skills_order=cv.skills_order,
+            warnings=cv.warnings,
+            motivation_letter_subject="Application: Software Engineer",
+            motivation_letter_body="Hello,\n\nI am writing about this role." + " word" * 180,
+        ),
+    )
+    analysis = _sample_analysis().model_copy(
+        update={
+            "role_type": "C++ Software Engineer",
+            "required_skills": [],
+            "cv_keywords_to_include": [],
+        }
+    )
+    adapter = CvAdapter(get_profile(), embeddings=MockEmbeddingsProvider())
+    adapted, _letter, _selection = adapter.adapt_application(
+        analysis, job_title="C++ Software Engineer", job_company="Acme"
+    )
+    selected = {
+        skill
+        for block in adapted.selected_skills
+        for skill in block.skills
+    }
+    assert "NLP" not in selected
+    assert "FastAPI" not in selected
 
 
 def test_adapter_removes_unsupported_offer_terms_from_cv_header() -> None:
@@ -345,7 +393,9 @@ def test_adapter_removes_unsupported_offer_terms_from_cv_header() -> None:
     assert "SAP" not in header
     assert "Databricks" not in header
     assert "reporting" not in header.lower()
-    assert "data visualization" in header.lower()
+    assert "SQL analytics" in header
+    assert "data visualization" not in header.lower()
+    assert "data pipelines" not in header.lower()
     assert any(
         warning.startswith("unsupported_cv_head_terms_replaced:")
         for warning in adapted.warnings
@@ -516,7 +566,7 @@ def test_motivation_letter_validator_allows_unsupported_terms_as_offer_context()
         body=(
             "Your retail and e-commerce context, with a modern stack including "
             "BigQuery and GCP, makes the role interesting. My experience focuses "
-            "on Python, SQL and applied data pipelines, with Emobot projects "
+            "on Python, SQL and applied SQL workflows, with Emobot projects "
             "grounding that work in measurable data quality."
         ),
     )
@@ -769,6 +819,18 @@ def test_docx_renderer_produces_valid_file(tmp_path: Path) -> None:
     assert "Data Scientist" in full_text
 
 
+def test_docx_renderer_includes_certificate_links(tmp_path: Path) -> None:
+    out = tmp_path / "cv.docx"
+    CvDocxRenderer(get_profile()).save(_valid_adapted_cv(), out)
+
+    from docx import Document
+
+    doc = Document(str(out))
+    targets = {rel.target_ref for rel in doc.part.rels.values() if rel.is_external}
+    assert "https://www.coursera.org/account/accomplishments/verify/CBBPHISKRFO6" in targets
+    assert "https://academy.langchain.com/certificates/xu424f3wgm" in targets
+
+
 def test_html_renderer_matches_reference_cv_architecture() -> None:
     profile = get_profile()
     html = HtmlApplicationRenderer(profile).render_cv_html(_valid_adapted_cv())
@@ -779,7 +841,22 @@ def test_html_renderer_matches_reference_cv_architecture() -> None:
     assert "Languages" in html
     assert "Certificates" in html
     assert "section-title" in html
-    assert "grid-template-columns: 38mm 1fr" in html
+    assert "header-grid" in html
+    assert "identity-line" in html
+    assert "grid-template-columns: max-content 1px minmax(0, 70mm)" in html
+    assert "max-width: 70mm" in html
+    assert "overflow-wrap: anywhere" in html
+    assert "white-space: normal" in html
+    assert "--header-gap: 20px" in html
+    assert "justify-content: var(--section-justify)" in html
+    assert "--section-content-indent: 3.5mm" in html
+    assert "grid-template-columns: 34mm 1fr" in html
+    assert "skill-row" in html
+    assert "skill-pill" in html
+    assert "language-row" in html
+    assert "border-left" not in html
+    assert "header::before" not in html
+    assert "\\2197" not in html
     assert 'class="project-link"' in html
     assert 'aria-label="Project repository"' in html
     assert "Completed" not in html
@@ -801,6 +878,13 @@ def test_html_renderer_uses_clickable_profile_links() -> None:
         'l3-mathematiques-appliquees"'
     ) in html
     assert 'aria-label="Degree page"' in html
+    assert (
+        'href="https://www.coursera.org/account/accomplishments/verify/CBBPHISKRFO6"'
+        in html
+    )
+    assert 'href="https://academy.langchain.com/certificates/xu424f3wgm"' in html
+    assert 'aria-label="Certificate verification"' in html
+    assert '<a href="https://academy.langchain.com/certificates/xu424f3wgm">Foundation LangChain</a>' not in html
 
 
 def test_html_renderer_respects_single_selected_project() -> None:
@@ -848,9 +932,9 @@ def test_html_renderer_uses_selected_skill_profile() -> None:
     cv = _valid_adapted_cv().model_copy(update={"skills_profile_id": "data_analyst"})
     html = HtmlApplicationRenderer(get_profile()).render_cv_html(cv)
     assert "Data Analysis" in html
-    assert "Data visualization" in html
     assert "Streamlit" in html
-    assert "Panel" in html
+    assert "Panel" not in html
+    assert "Data visualization" not in html
 
 
 def test_html_renderer_uses_llm_selected_skills_without_cap() -> None:
@@ -865,13 +949,10 @@ def test_html_renderer_uses_llm_selected_skills_without_cap() -> None:
                         "Docker",
                         "FastAPI",
                         "Flask",
-                        "REST APIs",
                         "Spark",
-                        "Data pipelines",
                         "CI/CD",
-                        "Model monitoring",
-                        "ONNX",
-                        "Model quantization",
+                        "Grafana",
+                        "Model quantization (ONNX)",
                         "Weights & Biases",
                     ],
                 )
@@ -880,10 +961,12 @@ def test_html_renderer_uses_llm_selected_skills_without_cap() -> None:
     )
     html = HtmlApplicationRenderer(get_profile()).render_cv_html(cv)
     assert "Spark" in html
-    assert "ONNX" in html
-    assert "Model quantization" in html
+    assert "Model quantization (ONNX)" in html
     assert "Weights &amp; Biases" in html
-    assert "Model monitoring" in html
+    assert "Grafana" in html
+    assert "Data pipelines" not in html
+    assert "REST APIs" not in html
+    assert "Model monitoring" not in html
 
 
 def test_html_renderer_keeps_fixed_project_descriptions() -> None:
@@ -903,9 +986,56 @@ def test_html_renderer_keeps_fixed_project_descriptions() -> None:
     assert "Ongoing Project" not in html
     assert "Built a PyTorch SVC pipeline extending SoftVC-style acoustic modeling" in html
     assert "Built a claim-verification RAG pipeline with BM25, FAISS" in html
-    assert "Implemented a decoder-only Transformer from scratch for language modeling." in html
+    assert "Implemented and trained a GPT-2-style decoder-only Transformer" in html
+    assert "inspired by nanochat" in html
     assert "Fine-tuned CamemBERT for named entity recognition on domain-specific corpora." in html
     assert "Implemented and trained reinforcement learning agents on OpenAI Gym environments" in html
+
+
+def test_html_renderer_does_not_drop_selected_experience_bullets_when_dense() -> None:
+    profile = get_profile()
+    cv = _valid_adapted_cv().model_copy(
+        update={
+            "selected_experiences": [
+                AdaptedExperience(
+                    source_id=exp.id,
+                    bullets=[
+                        AdaptedBullet(source_id=bullet.id, text=bullet.text)
+                        for bullet in exp.bullets
+                    ],
+                )
+                for exp in profile.experiences
+            ],
+        }
+    )
+
+    html = HtmlApplicationRenderer(profile).render_cv_html(cv, force_one_page=True)
+
+    assert "Built multimodal digital biomarker pipelines" in html
+    assert "Trained and evaluated a ResNet/CNN model" in html
+    assert "Modeled irregular clinical time series" in html
+    assert "Developed speech/NLP and face-recognition pipelines" in html
+    assert "Contributed to a patent-pending AI monitoring system" in html
+    assert "Built an anomaly detection pipeline" in html
+    assert "Developed time-series forecasting models for EUR/USD" in html
+
+
+def test_html_renderer_does_not_drop_selected_projects_when_dense() -> None:
+    profile = get_profile()
+    cv = _valid_adapted_cv().model_copy(
+        update={"selected_project_ids": [project.id for project in profile.projects]}
+    )
+
+    html = HtmlApplicationRenderer(profile).render_cv_html(cv, force_one_page=True)
+
+    assert "Singing Voice Conversion" in html
+    assert "SciFact RAG Verifier" in html
+    assert "SmartApply" in html
+    assert "Bot Traffic Detection" in html
+    assert "AAL Stock Forecasting" in html
+    assert "GPT-2 from Scratch" in html
+    assert "NER with CamemBERT" in html
+    assert "Reinforcement Learning algorithm" in html
 
 
 def test_application_draft_prompt_separates_matching_keywords_from_display_skills() -> None:

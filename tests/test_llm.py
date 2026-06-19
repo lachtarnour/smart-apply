@@ -419,6 +419,53 @@ def test_build_analyzer_input_normalizes_common_job_fields() -> None:
     )
 
 
+def test_build_analyzer_input_adds_wttj_company_context_to_offer_body() -> None:
+    job = SimpleNamespace(
+        title="Senior Data Scientist",
+        company="Bureau des Talents",
+        location="Puteaux",
+        application_url="https://www.welcometothejungle.com/fr/companies/acme/jobs/senior-ds",
+        cleaned_description="Description\nBuild RAG and LLM systems.",
+        description="Raw body.",
+        source="welcometothejungle",
+        source_data={
+            "detail_api": {
+                "company_description": (
+                    "<p>Le Bureau des Talents accompagne des scale-ups.</p>"
+                    "<p>Le poste est basé proche de la Défense dans le 92.</p>"
+                )
+            }
+        },
+    )
+
+    analyzer_input = build_analyzer_input(job)
+
+    assert analyzer_input.offer_body.startswith("Description\nBuild RAG and LLM systems.")
+    assert "Company context" in analyzer_input.offer_body
+    assert "Le Bureau des Talents accompagne des scale-ups." in analyzer_input.offer_body
+    assert "Le poste est basé proche de la Défense dans le 92." in analyzer_input.offer_body
+    assert "<p>" not in analyzer_input.offer_body
+
+
+def test_build_analyzer_input_does_not_duplicate_wttj_company_context() -> None:
+    company_context = "Le Bureau des Talents accompagne des scale-ups."
+    job = SimpleNamespace(
+        title="Senior Data Scientist",
+        company="Bureau des Talents",
+        location="Puteaux",
+        application_url=None,
+        cleaned_description=f"Description\nBuild RAG systems.\n\n{company_context}",
+        description="Raw body.",
+        source="welcometothejungle",
+        source_data={"detail_api": {"company_description": f"<p>{company_context}</p>"}},
+    )
+
+    analyzer_input = build_analyzer_input(job)
+
+    assert analyzer_input.offer_body.count(company_context) == 1
+    assert "Company context" not in analyzer_input.offer_body
+
+
 def test_build_analyzer_input_uses_registered_source_metadata_builder() -> None:
     def custom_builder(source_data):
         assert source_data == {"contract": "CDI"}

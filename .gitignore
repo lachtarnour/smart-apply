@@ -58,4 +58,6 @@ spontaneous_apply/data/logs/
 /data/
 reports/
 scripts/
+!spontaneous_apply/scripts/
+!spontaneous_apply/scripts/*.py
 notebooks/

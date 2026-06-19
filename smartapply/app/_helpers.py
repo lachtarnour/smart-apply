@@ -160,13 +160,38 @@ def apply_app_style() -> None:
             --sa-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.26);
             --sa-shadow-md: 0 18px 42px rgba(0, 0, 0, 0.34);
         }
-        [data-testid="stToolbar"],
         [data-testid="stDecoration"],
         [data-testid="stStatusWidget"],
-        [data-testid="stHeaderActionElements"],
         [data-testid="stAppDeployButton"],
         [data-testid="stMainMenu"] {
             display: none !important;
+        }
+        [data-testid="stToolbar"] {
+            display: flex !important;
+        }
+        [data-testid="stHeaderActionElements"] {
+            display: flex !important;
+        }
+        [data-testid="stHeaderActionElements"] button,
+        [data-testid="stHeaderActionElements"] button svg {
+            color: var(--sa-text) !important;
+        }
+        [data-testid="stSidebarCollapseButton"],
+        [data-testid="stExpandSidebarButton"],
+        [data-testid="stSidebarCollapsedControl"] {
+            display: flex !important;
+            opacity: 1 !important;
+            visibility: visible !important;
+        }
+        [data-testid="stSidebarCollapseButton"] button,
+        [data-testid="stSidebarCollapseButton"] button *,
+        [data-testid="stExpandSidebarButton"],
+        [data-testid="stExpandSidebarButton"] *,
+        [data-testid="stSidebarCollapsedControl"] button,
+        [data-testid="stSidebarCollapsedControl"] button * {
+            color: var(--sa-text) !important;
+            opacity: 1 !important;
+            visibility: visible !important;
         }
         .stApp,
         [data-testid="stAppViewContainer"] {

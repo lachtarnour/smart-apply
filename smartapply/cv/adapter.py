@@ -29,16 +29,16 @@ from smartapply.ranking.embeddings import (
 )
 
 _CV_HEAD_UNSUPPORTED_REPLACEMENTS: tuple[tuple[str, str], ...] = (
-    ("Databricks-driven", "data pipeline"),
-    ("Databricks", "data pipelines"),
-    ("Power BI", "data visualization"),
+    ("Databricks-driven", "SQL/Spark"),
+    ("Databricks", "SQL and Spark"),
+    ("Power BI", "SQL analytics"),
     ("SAP", "data reliability"),
-    ("ETL/ELT", "data pipelines"),
-    ("Data Cloud", "Data Pipelines"),
-    ("data engineering", "data pipelines"),
-    ("Data Engineer", "Data Pipelines Specialist"),
-    ("Reporting", "Data Visualization"),
-    ("reporting", "data visualization"),
+    ("ETL/ELT", "SQL/Spark workflows"),
+    ("Data Cloud", "SQL/Spark"),
+    ("data engineering", "SQL/Spark workflows"),
+    ("Data Engineer", "SQL/Spark Specialist"),
+    ("Reporting", "SQL analytics"),
+    ("reporting", "SQL analytics"),
     ("GCP", "cloud-adjacent"),
 )
 
@@ -82,10 +82,10 @@ class CvAdapter:
             job_id=job_id,
         )
         adapted = self._ensure_supported_offer_skills(adapted, analysis)
+        adapted = self._ensure_summary_skills_visible(adapted)
         adapted = self._apply_role_family_contract(adapted, analysis, job_title)
         adapted = self._avoid_unsupported_cv_head_terms(adapted, analysis)
         adapted = self._enforce_complete_experiences(adapted)
-        adapted = self._ensure_summary_skills_visible(adapted)
         adapted = self._enforce_summary_length(adapted)
         return adapted, selection
 
@@ -118,10 +118,10 @@ class CvAdapter:
             job_id=job_id,
         )
         adapted = self._ensure_supported_offer_skills(draft.to_cv(), analysis)
+        adapted = self._ensure_summary_skills_visible(adapted)
         adapted = self._apply_role_family_contract(adapted, analysis, job_title)
         adapted = self._avoid_unsupported_cv_head_terms(adapted, analysis)
         adapted = self._enforce_complete_experiences(adapted)
-        adapted = self._ensure_summary_skills_visible(adapted)
         adapted = self._enforce_summary_length(adapted)
         letter = draft.to_motivation_letter()
         letter = letter.model_copy(
@@ -411,11 +411,16 @@ class CvAdapter:
     ) -> AdaptedCV:
         """Strip off-role skills and anchor a coherent baseline per family."""
         allowed_skills_lower = {s.lower() for s in self.profile.skills.allowed_skills}
+        supported_skills_by_category = {
+            category.id: list(category.skills)
+            for category in self.profile.skills.categories
+        }
         adapted, _family = apply_contract(
             adapted,
             analysis=analysis,
             job_title=job_title,
             allowed_skills_lower=allowed_skills_lower,
+            supported_skills_by_category=supported_skills_by_category,
         )
         return adapted
 

@@ -92,11 +92,12 @@ def _format_skill_catalog(profile: Profile) -> str:
 
 
 def _format_core_skills(profile: Profile) -> str:
-    if not profile.skills.core:
+    core_skills = profile.skills.effective_category_skills(None)
+    if not core_skills:
         return "- none"
     return "\n".join(
         f"- {category_id}: {', '.join(skills)}"
-        for category_id, skills in profile.skills.core.items()
+        for category_id, skills in core_skills.items()
     )
 
 

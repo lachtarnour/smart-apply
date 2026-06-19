@@ -37,6 +37,7 @@ from smartapply.utils.location import canonical_french_city, french_city_mismatc
 
 logger = get_logger(__name__)
 
+
 class ContactProvider(ABC):
     name: str = ""
 
@@ -59,6 +60,7 @@ class AnymailFinderContactProvider(ContactProvider):
 
     DECISION_MAKER_URL = "https://api.anymailfinder.com/v5.1/find-email/decision-maker"
     COMPANY_URL = "https://api.anymailfinder.com/v5.1/find-email/company"
+    PERSON_URL = "https://api.anymailfinder.com/v5.1/find-email/person"
     VERIFY_URL = "https://api.anymailfinder.com/v5.1/verify-email"
 
     def __init__(
@@ -98,9 +100,7 @@ class AnymailFinderContactProvider(ContactProvider):
         if any(is_recruitment_generic_email(candidate.email) for candidate in candidates):
             return _dedupe_rank(candidates)[: self.max_contacts]
 
-        candidates.extend(
-            self._decision_maker_contacts(lookup, job_location=job_location)
-        )
+        candidates.extend(self._decision_maker_contacts(lookup, job_location=job_location))
 
         return _dedupe_rank(candidates)[: self.max_contacts]
 
@@ -117,6 +117,128 @@ class AnymailFinderContactProvider(ContactProvider):
         if company:
             return {"company_name": company}
         return None
+
+    def decision_maker_search(
+        self,
+        *,
+        domain: str | None = None,
+        company_name: str | None = None,
+        categories: list[str] | None = None,
+        job_location: str | None = None,
+    ) -> list[ContactCandidate]:
+        """Run an explicit Anymail Finder decision-maker lookup."""
+        if not self.is_available():
+            return []
+        lookup = self._explicit_lookup_payload(domain=domain, company_name=company_name)
+        if lookup is None:
+            return []
+        return _dedupe_rank(
+            self._decision_maker_contacts(
+                lookup,
+                job_location=job_location,
+                categories=categories,
+            )
+        )[: self.max_contacts]
+
+    def person_search(
+        self,
+        *,
+        full_name: str | None = None,
+        first_name: str | None = None,
+        last_name: str | None = None,
+        linkedin_url: str | None = None,
+        domain: str | None = None,
+        company_name: str | None = None,
+        job_location: str | None = None,
+    ) -> list[ContactCandidate]:
+        """Run an explicit Anymail Finder person lookup."""
+        if not self.is_available():
+            return []
+
+        payload: dict[str, str] = {}
+        linkedin_url = " ".join((linkedin_url or "").split())
+        if linkedin_url:
+            payload["linkedin_url"] = linkedin_url
+
+        full_name = " ".join((full_name or "").split())
+        first_name = " ".join((first_name or "").split())
+        last_name = " ".join((last_name or "").split())
+        has_person_name = bool(full_name or (first_name and last_name))
+        if full_name:
+            payload["full_name"] = full_name
+        elif first_name and last_name:
+            payload["first_name"] = first_name
+            payload["last_name"] = last_name
+
+        lookup = self._explicit_lookup_payload(
+            domain=domain,
+            company_name=company_name,
+        )
+        if lookup is not None:
+            payload.update(lookup)
+
+        if not linkedin_url and (not has_person_name or lookup is None):
+            return []
+
+        try:
+            data = self._post(self.PERSON_URL, payload)
+        except requests.RequestException as e:
+            logger.warning("Anymail Finder person lookup failed for %s: %s", payload, e)
+            return []
+
+        email = (data.get("valid_email") or data.get("email") or "").lower()
+        if not email:
+            return []
+
+        full_name = data.get("person_full_name") or payload.get("full_name") or None
+        if not full_name and payload.get("first_name") and payload.get("last_name"):
+            full_name = f"{payload['first_name']} {payload['last_name']}"
+        job_title = data.get("person_job_title") or None
+        location_hint = self._location_hint(job_location, full_name, job_title)
+        confidence = 0.97 if payload.get("domain") else 0.93
+        decision_reason = "person_lookup"
+        if location_hint == "location_mismatch":
+            confidence *= 0.45
+            decision_reason = "person_lookup:location_mismatch"
+        return [
+            ContactCandidate(
+                email=email,
+                source_url=self._source_url(payload, "person"),
+                confidence=confidence,
+                provider=self.name,
+                verified=True,
+                kind="anymailfinder_person",
+                full_name=full_name,
+                job_title=job_title,
+                location_hint=location_hint,
+                decision_reason=decision_reason,
+            )
+        ]
+
+    @classmethod
+    def _explicit_lookup_payload(
+        cls,
+        *,
+        domain: str | None,
+        company_name: str | None,
+    ) -> dict[str, str] | None:
+        normalized_domain = cls._manual_domain(domain)
+        if normalized_domain:
+            return {"domain": normalized_domain}
+        company_name = " ".join((company_name or "").split())
+        if company_name:
+            return {"company_name": company_name}
+        return None
+
+    @staticmethod
+    def _manual_domain(domain: str | None) -> str:
+        value = str(domain or "").strip()
+        if not value:
+            return ""
+        parsed = domain_from_url(value if "://" in value else f"https://{value}")
+        if parsed:
+            return parsed
+        return normalize_domain(value).split("/", 1)[0].split(":", 1)[0]
 
     def _headers(self) -> dict[str, str]:
         return {
@@ -155,13 +277,16 @@ class AnymailFinderContactProvider(ContactProvider):
         lookup: dict[str, str],
         *,
         job_location: str | None = None,
+        categories: list[str] | None = None,
     ) -> list[ContactCandidate]:
-        if not self.decision_maker_categories:
+        configured_categories = self.decision_maker_categories if categories is None else categories
+        decision_maker_categories = self._clean_categories(configured_categories)
+        if not decision_maker_categories:
             return []
 
         payload = {
             **lookup,
-            "decision_maker_category": self.decision_maker_categories,
+            "decision_maker_category": decision_maker_categories,
         }
         try:
             data = self._post(self.DECISION_MAKER_URL, payload)
@@ -252,6 +377,10 @@ class AnymailFinderContactProvider(ContactProvider):
             return "location_mismatch"
         return canonical_french_city(observed_text)
 
+    @staticmethod
+    def _clean_categories(categories: list[str] | None) -> list[str]:
+        return [category.strip() for category in categories or [] if category.strip()]
+
 
 class ContactProviderChain:
     def __init__(self, providers: list[ContactProvider], min_confidence: float = 0.60):
@@ -299,6 +428,56 @@ class ContactProviderChain:
                 if result is not None:
                     return bool(result)
         return None
+
+    def decision_maker_search(
+        self,
+        *,
+        domain: str | None = None,
+        company_name: str | None = None,
+        categories: list[str] | None = None,
+        job_location: str | None = None,
+    ) -> list[ContactCandidate]:
+        candidates: list[ContactCandidate] = []
+        for provider in self.providers:
+            finder = getattr(provider, "decision_maker_search", None)
+            if provider.is_available() and callable(finder):
+                candidates.extend(
+                    finder(
+                        domain=domain,
+                        company_name=company_name,
+                        categories=categories,
+                        job_location=job_location,
+                    )
+                )
+        return [c for c in _dedupe_rank(candidates) if c.confidence >= self.min_confidence]
+
+    def person_search(
+        self,
+        *,
+        full_name: str | None = None,
+        first_name: str | None = None,
+        last_name: str | None = None,
+        linkedin_url: str | None = None,
+        domain: str | None = None,
+        company_name: str | None = None,
+        job_location: str | None = None,
+    ) -> list[ContactCandidate]:
+        candidates: list[ContactCandidate] = []
+        for provider in self.providers:
+            finder = getattr(provider, "person_search", None)
+            if provider.is_available() and callable(finder):
+                candidates.extend(
+                    finder(
+                        full_name=full_name,
+                        first_name=first_name,
+                        last_name=last_name,
+                        linkedin_url=linkedin_url,
+                        domain=domain,
+                        company_name=company_name,
+                        job_location=job_location,
+                    )
+                )
+        return [c for c in _dedupe_rank(candidates) if c.confidence >= self.min_confidence]
 
     @property
     def provider_key(self) -> str:

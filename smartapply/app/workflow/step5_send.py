@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import re
+import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -13,7 +15,7 @@ import streamlit as st
 from smartapply.app._helpers import pipeline_singleton, status_label
 from smartapply.app.workflow.state import reset_workflow
 from smartapply.app.workflow.step4_generate import _existing_generated_application_ids
-from smartapply.app.workflow.widgets import _download_button, _sort_table, _status_pill
+from smartapply.app.workflow.widgets import _sort_table, _status_pill
 from smartapply.database import session_scope
 from smartapply.database.models import Application, JobStatus
 from smartapply.database.repository import (
@@ -21,12 +23,42 @@ from smartapply.database.repository import (
     mark_archived,
     upsert_document,
 )
+from smartapply.email_agent import ContactCandidate, domain_from_url, is_job_board_domain
 from smartapply.llm import FormQuestionAnswers, LLMError
 from smartapply.llm.prompts.form_questions import build_form_questions_prompt
 from smartapply.pipeline.output_paths import application_output_dir
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 CLOSED_STATUSES = (JobStatus.SENT, JobStatus.ARCHIVED)
+DECISION_MAKER_CATEGORY_LABELS = {
+    "ceo": "CEO / Owner / President / Founder",
+    "engineering": "Engineering",
+    "finance": "Finance",
+    "hr": "Human Resources (HR)",
+    "it": "IT (Information Technology)",
+    "logistics": "Logistics",
+    "marketing": "Marketing",
+    "operations": "Operations / Administration",
+    "buyer": "Procurement (Buyer)",
+    "sales": "Sales",
+}
+
+
+def _html_document_path(document: Any | None, *sibling_paths: str | None) -> str | None:
+    document_path = str(getattr(document, "path", "") or "").strip()
+    if document_path and Path(document_path).exists():
+        return document_path
+    for sibling_path in sibling_paths:
+        sibling = str(sibling_path or "").strip()
+        if not sibling:
+            continue
+        try:
+            html_path = Path(sibling).with_suffix(".html")
+        except ValueError:
+            continue
+        if html_path.exists():
+            return str(html_path)
+    return document_path or None
 
 
 def step5_send() -> None:
@@ -67,7 +99,9 @@ def step5_send() -> None:
         rows = []
         for app in apps:
             docs = {doc.doc_type: doc for doc in app.documents}
+            cv_html = docs.get("cv_html")
             letter_pdf = docs.get("motivation_letter_pdf")
+            letter_html = docs.get("motivation_letter_html")
             analysis_raw = (
                 app.job.analysis.raw_response
                 if app.job and app.job.analysis and isinstance(app.job.analysis.raw_response, dict)
@@ -96,9 +130,18 @@ def step5_send() -> None:
                     "email_cc": app.email_cc,
                     "subject": app.email_subject or "",
                     "body": app.email_body or "",
+                    "cv_html_path": _html_document_path(
+                        cv_html,
+                        app.cv_pdf_path,
+                        app.cv_docx_path,
+                    ),
                     "cv_pdf_path": app.cv_pdf_path,
                     "cv_docx_path": app.cv_docx_path,
                     "eml_path": app.eml_path,
+                    "letter_html_path": _html_document_path(
+                        letter_html,
+                        letter_pdf.path if letter_pdf else None,
+                    ),
                     "letter_pdf_path": letter_pdf.path if letter_pdf else None,
                     "form_url": app.form_submission_url,
                     "gmail_draft_id": app.gmail_draft_id,
@@ -317,6 +360,221 @@ def _consume_close_animation_target_ids(rows: list[dict[str, Any]]) -> list[int]
 
 def _is_valid_email(value: str) -> bool:
     return bool(EMAIL_RE.match(value.strip().lower()))
+
+
+def _html_file_path(path: str | None) -> Path | None:
+    if not path:
+        return None
+    html_path = Path(path)
+    if not html_path.exists() or not html_path.is_file():
+        return None
+    return html_path
+
+
+def _render_html_open_button(
+    label: str,
+    path: str | None,
+    *,
+    key: str,
+) -> None:
+    html_path = _html_file_path(path)
+    if st.button(label, key=key, disabled=html_path is None, width="stretch"):
+        _open_html_file_in_browser(html_path)
+
+
+def _open_html_file_in_browser(html_path: Path | None) -> bool:
+    if html_path is None:
+        st.warning("Document HTML introuvable.")
+        return False
+
+    commands = _open_html_commands(html_path)
+    last_error = ""
+    for command in commands:
+        try:
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                check=False,
+                text=True,
+                timeout=5,
+            )
+        except Exception as exc:
+            last_error = str(exc)
+            continue
+        if result.returncode == 0:
+            st.success(f"Ouvert dans le navigateur : {html_path.name}")
+            return True
+        last_error = (result.stderr or result.stdout or "").strip()
+
+    st.error(f"Impossible d'ouvrir le document HTML. {last_error}".strip())
+    return False
+
+
+def _open_html_commands(html_path: Path) -> list[list[str]]:
+    if sys.platform == "darwin":
+        return [
+            ["open", "-a", "Google Chrome", str(html_path)],
+            ["open", str(html_path)],
+        ]
+    if sys.platform.startswith("win"):
+        return [["cmd", "/c", "start", "", str(html_path)]]
+    return [["xdg-open", str(html_path)]]
+
+
+def _render_contact_lookup_controls(row: dict[str, Any]) -> None:
+    app_id = int(row["id"])
+    domain_default = _suggest_contact_domain(row)
+    company_default = str(row.get("company") or "").strip()
+    mode = st.radio(
+        "Mode de recherche",
+        ("Décisionnaire", "Personne précise", "Automatique"),
+        horizontal=True,
+        key=f"wf_contact_lookup_mode_v2_{app_id}",
+    )
+
+    if mode == "Décisionnaire":
+        _render_decision_maker_lookup(row, domain_default, company_default)
+        return
+
+    if mode == "Personne précise":
+        _render_person_lookup(row, domain_default, company_default)
+        return
+
+    if st.button(
+        "🔎 Chercher un contact email automatiquement",
+        key=f"wf_lookup_contact_{app_id}",
+        help="Utilise la stratégie analyzer/source configurée.",
+    ):
+        found = _lookup_contact_for_application(row)
+        if found:
+            st.rerun()
+
+
+def _render_decision_maker_lookup(
+    row: dict[str, Any],
+    domain_default: str,
+    company_default: str,
+) -> None:
+    app_id = int(row["id"])
+    domain_key = f"wf_decision_domain_{app_id}"
+    company_key = f"wf_decision_company_{app_id}"
+    st.session_state.setdefault(domain_key, domain_default)
+    st.session_state.setdefault(company_key, company_default)
+    lookup_by = st.radio(
+        "Chercher par",
+        ("Domaine", "Nom entreprise"),
+        horizontal=True,
+        key=f"wf_decision_lookup_by_{app_id}",
+    )
+    if lookup_by == "Domaine":
+        st.text_input("Domaine", key=domain_key, placeholder="entreprise.com")
+    else:
+        st.text_input("Nom de l'entreprise", key=company_key)
+
+    options = list(DECISION_MAKER_CATEGORY_LABELS)
+    categories = st.multiselect(
+        "decision_maker_category",
+        options=options,
+        default=["hr"],
+        format_func=lambda value: f"{value} · {DECISION_MAKER_CATEGORY_LABELS.get(value, value)}",
+        key=f"wf_decision_categories_{app_id}",
+    )
+    if st.button("Chercher décisionnaire", key=f"wf_lookup_decision_maker_{app_id}"):
+        found = _lookup_decision_maker_for_application(
+            row,
+            domain=str(st.session_state.get(domain_key) or "") if lookup_by == "Domaine" else "",
+            company_name=str(st.session_state.get(company_key) or "")
+            if lookup_by == "Nom entreprise"
+            else "",
+            categories=categories,
+        )
+        if found:
+            st.rerun()
+
+
+def _render_person_lookup(
+    row: dict[str, Any],
+    domain_default: str,
+    company_default: str,
+) -> None:
+    app_id = int(row["id"])
+    person_key = f"wf_person_name_{app_id}"
+    domain_key = f"wf_person_domain_{app_id}"
+    company_key = f"wf_person_company_{app_id}"
+    st.session_state.setdefault(person_key, "")
+    st.session_state.setdefault(domain_key, domain_default)
+    st.session_state.setdefault(company_key, company_default)
+    st.text_input("Nom de la personne", key=person_key, placeholder="Prénom Nom")
+    lookup_by = st.radio(
+        "Entreprise via",
+        ("Domaine", "Nom entreprise"),
+        horizontal=True,
+        key=f"wf_person_lookup_by_{app_id}",
+    )
+    if lookup_by == "Domaine":
+        st.text_input("Domaine", key=domain_key, placeholder="entreprise.com")
+    else:
+        st.text_input("Nom de l'entreprise", key=company_key)
+
+    if st.button("Chercher personne", key=f"wf_lookup_person_{app_id}"):
+        found = _lookup_person_for_application(
+            row,
+            full_name=str(st.session_state.get(person_key) or ""),
+            domain=str(st.session_state.get(domain_key) or "") if lookup_by == "Domaine" else "",
+            company_name=str(st.session_state.get(company_key) or "")
+            if lookup_by == "Nom entreprise"
+            else "",
+        )
+        if found:
+            st.rerun()
+
+
+def _suggest_contact_domain(row: dict[str, Any]) -> str:
+    hint = _row_analysis_value(row, "contact_domain_hint")
+    if hint and _row_analysis_value(row, "contact_domain_kind") == "company_domain":
+        domain = _domain_from_contact_input(hint)
+        if domain:
+            return domain
+
+    source_data = row.get("source_data")
+    if isinstance(source_data, dict):
+        candidates: list[Any] = [
+            source_data.get("company_domain"),
+            source_data.get("company_website"),
+        ]
+        company_profile = source_data.get("company_profile")
+        if isinstance(company_profile, dict):
+            candidates.extend(
+                [
+                    company_profile.get("domain"),
+                    company_profile.get("website"),
+                ]
+            )
+        for candidate in candidates:
+            domain = _domain_from_contact_input(candidate)
+            if domain:
+                return domain
+
+    application_domain = _domain_from_contact_input(row.get("application_url"))
+    if application_domain and not is_job_board_domain(application_domain):
+        return application_domain
+    return ""
+
+
+def _domain_from_contact_input(value: Any) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    parsed = domain_from_url(raw if "://" in raw else f"https://{raw}")
+    if parsed:
+        return parsed
+    return raw.lower().removeprefix("www.").split("/", 1)[0].split(":", 1)[0]
+
+
+def _contact_job_location(row: dict[str, Any]) -> str | None:
+    return (
+        _row_analysis_value(row, "extracted_location") or str(row.get("job_location") or "") or None
+    )
 
 
 def _render_form_questions_assistant(row: dict[str, Any]) -> None:
@@ -648,27 +906,18 @@ def _render_send_card(row: dict[str, Any]) -> None:
                         st.write(f"- {warning}")
 
             st.markdown("**Documents finaux**")
-            doc_cols = st.columns(3)
+            doc_cols = st.columns(2)
             with doc_cols[0]:
-                _download_button(
-                    "CV PDF",
-                    row.get("cv_pdf_path"),
-                    "application/pdf",
-                    f"wf_send_cv_pdf_{app_id}",
+                _render_html_open_button(
+                    "Ouvrir le CV HTML",
+                    row.get("cv_html_path"),
+                    key=f"wf_open_cv_html_{app_id}",
                 )
             with doc_cols[1]:
-                _download_button(
-                    "CV DOCX",
-                    row.get("cv_docx_path"),
-                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                    f"wf_send_cv_docx_{app_id}",
-                )
-            with doc_cols[2]:
-                _download_button(
-                    "Lettre PDF",
-                    row.get("letter_pdf_path"),
-                    "application/pdf",
-                    f"wf_send_letter_pdf_{app_id}",
+                _render_html_open_button(
+                    "Ouvrir la lettre HTML",
+                    row.get("letter_html_path"),
+                    key=f"wf_open_letter_html_{app_id}",
                 )
 
             st.text_input("Sujet final", key=subject_key)
@@ -712,6 +961,8 @@ def _render_send_card(row: dict[str, Any]) -> None:
                     )
                     if saved:
                         st.rerun()
+                st.divider()
+                _render_contact_lookup_controls(row)
 
             if row["contact"]:
                 if row["strategy"] == "form_only":
@@ -721,14 +972,6 @@ def _render_send_card(row: dict[str, Any]) -> None:
                     )
             else:
                 st.caption("Aucun contact email attaché à cette candidature.")
-                if st.button(
-                    "🔎 Chercher un contact email",
-                    key=f"wf_lookup_contact_{app_id}",
-                    help="Action manuelle. Peut utiliser le fournisseur de contacts configuré.",
-                ):
-                    found = _lookup_contact_for_application(row)
-                    if found:
-                        st.rerun()
 
             _render_form_questions_assistant(row)
 
@@ -887,35 +1130,17 @@ def _save_manual_contact_for_application(row: dict[str, Any], email: str) -> boo
         st.error("Adresse email invalide.")
         return False
 
-    with session_scope() as s:
-        app = s.get(Application, int(row["id"]))
-        if app is None:
-            st.error("Candidature introuvable.")
-            return False
-        contact_row = add_contact(
-            s,
-            company=app.job.company if app.job else str(row.get("company") or ""),
+    return _attach_contact_candidate_to_application(
+        row,
+        ContactCandidate(
             email=normalized,
             source_url="manual_final_step",
             confidence=1.0,
+            provider="manual",
             decision_reason="manual_final_step",
-        )
-        app.contact_id = contact_row.id
-        app.application_strategy = "email_and_form" if app.form_submission_url else "email_only"
-        if app.status == JobStatus.READY_FOR_FORM_SUBMISSION:
-            app.status = JobStatus.EMAIL_GENERATED
-            if app.job is not None:
-                app.job.status = JobStatus.EMAIL_GENERATED
-        eml_path = _regenerate_final_eml(
-            app,
-            recipient=normalized,
-            cc_recipient=app.email_cc,
-        )
-        if eml_path:
-            upsert_document(s, app.id, doc_type="eml", path=eml_path)
-
-    st.success(f"Contact enregistré : {normalized}")
-    return True
+        ),
+        success_prefix="Contact enregistré",
+    )
 
 
 def _lookup_contact_for_application(row: dict[str, Any]) -> bool:
@@ -927,9 +1152,7 @@ def _lookup_contact_for_application(row: dict[str, Any]) -> bool:
         contact_domain_kind=_row_analysis_value(row, "contact_domain_kind") or "unknown",
         job_description=str(row.get("job_description") or "") or None,
         analysis=row.get("analysis_raw") if isinstance(row.get("analysis_raw"), dict) else None,
-        job_location=_row_analysis_value(row, "extracted_location")
-        or str(row.get("job_location") or "")
-        or None,
+        job_location=_contact_job_location(row),
         source_data=row.get("source_data") if isinstance(row.get("source_data"), dict) else None,
     )
     if candidate is None:
@@ -943,6 +1166,79 @@ def _lookup_contact_for_application(row: dict[str, Any]) -> bool:
             st.warning("Aucun contact email fiable trouvé pour cette candidature.")
         return False
 
+    return _attach_contact_candidate_to_application(
+        row,
+        candidate,
+        success_prefix="Contact trouvé et attaché",
+    )
+
+
+def _lookup_decision_maker_for_application(
+    row: dict[str, Any],
+    *,
+    domain: str,
+    company_name: str,
+    categories: list[str],
+) -> bool:
+    if not domain.strip() and not company_name.strip():
+        st.error("Renseigne un domaine ou un nom d'entreprise.")
+        return False
+    if not categories:
+        st.error("Sélectionne au moins une catégorie.")
+        return False
+
+    candidate = pipeline_singleton().contact_service.find_decision_maker(
+        domain=domain,
+        company_name=company_name,
+        categories=categories,
+        job_location=_contact_job_location(row),
+    )
+    if candidate is None:
+        st.warning("Aucun décisionnaire fiable trouvé.")
+        return False
+    return _attach_contact_candidate_to_application(
+        row,
+        candidate,
+        success_prefix="Décisionnaire trouvé et attaché",
+    )
+
+
+def _lookup_person_for_application(
+    row: dict[str, Any],
+    *,
+    full_name: str,
+    domain: str,
+    company_name: str,
+) -> bool:
+    if not full_name.strip():
+        st.error("Renseigne le nom de la personne.")
+        return False
+    if not domain.strip() and not company_name.strip():
+        st.error("Renseigne un domaine ou un nom d'entreprise.")
+        return False
+
+    candidate = pipeline_singleton().contact_service.find_person(
+        full_name=full_name,
+        domain=domain,
+        company_name=company_name,
+        job_location=_contact_job_location(row),
+    )
+    if candidate is None:
+        st.warning("Aucun email fiable trouvé pour cette personne.")
+        return False
+    return _attach_contact_candidate_to_application(
+        row,
+        candidate,
+        success_prefix="Personne trouvée et attachée",
+    )
+
+
+def _attach_contact_candidate_to_application(
+    row: dict[str, Any],
+    candidate: ContactCandidate,
+    *,
+    success_prefix: str,
+) -> bool:
     with session_scope() as s:
         app = s.get(Application, int(row["id"]))
         if app is None:
@@ -973,7 +1269,7 @@ def _lookup_contact_for_application(row: dict[str, Any]) -> bool:
         if eml_path:
             upsert_document(s, app.id, doc_type="eml", path=eml_path)
 
-    st.success(f"Contact trouvé et attaché : {candidate.email}")
+    st.success(f"{success_prefix} : {candidate.email}")
     return True
 
 

@@ -80,6 +80,7 @@ def parse_detail_html(html: str, *, url: str | None = None) -> RawJob:
     remote_policy = _normalize_remote_policy(remote_text)
     application_url = _canonical_job_url(url) if url else _detail_canonical_url(soup)
     published_date = _parse_datetime(_as_text(job_posting.get("datePosted")))
+    company_website = _company_website(soup, organization)
 
     if not description:
         description = _clean_text(soup.get_text("\n", strip=True))
@@ -93,7 +94,8 @@ def parse_detail_html(html: str, *, url: str | None = None) -> RawJob:
         "metadata_text": metadata,
         "hiring_organization": organization,
         "company_profile_url": company_profile_url,
-        "company_website": _company_website(soup, organization),
+        "company_website": company_website,
+        "company_domain": _domain_from_url(company_website),
         "company_social_links": _social_links(soup),
         "company_summary": _company_summary_from_job_page(soup),
         "company_tags": _company_tags(soup),

@@ -51,14 +51,14 @@ _UNSUPPORTED_TECH_TERMS = {
 }
 
 _SUPPORTED_TERM_ALIASES = {
-    "api rest": ("rest apis", "fastapi", "flask"),
+    "api rest": ("fastapi", "flask"),
     "deep learning": ("pytorch", "tensorflow", "cnns"),
     "machine learning": ("pytorch", "tensorflow", "scikit-learn"),
     "prevision": ("forecasting",),
     "prévision": ("forecasting",),
-    "preparation de donnees": ("data pipelines", "pandas", "polars"),
-    "préparation de données": ("data pipelines", "pandas", "polars"),
-    "reporting": ("data visualization", "streamlit", "panel"),
+    "preparation de donnees": ("pandas", "polars"),
+    "préparation de données": ("pandas", "polars"),
+    "reporting": ("streamlit",),
     "series temporelles": (
         "time-series",
         "time-series analysis",
@@ -74,9 +74,9 @@ _SUPPORTED_TERM_ALIASES = {
     "statistiques": ("statistical modeling", "statistical analysis"),
     "traitement statistique de donnees": ("statistical analysis", "statistical modeling"),
     "traitement statistique de données": ("statistical analysis", "statistical modeling"),
-    "data engineering": ("data pipelines", "spark"),
-    "data engineer": ("data pipelines", "spark"),
-    "etl/elt": ("data pipelines", "spark"),
+    "data engineering": ("spark",),
+    "data engineer": ("spark",),
+    "etl/elt": ("spark",),
 }
 
 _PROJECT_ALIASES = {

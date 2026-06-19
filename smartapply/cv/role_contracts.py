@@ -11,8 +11,9 @@ The contract is a deterministic post-filter that:
 3. Adds the ``must_show`` skills that are missing, anchoring a coherent
    baseline for the role (e.g. PyTorch + Scikit-learn for a Data Scientist).
 4. Fills a minimum number of skills from contract-approved fallback skills.
-5. Reorders ``selected_skills`` and ``skills_order`` so that ``must_show``
-   categories come first, then the rest in their existing order.
+5. Reorders ``selected_skills`` and ``skills_order`` with the role contract's
+   ``category_order``. If a contract omits it, the order falls back to
+   ``must_show`` categories, then ``fill_skills``, then the surviving LLM order.
 
 The contract operates on canonical profile skills only — anything that does
 not exist in the candidate's ``allowed_skills`` whitelist is silently
@@ -33,6 +34,24 @@ from smartapply.llm import AdaptedCV, JobAnalysis, SkillSelectionBlock
 _CONTRACTS_PATH = Path(__file__).with_name("role_contracts.json")
 
 _DS_IA_EXTRA_SKILLS: tuple[str, ...] = ("NLP", "Transformers", "Hugging Face")
+
+_GENERIC_OFFER_ANCHOR_TERMS: set[str] = {
+    "test",
+    "tests",
+    "validation",
+    "validate",
+    "validated",
+    "integration",
+    "intégration",
+    "deployment",
+    "déploiement",
+    "model",
+    "models",
+    "modèle",
+    "modèles",
+    "solution",
+    "solutions",
+}
 
 _PROJECT_SIGNAL_TERMS: dict[str, tuple[str, ...]] = {
     "proj_svc": ("speech", "vocoder", "hubert", "rmvpe", "hifi-gan"),
@@ -75,6 +94,8 @@ def _is_explicit_offer_skill(term: str, offer_terms: set[str]) -> bool:
         return False
     for other in offer_terms:
         if not other:
+            continue
+        if other in _GENERIC_OFFER_ANCHOR_TERMS:
             continue
         if len(other) <= 2:
             continue
@@ -137,6 +158,23 @@ def _offer_anchored_skills(analysis: JobAnalysis) -> set[str]:
 
 def _selected_skill_count(skills_by_category: dict[str, list[str]]) -> int:
     return sum(len(skills) for skills in skills_by_category.values())
+
+
+def _ordered_unique(items: list[str]) -> list[str]:
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        if item in seen:
+            continue
+        ordered.append(item)
+        seen.add(item)
+    return ordered
+
+
+def _string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str) and item]
 
 
 def _add_skill_if_supported(
@@ -252,7 +290,7 @@ def _dedupe_cross_category(
     """
     specific_priority = (
         "computer_vision",
-        "rag_retrieval",
+        "generative_agentic_ai",
         "speech_audio",
         "rl",
         "stats_signal",
@@ -282,6 +320,123 @@ def _dedupe_cross_category(
     for cid in list(skills_by_category):
         if not skills_by_category[cid]:
             skills_by_category.pop(cid, None)
+
+
+def _skill_exists_anywhere(skills_by_category: dict[str, list[str]], skill: str) -> bool:
+    norm = _normalize(skill)
+    return any(
+        _normalize(existing) == norm
+        for skills in skills_by_category.values()
+        for existing in skills
+    )
+
+
+def _ensure_min_skills_per_category(
+    filtered: dict[str, list[str]],
+    category_order: list[str],
+    *,
+    contract: dict[str, Any],
+    must_show: dict[str, list[str]],
+    contracts: dict[str, dict[str, Any]],
+    forbidden_active: set[str],
+    allowed_skills_lower: set[str],
+    supported_skills_by_category: dict[str, list[str]],
+    min_per_category: int = 2,
+) -> None:
+    """Avoid displaying a skills category with a single lonely skill.
+
+    This is a deterministic post-LLM polish step. It never invents claims: it
+    only uses role must-show skills, role fill skills, the global baseline, or
+    canonical profile skills from the same category.
+    """
+    if min_per_category <= 1:
+        return
+
+    fill_skills = contract.get("fill_skills", {})
+    if not isinstance(fill_skills, dict):
+        fill_skills = {}
+    baseline = contracts.get("_global_baseline", {})
+    baseline_skills = baseline.get("skills", {}) if isinstance(baseline, dict) else {}
+    if not isinstance(baseline_skills, dict):
+        baseline_skills = {}
+
+    for cid in list(category_order):
+        if len(filtered.get(cid, [])) != 1:
+            continue
+        supported_for_category = supported_skills_by_category.get(cid, [])
+        supported_norms = {_normalize(skill) for skill in supported_for_category}
+        candidate_groups = (
+            must_show.get(cid, []),
+            fill_skills.get(cid, []),
+            baseline_skills.get(cid, []),
+            supported_for_category,
+        )
+        for candidates in candidate_groups:
+            if not isinstance(candidates, list):
+                continue
+            for skill in candidates:
+                if not isinstance(skill, str):
+                    continue
+                norm = _normalize(skill)
+                if supported_norms and norm not in supported_norms:
+                    continue
+                if _skill_exists_anywhere(filtered, skill):
+                    continue
+                added = _add_skill_if_supported(
+                    filtered,
+                    category_order,
+                    category_id=cid,
+                    skill=skill,
+                    forbidden_active=forbidden_active,
+                    allowed_skills_lower=allowed_skills_lower,
+                )
+                if added and len(filtered.get(cid, [])) >= min_per_category:
+                    break
+            if len(filtered.get(cid, [])) >= min_per_category:
+                break
+
+
+def _contract_category_priority(
+    contract: dict[str, Any],
+    *,
+    must_show: dict[str, list[str]],
+    baseline_order: list[str],
+) -> list[str]:
+    configured = _string_list(contract.get("category_order"))
+    if configured:
+        return configured
+
+    fill_skills = contract.get("fill_skills", {})
+    fill_order = list(fill_skills) if isinstance(fill_skills, dict) else []
+    return _ordered_unique(
+        list(must_show)
+        + fill_order
+        + baseline_order
+        + _string_list(contract.get("allowed_categories"))
+    )
+
+
+def _final_category_order(
+    filtered: dict[str, list[str]],
+    *,
+    contract: dict[str, Any],
+    must_show: dict[str, list[str]],
+    baseline_order: list[str],
+    observed_order: list[str],
+) -> list[str]:
+    """Build the display order without changing the selected skills.
+
+    ``category_order`` in the JSON is the role-specific presentation strategy.
+    Categories not listed there still survive after the configured priorities,
+    preserving their original arrival order from the LLM/contract additions.
+    """
+    priority = _contract_category_priority(
+        contract,
+        must_show=must_show,
+        baseline_order=baseline_order,
+    )
+    candidates = _ordered_unique(priority + observed_order + list(filtered))
+    return [cid for cid in candidates if filtered.get(cid)]
 
 
 def _strip_forbidden_cv_content(
@@ -323,14 +478,16 @@ def apply_contract(
     analysis: JobAnalysis,
     job_title: str,
     allowed_skills_lower: set[str],
+    supported_skills_by_category: dict[str, list[str]] | None = None,
     contracts: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[AdaptedCV, str]:
     """Apply the role-family contract for ``analysis``.
 
-    Returns the updated CV plus the family id used (``other`` is a no-op).
+    Returns the updated CV plus the family id used.
     """
     family = classify(analysis, title=job_title)
     contracts = contracts or load_contracts()
+    supported_skills_by_category = supported_skills_by_category or {}
     contract = contracts.get(family)
     if contract is None:
         return adapted, family
@@ -401,20 +558,24 @@ def apply_contract(
         allowed_skills_lower=allowed_skills_lower,
     )
     _dedupe_cross_category(filtered, category_order)
+    _ensure_min_skills_per_category(
+        filtered,
+        category_order,
+        contract=contract,
+        must_show=must_show,
+        contracts=contracts,
+        forbidden_active=forbidden_active,
+        allowed_skills_lower=allowed_skills_lower,
+        supported_skills_by_category=supported_skills_by_category,
+    )
 
-    # Promote must_show categories to the top, preserve the rest of the order.
-    priority_order: list[str] = []
-    priority_candidates = list(baseline_order) + list(must_show.keys())
-    for cid in ("ml_ai", "data_analysis", "data_infra"):
-        if cid in priority_candidates and filtered.get(cid):
-            priority_order.append(cid)
-    for cid in priority_candidates:
-        if filtered.get(cid) and cid not in priority_order:
-            priority_order.append(cid)
-    final_order: list[str] = list(priority_order)
-    for cid in category_order:
-        if cid not in final_order and filtered.get(cid):
-            final_order.append(cid)
+    final_order = _final_category_order(
+        filtered,
+        contract=contract,
+        must_show=must_show,
+        baseline_order=baseline_order,
+        observed_order=category_order,
+    )
 
     new_selected = [
         SkillSelectionBlock(category_id=cid, skills=filtered[cid])

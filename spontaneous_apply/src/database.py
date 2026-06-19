@@ -22,7 +22,6 @@ PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS companies (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     company_name TEXT NOT NULL UNIQUE,
-    website TEXT,
     sector_hint TEXT,
     spontaneous_score TEXT,
     status TEXT DEFAULT 'pending',
@@ -176,7 +175,6 @@ def get_or_create_company(conn: sqlite3.Connection, seed: CompanySeed | str) -> 
     ).fetchone()
     if existing:
         updates = {
-            "website": seed.website,
             "sector_hint": seed.sector_hint,
             "spontaneous_score": seed.spontaneous_score,
         }
@@ -192,10 +190,10 @@ def get_or_create_company(conn: sqlite3.Connection, seed: CompanySeed | str) -> 
 
     cursor = conn.execute(
         """
-        INSERT INTO companies (company_name, website, sector_hint, spontaneous_score)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO companies (company_name, sector_hint, spontaneous_score)
+        VALUES (?, ?, ?)
         """,
-        (seed.company_name, seed.website, seed.sector_hint, seed.spontaneous_score),
+        (seed.company_name, seed.sector_hint, seed.spontaneous_score),
     )
     row = conn.execute("SELECT * FROM companies WHERE id = ?", (cursor.lastrowid,)).fetchone()
     return _company_from_row(row)
@@ -383,9 +381,7 @@ def _company_from_row(row: sqlite3.Row) -> CompanyRecord:
     return CompanyRecord(
         id=row["id"],
         company_name=row["company_name"],
-        website=row["website"],
         sector_hint=row["sector_hint"],
         spontaneous_score=row["spontaneous_score"],
         status=row["status"],
     )
-

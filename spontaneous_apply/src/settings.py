@@ -22,10 +22,20 @@ class SpontaneousApplySettings:
             paths.get("email_drafts_jsonl", "data/processed/email_drafts.jsonl")
         )
         self.wttj_raw_dir = self._resolve(paths.get("wttj_raw_dir", "data/raw/wttj_pages"))
-        self.official_raw_dir = self._resolve(paths.get("official_raw_dir", "data/raw/official_pages"))
         self.log_file = self._resolve(paths.get("log_file", "data/logs/pipeline.log"))
         self.llm_model = raw.get("llm", {}).get("model", "gpt-4o")
         self.llm_temperature = float(raw.get("llm", {}).get("temperature", 0.2))
+        wttj_search = raw.get("wttj_company_search", {})
+        self.wttj_company_search_max_pages = int(wttj_search.get("max_pages", 12))
+        self.wttj_company_search_timeout_seconds = int(
+            wttj_search.get("request_timeout_seconds", 30)
+        )
+        self.wttj_company_search_delay_seconds = float(wttj_search.get("delay_seconds", 0.5))
+        self.wttj_company_search_hits_per_page = int(wttj_search.get("hits_per_page", 30))
+        self.wttj_company_search_render_with_browser = bool(
+            wttj_search.get("render_with_browser", True)
+        )
+        self.wttj_company_search_url_template = wttj_search.get("url_template", "")
 
     def _resolve(self, value: str) -> Path:
         path = Path(value)
@@ -40,7 +50,6 @@ class SpontaneousApplySettings:
             self.company_profiles_jsonl.parent,
             self.email_drafts_jsonl.parent,
             self.wttj_raw_dir,
-            self.official_raw_dir,
             self.log_file.parent,
         ]
         for path in paths:
@@ -53,4 +62,3 @@ def get_settings() -> SpontaneousApplySettings:
         settings = SpontaneousApplySettings(tomllib.load(f))
     settings.ensure_dirs()
     return settings
-

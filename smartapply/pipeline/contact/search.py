@@ -129,6 +129,71 @@ class ContactSearchMixin:
 
         return best
 
+    def find_decision_maker(
+        self,
+        *,
+        domain: str | None = None,
+        company_name: str | None = None,
+        categories: list[str] | None = None,
+        job_location: str | None = None,
+    ) -> ContactCandidate | None:
+        """Find a contact through an explicit decision-maker lookup."""
+        lookup_domain = self._manual_lookup_domain(domain)
+        logger.info(
+            "manual_contact_lookup endpoint=decision-maker domain=%s company=%s categories=%s",
+            lookup_domain,
+            company_name,
+            ",".join(categories or []),
+        )
+        contacts = self.chain.decision_maker_search(
+            domain=lookup_domain,
+            company_name=company_name,
+            categories=categories,
+            job_location=job_location,
+        )
+        contacts = self._filter_external_contacts(
+            contacts,
+            lookup_company=company_name,
+            lookup_domain=lookup_domain,
+        )
+        return contacts[0] if contacts else None
+
+    def find_person(
+        self,
+        *,
+        full_name: str | None = None,
+        first_name: str | None = None,
+        last_name: str | None = None,
+        linkedin_url: str | None = None,
+        domain: str | None = None,
+        company_name: str | None = None,
+        job_location: str | None = None,
+    ) -> ContactCandidate | None:
+        """Find a contact through an explicit person lookup."""
+        lookup_domain = self._manual_lookup_domain(domain)
+        logger.info(
+            "manual_contact_lookup endpoint=person domain=%s company=%s full_name=%s linkedin=%s",
+            lookup_domain,
+            company_name,
+            full_name,
+            bool(linkedin_url),
+        )
+        contacts = self.chain.person_search(
+            full_name=full_name,
+            first_name=first_name,
+            last_name=last_name,
+            linkedin_url=linkedin_url,
+            domain=lookup_domain,
+            company_name=company_name,
+            job_location=job_location,
+        )
+        contacts = self._filter_external_contacts(
+            contacts,
+            lookup_company=company_name,
+            lookup_domain=lookup_domain,
+        )
+        return contacts[0] if contacts else None
+
     # -------------------- helpers --------------------
 
     def verify_email(self, email: str) -> bool | None:
@@ -165,6 +230,16 @@ class ContactSearchMixin:
                 continue
             kept.append(contact)
         return kept
+
+    @staticmethod
+    def _manual_lookup_domain(domain: str | None) -> str | None:
+        value = str(domain or "").strip()
+        if not value:
+            return None
+        parsed = domain_from_url(value if "://" in value else f"https://{value}")
+        if parsed:
+            return parsed
+        return value.lower().removeprefix("www.").split("/", 1)[0].split(":", 1)[0]
 
     def _stored_contact_passes_optional_verification(self, contact: ContactCandidate) -> bool:
         source = (contact.source_url or "").lower()

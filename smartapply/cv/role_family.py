@@ -169,10 +169,15 @@ _GENERIC_PRIMARY_PATTERNS: Final[list[tuple[RoleFamily, list[str]]]] = [
         [
             r"\bml engineer\b",
             r"\bmachine learning engineer\b",
+            r"\bmachine learning consultant\b",
+            r"\bml consultant\b",
+            r"\bjunior ml\b",
             r"\bai engineer\b",
             r"\bingénieur (en )?ia\b",
             r"\bingénieur (en )?ml\b",
             r"\bml[- ]engineer\b",
+            r"\bml specialist\b",
+            r"\bmachine learning specialist\b",
             r"\bapplied (ai|ml) engineer\b",
         ],
     ),
@@ -197,7 +202,7 @@ _OFF_TARGET_PRIMARY_PATTERNS: Final[list[str]] = [
 
 # Extended patterns are used only when the primary signal is ambiguous or
 # absent. They let "AI Engineer" become LLM Engineer when the offer body says
-# RAG/LLMs, without turning "Data Scientist" into "LLM Engineer".
+# RAG/NLP, without turning "Data Scientist" into "LLM Engineer".
 _SPECIALIST_EXTENDED_PATTERNS: Final[list[tuple[RoleFamily, list[str]]]] = [
     (
         "llm_engineer",

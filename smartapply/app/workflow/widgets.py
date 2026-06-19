@@ -137,6 +137,8 @@ def _filter_table(df: pd.DataFrame, query: str) -> pd.DataFrame:
         "phase",
         "status",
         "preview",
+        "motif",
+        "signal",
         "reasons",
         "reason",
         "risks",
@@ -187,6 +189,8 @@ _SORTABLE_COLUMN_LABELS = {
     "gmail": "Gmail",
     "form": "Formulaire",
     "reason": "Raison",
+    "motif": "Motif",
+    "signal": "Signal",
     "reasons": "Raisons",
     "risks": "Risques",
 }

@@ -8,7 +8,7 @@ from spontaneous_apply.src.database import (
     save_wttj_profile,
 )
 from spontaneous_apply.src.models import CompanySeed
-from spontaneous_apply.src.wttj_discovery import discover_wttj_profile
+from spontaneous_apply.src.wttj_discovery import discover_wttj_profile, profile_from_wttj_url
 
 
 def run_for_company(company: CompanySeed | str, preverified_csv_path: str | None = None):
@@ -17,10 +17,14 @@ def run_for_company(company: CompanySeed | str, preverified_csv_path: str | None
         company_record = get_or_create_company(conn, company)
         mark_company_status(conn, company_record.id, "wttj_searching")
 
-        wttj_profile = discover_wttj_profile(
-            company_record.company_name,
-            preverified_csv_path=preverified_csv_path,
-        )
+        input_wttj_url = company.wttj_url if isinstance(company, CompanySeed) else None
+        if input_wttj_url:
+            wttj_profile = profile_from_wttj_url(company_record.company_name, input_wttj_url)
+        else:
+            wttj_profile = discover_wttj_profile(
+                company_record.company_name,
+                preverified_csv_path=preverified_csv_path,
+            )
         save_wttj_profile(conn, company_record.id, wttj_profile)
 
         if not wttj_profile.has_wttj_profile:
@@ -29,4 +33,3 @@ def run_for_company(company: CompanySeed | str, preverified_csv_path: str | None
 
         mark_company_status(conn, company_record.id, "wttj_found")
         return wttj_profile
-

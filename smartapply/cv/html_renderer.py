@@ -133,24 +133,11 @@ class HtmlApplicationRenderer:
         project_by_id = {project.id: project for project in self.profile.projects}
 
         experiences = []
-        total_bullets = 0
         for adapted_exp in adapted.selected_experiences:
             source = exp_by_id.get(adapted_exp.source_id)
             if source:
-                max_bullets = self._max_bullets_for_experience(
-                    index=len(experiences),
-                    selected_project_count=len(adapted.selected_project_ids),
-                    force_one_page=force_one_page,
-                )
-                remaining = self._max_total_bullets(
-                    selected_project_count=len(adapted.selected_project_ids),
-                    force_one_page=force_one_page,
-                ) - total_bullets
-                if remaining <= 0:
-                    break
-                bullets = adapted_exp.bullets[: min(max_bullets, remaining)]
+                bullets = adapted_exp.bullets
                 if bullets:
-                    total_bullets += len(bullets)
                     source_links_by_id = {b.id: b.links for b in source.bullets}
                     bullets_view = [
                         {
@@ -168,13 +155,10 @@ class HtmlApplicationRenderer:
                             "bullets": bullets_view,
                         }
                     )
-            if len(experiences) >= 3:
-                break
 
         selected_projects = self._select_projects(
             adapted=adapted,
             project_by_id=project_by_id,
-            force_one_page=force_one_page,
         )
         skill_categories = self._skill_categories_for(adapted)
         layout_class = self._layout_class(
@@ -335,7 +319,6 @@ class HtmlApplicationRenderer:
         *,
         adapted: AdaptedCV,
         project_by_id: dict[str, object],
-        force_one_page: bool,
     ) -> list[object]:
         """Render projects selected by the LLM, with fallback only if empty.
 
@@ -345,7 +328,6 @@ class HtmlApplicationRenderer:
         We therefore only fall back to profile projects when the LLM selected
         no valid project at all.
         """
-        max_projects = self._max_projects(force_one_page=force_one_page)
         selected: list[object] = []
         seen: set[str] = set()
         for project_id in adapted.selected_project_ids:
@@ -353,13 +335,11 @@ class HtmlApplicationRenderer:
             if project is not None and project_id not in seen:
                 selected.append(project)
                 seen.add(project_id)
-            if len(selected) >= max_projects:
-                return selected
 
         if selected:
-            return selected[:max_projects]
+            return selected
 
-        min_projects = min(MIN_PROJECTS, max_projects, len(project_by_id))
+        min_projects = min(MIN_PROJECTS, len(project_by_id))
         context = self._adapted_context(adapted)
         remaining = [
             project
@@ -374,7 +354,7 @@ class HtmlApplicationRenderer:
             selected.append(project)
             if len(selected) >= min_projects:
                 break
-        return selected[:max_projects]
+        return selected
 
     @staticmethod
     def _project_relevance(project, context: str) -> tuple[int, int]:
@@ -443,31 +423,6 @@ class HtmlApplicationRenderer:
         return " ".join(context_bits).lower()
 
     @staticmethod
-    def _max_bullets_for_experience(
-        *,
-        index: int,
-        selected_project_count: int,
-        force_one_page: bool,
-    ) -> int:
-        if force_one_page:
-            return 3 if index == 0 else 1
-        if selected_project_count >= 4:
-            return 4 if index == 0 else 1
-        return 4 if index == 0 else 2
-
-    @staticmethod
-    def _max_total_bullets(*, selected_project_count: int, force_one_page: bool) -> int:
-        if force_one_page:
-            return 5
-        if selected_project_count >= 4:
-            return 6
-        return 7
-
-    @staticmethod
-    def _max_projects(*, force_one_page: bool) -> int:
-        return 4 if force_one_page else 5
-
-    @staticmethod
     def _layout_class(
         *,
         experiences: list[dict],
@@ -485,14 +440,15 @@ class HtmlApplicationRenderer:
             + len(projects) * 0.8
             + skill_count * 0.12
         )
-        # Density bands tuned so the page fills naturally — lower density gets
-        # bigger line-height + entry-gap + section-gap so the whitespace spreads
-        # across the document instead of pooling at the bottom.
-        if density <= 9:
+        # Density bands tune font size, line-height, and vertical rhythm
+        # together. Dense modes tighten the layout but never remove content.
+        if density <= 8:
             return "cv-very-airy"
-        if density <= 13:
+        if density <= 14:
             return "cv-airy"
-        if density >= 17:
+        if density >= 22:
+            return "cv-ultra"
+        if density >= 18:
             return "cv-compact"
         return "cv-balanced"
 

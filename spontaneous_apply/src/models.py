@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class CompanySeed(BaseModel):
     company_name: str
-    website: str | None = None
+    wttj_url: str | None = None
     sector_hint: str | None = None
     spontaneous_score: Literal["A", "B", "C"] | None = None
 
@@ -35,7 +35,7 @@ class WTTJProfile(BaseModel):
 
 class RawCompanyInfo(BaseModel):
     company_name_raw: str
-    source_type: Literal["wttj", "official_website", "manual"]
+    source_type: Literal["wttj", "manual"]
     source_url: str | None = None
 
     domain_raw: str | None = None
@@ -96,4 +96,3 @@ class EmailDraft(BaseModel):
     language: str = "fr"
     validation_status: str | None = None
     validation_notes: str | None = None
-

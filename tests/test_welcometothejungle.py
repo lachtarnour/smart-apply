@@ -234,6 +234,7 @@ def test_parse_detail_html_reads_json_ld_and_metadata() -> None:
         "https://www.welcometothejungle.com/fr/companies/doctolib"
     )
     assert job.source_data["company_website"] == "https://about.doctolib.com/"
+    assert job.source_data["company_domain"] == "about.doctolib.com"
     assert job.source_data["company_summary"] == "Doctolib builds healthcare software."
     assert job.source_data["workplace"] == "Paris, France"
     assert job.source_data["skills"] == ["Python", "Communication"]
@@ -453,6 +454,91 @@ def test_scrape_matches_requests_uses_cookie_only_for_matches_api(mocker) -> Non
     assert jobs[0].source_data["company_profile"]["presentation"] == "Acme builds ML tools."
 
 
+def test_scrape_matches_requests_hydrates_company_website_after_detail_api_fallback(
+    mocker,
+) -> None:  # noqa: ANN001
+    matches_payload = {
+        "data": [
+            {
+                "name": "ML Engineer",
+                "slug": "ml-engineer_paris",
+                "organization": {"slug": "acme", "name": "Acme"},
+            }
+        ],
+        "metadata": {"total": 1, "page": 1, "per_page": 10, "page_count": 1},
+    }
+    api_payload = {
+        "name": "ML Engineer",
+        "slug": "ml-engineer_paris",
+        "contract_type": "full_time",
+        "remote": "partial",
+        "description": "<p>Build ML systems.</p>",
+        "organization": {
+            "name": "Acme",
+            "slug": "acme",
+            "website_organization": {"slug": "acme"},
+        },
+        "offices": [],
+    }
+    company_html = """
+    <html>
+      <head>
+        <title>Acme: pictures, videos and careers</title>
+        <link rel="canonical" href="https://www.welcometothejungle.com/fr/companies/acme" />
+      </head>
+      <body>
+        <main data-testid="page-organization-profile">
+          <header data-testid="showcase-header">
+            Acme Follow
+            <a data-testid="showcase-header-website-link" href="https://www.acme.com/">View website</a>
+          </header>
+        </main>
+      </body>
+    </html>
+    """
+
+    broken_detail_response = mocker.MagicMock(status_code=200, text="<html>Expired</html>")
+    broken_detail_response.raise_for_status = mocker.MagicMock()
+    company_response = mocker.MagicMock(status_code=200, text=company_html)
+    company_response.raise_for_status = mocker.MagicMock()
+
+    mocker.patch(
+        "smartapply.scrapers.welcometothejungle.fetch_matches_api_page",
+        return_value=matches_payload,
+    )
+    fetch_detail = mocker.patch(
+        "smartapply.scrapers.welcometothejungle.fetch_detail_api_job",
+        return_value=api_payload,
+    )
+    public_get = mocker.patch(
+        "smartapply.scrapers.welcometothejungle.requests.get",
+        side_effect=[broken_detail_response, company_response],
+    )
+
+    jobs = list(
+        scrape_matches_requests(
+            pages=[1],
+            cookie_header="wttj_session=abc",
+            max_jobs=1,
+            per_page=10,
+        )
+    )
+
+    fetch_detail.assert_called_once_with(
+        "https://www.welcometothejungle.com/fr/companies/acme/jobs/ml-engineer_paris",
+        timeout=30,
+    )
+    assert public_get.call_count == 2
+    assert public_get.call_args_list[1].args[0] == (
+        "https://www.welcometothejungle.com/fr/companies/acme"
+    )
+    assert jobs[0].source_data is not None
+    assert jobs[0].source_data["detail_api"] is api_payload
+    assert jobs[0].source_data["company_website"] == "https://www.acme.com/"
+    assert jobs[0].source_data["company_domain"] == "acme.com"
+    assert jobs[0].source_data["company_profile"]["website"] == "https://www.acme.com/"
+
+
 def test_scrape_matches_requests_retries_empty_company_profile_202(mocker) -> None:  # noqa: ANN001
     matches_payload = {
         "data": [
@@ -537,6 +623,95 @@ def test_scrape_matches_requests_retries_empty_company_profile_202(mocker) -> No
     assert jobs[0].source_data is not None
     assert jobs[0].source_data["company_website"] == "https://www.acme.com/"
     assert jobs[0].source_data["company_domain"] == "acme.com"
+    assert "scrape_error" not in jobs[0].source_data["company_profile"]
+
+
+def test_scrape_matches_requests_falls_back_to_company_api_when_profile_html_stays_empty(
+    mocker,
+) -> None:  # noqa: ANN001
+    matches_payload = {
+        "data": [
+            {
+                "name": "ML Engineer",
+                "slug": "ml-engineer_paris",
+                "organization": {"slug": "acme", "name": "Acme"},
+            }
+        ],
+        "metadata": {"total": 1, "page": 1, "per_page": 10, "page_count": 1},
+    }
+    detail_html = """
+    <html>
+      <head>
+        <script type="application/ld+json">
+        {
+          "@context": "http://schema.org",
+          "@type": "JobPosting",
+          "description": "<p>Build ML systems.</p>",
+          "employmentType": "FULL_TIME",
+          "hiringOrganization": {"@type": "Organization", "name": "Acme"},
+          "jobLocation": [],
+          "title": "ML Engineer"
+        }
+        </script>
+      </head>
+      <body>
+        <a href="/fr/companies/acme">Explorer l’entreprise</a>
+      </body>
+    </html>
+    """
+    organization_payload = {
+        "organization": {
+            "name": "Acme",
+            "slug": "acme",
+            "media_website_url": "www.acme.com",
+            "nb_employees": 42,
+            "sectors": [{"name": {"fr": "Intelligence artificielle"}}],
+            "offices": [{"city": "Paris", "country_code": "FR"}],
+        }
+    }
+
+    detail_response = mocker.MagicMock(status_code=200, text=detail_html)
+    detail_response.raise_for_status = mocker.MagicMock()
+    empty_company_response = mocker.MagicMock(status_code=202, text="")
+    empty_company_response.raise_for_status = mocker.MagicMock()
+    api_response = mocker.MagicMock(status_code=200)
+    api_response.raise_for_status = mocker.MagicMock()
+    api_response.json.return_value = organization_payload
+
+    mocker.patch("smartapply.scrapers.wttj.company_hydration.sleep")
+    mocker.patch(
+        "smartapply.scrapers.welcometothejungle.fetch_matches_api_page",
+        return_value=matches_payload,
+    )
+    public_get = mocker.patch(
+        "smartapply.scrapers.welcometothejungle.requests.get",
+        side_effect=[
+            detail_response,
+            empty_company_response,
+            empty_company_response,
+            empty_company_response,
+            empty_company_response,
+            api_response,
+        ],
+    )
+
+    jobs = list(
+        scrape_matches_requests(
+            pages=[1],
+            cookie_header="wttj_session=abc",
+            max_jobs=1,
+            per_page=10,
+        )
+    )
+
+    assert public_get.call_count == 6
+    assert public_get.call_args_list[-1].args[0] == (
+        "https://api.welcometothejungle.com/api/v1/organizations/acme"
+    )
+    assert jobs[0].source_data is not None
+    assert jobs[0].source_data["company_website"] == "https://www.acme.com"
+    assert jobs[0].source_data["company_domain"] == "acme.com"
+    assert jobs[0].source_data["company_profile"]["source"] == "organization_api"
     assert "scrape_error" not in jobs[0].source_data["company_profile"]
 
 

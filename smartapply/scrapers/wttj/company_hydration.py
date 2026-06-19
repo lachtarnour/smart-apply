@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from time import sleep
 from typing import Any
 from urllib.parse import urljoin
 
@@ -13,6 +14,7 @@ from bs4 import BeautifulSoup
 from smartapply.scrapers.base import RawJob
 from smartapply.scrapers.welcometothejungle import (
     _IGNORED_SECTION_TEXTS,
+    WTTJ_API_BASE_URL,
     WTTJ_BASE_URL,
     WTTJ_HEADERS,
     WTTJScraperError,
@@ -155,16 +157,18 @@ def _attach_company_profile(
                 parse_company_html(html, url=profile_url),
             )
             company_profile.pop("scrape_error", None)
-        except requests.RequestException as exc:
-            company_profile = _merge_company_profiles(
-                company_profile,
-                {"url": profile_url, "scrape_error": str(exc)},
-            )
-        except WTTJScraperError as exc:
-            company_profile = _merge_company_profiles(
-                company_profile,
-                {"url": profile_url, "scrape_error": str(exc)},
-            )
+        except (requests.RequestException, WTTJScraperError) as exc:
+            try:
+                company_profile = _merge_company_profiles(
+                    company_profile,
+                    _fetch_company_profile_api(profile_url, timeout=timeout),
+                )
+                company_profile.pop("scrape_error", None)
+            except (requests.RequestException, WTTJScraperError):
+                company_profile = _merge_company_profiles(
+                    company_profile,
+                    {"url": profile_url, "scrape_error": str(exc)},
+                )
         company_cache[profile_url] = company_profile
 
     website = _as_text(company_profile.get("website")) or _as_text(source_data.get("company_website"))
@@ -178,17 +182,77 @@ def _fetch_company_profile_html(
     profile_url: str,
     *,
     timeout: int,
-    attempts: int = 2,
+    attempts: int = 4,
+    retry_delay_seconds: float = 0.5,
 ) -> str:
     last_error: requests.RequestException | None = None
-    for _ in range(max(1, attempts)):
+    max_attempts = max(1, attempts)
+    for attempt in range(max_attempts):
         response = requests.get(profile_url, headers=WTTJ_HEADERS, timeout=timeout)
         if response.status_code == 202 and not response.text.strip():
             last_error = requests.RequestException("WTTJ returned an empty 202 company page")
+            if attempt < max_attempts - 1 and retry_delay_seconds > 0:
+                sleep(retry_delay_seconds)
             continue
         response.raise_for_status()
         return response.text
     raise last_error or requests.RequestException("WTTJ company page did not return HTML")
+
+def _fetch_company_profile_api(profile_url: str, *, timeout: int) -> dict[str, Any]:
+    slug = _company_slug_from_profile_url(profile_url)
+    if not slug:
+        raise WTTJScraperError(f"Cannot build WTTJ organization API URL for {profile_url}")
+    headers = dict(WTTJ_HEADERS)
+    headers["Accept"] = "application/json, text/plain, */*"
+    response = requests.get(
+        f"{WTTJ_API_BASE_URL}/api/v1/organizations/{slug}",
+        headers=headers,
+        timeout=timeout,
+    )
+    response.raise_for_status()
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise WTTJScraperError("WTTJ organization API did not return JSON.") from exc
+    organization = payload.get("organization") if isinstance(payload, dict) else None
+    if not isinstance(organization, dict):
+        raise WTTJScraperError("Unexpected WTTJ organization API payload.")
+    return _company_profile_from_public_api(organization, profile_url)
+
+def _company_profile_from_public_api(
+    organization: dict[str, Any],
+    profile_url: str,
+) -> dict[str, Any]:
+    website = _company_website_from_public_api(organization.get("media_website_url"))
+    stats = {
+        "employees": organization.get("nb_employees"),
+    }
+    stats = {key: value for key, value in stats.items() if value is not None}
+    return {
+        "name": _as_text(organization.get("name")),
+        "url": profile_url,
+        "website": website,
+        "domain": _domain_from_url(website),
+        "sectors": _format_api_sectors(organization.get("sectors")),
+        "offices": _format_api_offices(organization.get("offices")),
+        "stats": stats,
+        "source": "organization_api",
+    }
+
+def _company_slug_from_profile_url(profile_url: str) -> str | None:
+    match = re.search(r"/companies/([^/?#]+)", profile_url)
+    return match.group(1) if match else None
+
+def _company_website_from_public_api(value: Any) -> str | None:
+    text = _as_text(value)
+    if not text:
+        return None
+    if _is_external_url(text):
+        return text
+    if "." not in text or text.startswith(("/", "#")):
+        return None
+    candidate = f"https://{text}"
+    return candidate if _is_external_url(candidate) else None
 
 def _merge_company_profiles(
     base: dict[str, Any],

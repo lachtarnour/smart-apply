@@ -1,5 +1,304 @@
-company_name,website,sector_hint,spontaneous_score
-Sonio,https://sonio.ai,medtech,A
-Nabla,https://www.nabla.com,healthtech_ai,A
-Gleamer,https://www.gleamer.ai,medtech_imaging,A
-
+company_name,wttj_url
+Visian,https://www.welcometothejungle.com/fr/companies/visian
+Chat3D,https://www.welcometothejungle.com/fr/companies/chat3d
+Naratis,https://www.welcometothejungle.com/fr/companies/vaquita
+ever-T,https://www.welcometothejungle.com/fr/companies/ever-t
+QOLIBRIS,https://www.welcometothejungle.com/fr/companies/qolibris
+AVAHOST,https://www.welcometothejungle.com/fr/companies/avahost
+Sancare,https://www.welcometothejungle.com/fr/companies/sancare
+Vocca,https://www.welcometothejungle.com/fr/companies/vocca
+FIELDBOX,https://www.welcometothejungle.com/fr/companies/fieldbox-ai
+Chance,https://www.welcometothejungle.com/fr/companies/chance
+Yxir,https://www.welcometothejungle.com/fr/companies/yxir
+Parallel,https://www.welcometothejungle.com/fr/companies/kiosk
+IoT Valley,https://www.welcometothejungle.com/fr/companies/iot-valley
+Tandem Health,https://www.welcometothejungle.com/fr/companies/tandem-health-global-sas
+Acadenice,https://www.welcometothejungle.com/fr/companies/acadenice
+Ask for the moon,https://www.welcometothejungle.com/fr/companies/ask-for-the-moon
+Ed.ai,https://www.welcometothejungle.com/fr/companies/ed-ai
+Phagos,https://www.welcometothejungle.com/fr/companies/phagos-1
+Ficha,https://www.welcometothejungle.com/fr/companies/ficha
+FRANCE IA,https://www.welcometothejungle.com/fr/companies/france-ia-1
+HawkCell,https://www.welcometothejungle.com/fr/companies/hawkcell
+Omaha Insights,https://www.welcometothejungle.com/fr/companies/omaha
+Kayrros,https://www.welcometothejungle.com/fr/companies/kayrros
+Wilgo,https://www.welcometothejungle.com/fr/companies/bongoway
+Pyl.tech,https://www.welcometothejungle.com/fr/companies/pyl-tech
+"Waiv, formerly Owkin Dx",https://www.welcometothejungle.com/fr/companies/waiv
+Dext France,https://www.welcometothejungle.com/fr/companies/dext
+Monk AI,https://www.welcometothejungle.com/fr/companies/monk-ai
+PLURALISME,https://www.welcometothejungle.com/fr/companies/pluralisme
+Hopia,https://www.welcometothejungle.com/fr/companies/hopia
+AI6 Technologies,https://www.welcometothejungle.com/fr/companies/ai6-technologies
+HOMIWOO,https://www.welcometothejungle.com/fr/companies/homiwoo
+Kleep,https://www.welcometothejungle.com/fr/companies/kleep
+diago,https://www.welcometothejungle.com/fr/companies/diago
+Grafit,https://www.welcometothejungle.com/fr/companies/grafit
+oqtave,https://www.welcometothejungle.com/fr/companies/quintet-conseil
+Ask Mona,https://www.welcometothejungle.com/fr/companies/ask-mona
+Zefir,https://www.welcometothejungle.com/fr/companies/zefir
+Volta software,https://www.welcometothejungle.com/fr/companies/volta
+BulQ,https://www.welcometothejungle.com/fr/companies/bulq
+H Company,https://www.welcometothejungle.com/fr/companies/h-company
+Tessia,https://www.welcometothejungle.com/fr/companies/tessia
+Rivage,https://www.welcometothejungle.com/fr/companies/rivage
+Matricis.ai,https://www.welcometothejungle.com/fr/companies/matricis-ai
+BrightHeart,https://www.welcometothejungle.com/fr/companies/brightheart
+MISTER IA,https://www.welcometothejungle.com/fr/companies/mister-ia
+Perfect Memory,https://www.welcometothejungle.com/fr/companies/perfect-memory
+AI SISTERS,https://www.welcometothejungle.com/fr/companies/ai-sisters
+MARSO Robotics,https://www.welcometothejungle.com/fr/companies/marso-robotics
+Nabu,https://www.welcometothejungle.com/fr/companies/nabu
+Gobano Robotics,https://www.welcometothejungle.com/fr/companies/gobano-robotics
+Biodiv-Wind,https://www.welcometothejungle.com/fr/companies/biodiv-wind
+HelloBiome,https://www.welcometothejungle.com/fr/companies/hellobiome
+Platane,https://www.welcometothejungle.com/fr/companies/platane
+Renaissance Studio,https://www.welcometothejungle.com/fr/companies/renaissance-studio
+Wyes,https://www.welcometothejungle.com/fr/companies/wyes
+Delos,https://www.welcometothejungle.com/fr/companies/delos
+Sigma Nova,https://www.welcometothejungle.com/fr/companies/sigma-nova
+Alphaguard,https://www.welcometothejungle.com/fr/companies/alphaguard-antler-portfolio
+Raidium,https://www.welcometothejungle.com/fr/companies/raidium
+LightOn,https://www.welcometothejungle.com/fr/companies/lighton-1
+Rewind,https://www.welcometothejungle.com/fr/companies/rewind
+Mistral Ai,https://www.welcometothejungle.com/fr/companies/mistral-ai
+Nabla,https://www.welcometothejungle.com/fr/companies/nabla
+eMyosound,https://www.welcometothejungle.com/fr/companies/emyosound
+IDRIS (CNRS),https://www.welcometothejungle.com/fr/companies/idris-cnrs
+Flow Line,https://www.welcometothejungle.com/fr/companies/flow-line-integration-1
+Weproc,https://www.welcometothejungle.com/fr/companies/weproc
+ONTOMANTICS,https://www.welcometothejungle.com/fr/companies/ontomantics
+Locomotive,https://www.welcometothejungle.com/fr/companies/locomotive-fr
+Stonal,https://www.welcometothejungle.com/fr/companies/stonal
+Linagora,https://www.welcometothejungle.com/fr/companies/linagora
+Tilt Energy,https://www.welcometothejungle.com/fr/companies/tilt-energy
+Kazaar,https://www.welcometothejungle.com/fr/companies/kazaar
+Auxo,https://www.welcometothejungle.com/fr/companies/auxo
+muchbetter.ai,https://www.welcometothejungle.com/fr/companies/muchbetter-ai
+Spare-it,https://www.welcometothejungle.com/fr/companies/spare-it
+Orakl Oncology,https://www.welcometothejungle.com/fr/companies/orakl-oncology
+Rizoa,https://www.welcometothejungle.com/fr/companies/rizoa
+Miralia (Ex Golem.ai),https://www.welcometothejungle.com/fr/companies/miralia
+MINDLAPSE,https://www.welcometothejungle.com/fr/companies/mindlapse
+Capital on a Mission,https://www.welcometothejungle.com/fr/companies/capital-on-a-mission
+Esri France,https://www.welcometothejungle.com/fr/companies/esri
+Escape,https://www.welcometothejungle.com/fr/companies/escape
+Haiku,https://www.welcometothejungle.com/fr/companies/clerk
+Jimini AI,https://www.welcometothejungle.com/fr/companies/jimini-ai
+Resolve Stroke,https://www.welcometothejungle.com/fr/companies/resolve-stroke
+Semji,https://www.welcometothejungle.com/fr/companies/semji
+Mendo,https://www.welcometothejungle.com/fr/companies/mendo-1
+akawan,https://www.welcometothejungle.com/fr/companies/akawan
+Dotconferences,https://www.welcometothejungle.com/fr/companies/dotconferences
+Zest,https://www.welcometothejungle.com/fr/companies/zestmeup
+VIDAL,https://www.welcometothejungle.com/fr/companies/vidal
+OCUS,https://www.welcometothejungle.com/fr/companies/ocus
+JAKALA,https://www.welcometothejungle.com/fr/companies/jakala
+ILLUIN Technology,https://www.welcometothejungle.com/fr/companies/illuin-tech
+Lixo,https://www.welcometothejungle.com/fr/companies/lixo
+Quinten Health,https://www.welcometothejungle.com/fr/companies/quinten
+Qevlar AI,https://www.welcometothejungle.com/fr/companies/qevlar-ai
+Qualees,https://www.welcometothejungle.com/fr/companies/qualees
+Keyrus,https://www.welcometothejungle.com/fr/companies/keyrus
+Renault Digital,https://www.welcometothejungle.com/fr/companies/renault-digital
+AQEMIA,https://www.welcometothejungle.com/fr/companies/aqemia
+Signaturit Group,https://www.welcometothejungle.com/fr/companies/signaturitgroup
+VeoNum,https://www.welcometothejungle.com/fr/companies/veonum-human-first
+SKYREAL,https://www.welcometothejungle.com/fr/companies/skyreal
+OpenDecide,https://www.welcometothejungle.com/fr/companies/opendecide
+Lusis,https://www.welcometothejungle.com/fr/companies/lusis
+Citio,https://www.welcometothejungle.com/fr/companies/citio
+ChapsVision,https://www.welcometothejungle.com/fr/companies/chapsvision
+Cash Flow Positif,https://www.welcometothejungle.com/fr/companies/cash-flow-positif
+Payflows,https://www.welcometothejungle.com/fr/companies/payflows
+Onepilot,https://www.welcometothejungle.com/fr/companies/onepilot
+Eco Compteur,https://www.welcometothejungle.com/fr/companies/eco-compteur
+Allphins,https://www.welcometothejungle.com/fr/companies/allphins
+"Ministère de l’Économie, des Finances et de la Souveraineté industrielle, énergétique et numérique",https://www.welcometothejungle.com/fr/companies/ministere-des-finances
+Modeo,https://www.welcometothejungle.com/fr/companies/modeo
+Metroscope,https://www.welcometothejungle.com/fr/companies/metroscope
+Aive,https://www.welcometothejungle.com/fr/companies/aive
+Exod - Your personal leisurer,https://www.welcometothejungle.com/fr/companies/exod
+Mayday,https://www.welcometothejungle.com/fr/companies/mayday
+Mealz,https://www.welcometothejungle.com/fr/companies/mealz
+AdvanThink (ISoft),https://www.welcometothejungle.com/fr/companies/isoft
+Opensee,https://www.welcometothejungle.com/fr/companies/opensee
+Numeum,https://www.welcometothejungle.com/fr/companies/numeum
+ASI,https://www.welcometothejungle.com/fr/companies/asi
+Music Story,https://www.welcometothejungle.com/fr/companies/music-story
+Bial-X,https://www.welcometothejungle.com/fr/companies/bial-x
+Lipper,https://www.welcometothejungle.com/fr/companies/lipper
+IQGeo,https://www.welcometothejungle.com/fr/companies/iqgeo
+Displayce,https://www.welcometothejungle.com/fr/companies/displayce
+Hiphen,https://www.welcometothejungle.com/fr/companies/hiphen-1
+Philips Health Technology Innovation Paris,https://www.welcometothejungle.com/fr/companies/philipshealthtechnologyinnovationparis
+Officy,https://www.welcometothejungle.com/fr/companies/officy
+Arkhn,https://www.welcometothejungle.com/fr/companies/arkhn
+APIDAY,https://www.welcometothejungle.com/fr/companies/apiday
+Implicity,https://www.welcometothejungle.com/fr/companies/implicity
+Bluekango,https://www.welcometothejungle.com/fr/companies/bluekango
+Mydral,https://www.welcometothejungle.com/fr/companies/mydral
+Happypal,https://www.welcometothejungle.com/fr/companies/happypal-2
+Hubvisor,https://www.welcometothejungle.com/fr/companies/hubvisor
+Descartes Underwriting,https://www.welcometothejungle.com/fr/companies/descartesunderwriting
+Whoz,https://www.welcometothejungle.com/fr/companies/whoz
+Axionable,https://www.welcometothejungle.com/fr/companies/axionable
+Technis,https://www.welcometothejungle.com/fr/companies/technis
+Exaion,https://www.welcometothejungle.com/fr/companies/exaion
+Drakkar,https://www.welcometothejungle.com/fr/companies/drakkar
+Diametral,https://www.welcometothejungle.com/fr/companies/littlebigcode
+Nomadia,https://www.welcometothejungle.com/fr/companies/nomadia
+Forest Admin,https://www.welcometothejungle.com/fr/companies/forest-admin
+OSE Engineering,https://www.welcometothejungle.com/fr/companies/ose-engineering
+Accenta,https://www.welcometothejungle.com/fr/companies/accenta-1
+OTOQI,https://www.welcometothejungle.com/fr/companies/otoqi
+Outmind,https://www.welcometothejungle.com/fr/companies/outmind-1
+Artik Consulting,https://www.welcometothejungle.com/fr/companies/artik-consulting
+Volta Medical,https://www.welcometothejungle.com/fr/companies/volta-medical
+Greenerwave,https://www.welcometothejungle.com/fr/companies/greenerwave
+SkillCorner,https://www.welcometothejungle.com/fr/companies/skillcorner
+skiils,https://www.welcometothejungle.com/fr/companies/skiils
+Sekoia.io,https://www.welcometothejungle.com/fr/companies/sekoia
+AP-HP - Direction des Services Numériques (DSN),https://www.welcometothejungle.com/fr/companies/aphp
+Stracker,https://www.welcometothejungle.com/fr/companies/stracker-1
+Doctrine,https://www.welcometothejungle.com/fr/companies/doctrine
+Pulsover,https://www.welcometothejungle.com/fr/companies/pulsover
+Ekinox,https://www.welcometothejungle.com/fr/companies/ekinox
+Joko,https://www.welcometothejungle.com/fr/companies/joko
+Theodo Data & AI,https://www.welcometothejungle.com/fr/companies/sicara
+DATAROCKSTARS,https://www.welcometothejungle.com/fr/companies/datarockstars
+ProovStation,https://www.welcometothejungle.com/fr/companies/proovstation
+Rakuten Tech in Europe,https://www.welcometothejungle.com/fr/companies/rakuten-tech
+Easypicky,https://www.welcometothejungle.com/fr/companies/easypicky
+Artefact,https://www.welcometothejungle.com/fr/companies/artefact
+Inbolt,https://www.welcometothejungle.com/fr/companies/inbolt
+Quadratic,https://www.welcometothejungle.com/fr/companies/quadratic-fr
+GoPro France,https://www.welcometothejungle.com/fr/companies/gopro
+NEXQT,https://www.welcometothejungle.com/fr/companies/nexqt
+SOEMAN GROUP,https://www.welcometothejungle.com/fr/companies/soeman-group
+La Javaness,https://www.welcometothejungle.com/fr/companies/la-javaness
+Sinay,https://www.welcometothejungle.com/fr/companies/sinay
+Sonio,https://www.welcometothejungle.com/fr/companies/sonio
+datacraft,https://www.welcometothejungle.com/fr/companies/datacraft
+Saegus,https://www.welcometothejungle.com/fr/companies/saegus
+Polynom,https://www.welcometothejungle.com/fr/companies/polynom
+Wakeo,https://www.welcometothejungle.com/fr/companies/wakeo
+Buawei,https://www.welcometothejungle.com/fr/companies/buawei
+Giskard,https://www.welcometothejungle.com/fr/companies/giskard
+Gladia,https://www.welcometothejungle.com/fr/companies/gladia
+Traxens,https://www.welcometothejungle.com/fr/companies/traxens
+Klee Group,https://www.welcometothejungle.com/fr/companies/klee-group
+SAHAR,https://www.welcometothejungle.com/fr/companies/sahar
+Doopera,https://www.welcometothejungle.com/fr/companies/doopera
+Pelico,https://www.welcometothejungle.com/fr/companies/pelico
+Redpill,https://www.welcometothejungle.com/fr/companies/redpill
+ZAION,https://www.welcometothejungle.com/fr/companies/zaion
+Eridanis,https://www.welcometothejungle.com/fr/companies/eridanis
+BOTdesign,https://www.welcometothejungle.com/fr/companies/botdesign
+Sifflet,https://www.welcometothejungle.com/fr/companies/sifflet
+ORIS,https://www.welcometothejungle.com/fr/companies/oris
+Modjo,https://www.welcometothejungle.com/fr/companies/modjo
+Groupe SII,https://www.welcometothejungle.com/fr/companies/sii
+Visionairy,https://www.welcometothejungle.com/fr/companies/visionairy
+Teach Up,https://www.welcometothejungle.com/fr/companies/teach-up
+TheraPanacea,https://www.welcometothejungle.com/fr/companies/therapanacea
+Flynt,https://www.welcometothejungle.com/fr/companies/flynt
+Doriane,https://www.welcometothejungle.com/fr/companies/doriane
+Elevate,https://www.welcometothejungle.com/fr/companies/elevate
+Napta,https://www.welcometothejungle.com/fr/companies/napta
+Oliverlist,https://www.welcometothejungle.com/fr/companies/overlist
+Lucky cart,https://www.welcometothejungle.com/fr/companies/lucky-cart
+le1817,https://www.welcometothejungle.com/fr/companies/le1817
+"CASTLE BEE - DATA, CLOUD & CYBER FOUNDRY",https://www.welcometothejungle.com/fr/companies/castle-bee-data-cloud-cyber-foundry
+cobl,https://www.welcometothejungle.com/fr/companies/thinkeo
+Qynapse,https://www.welcometothejungle.com/fr/companies/qynapse
+AISPRID,https://www.welcometothejungle.com/fr/companies/aisprid
+TiHive,https://www.welcometothejungle.com/fr/companies/tihive
+Intent Technologies,https://www.welcometothejungle.com/fr/companies/intent-technologies
+IDEAGENCY,https://www.welcometothejungle.com/fr/companies/ideagency
+Qantev,https://www.welcometothejungle.com/fr/companies/qantev
+SNCF Connect & Tech,https://www.welcometothejungle.com/fr/companies/sncf-connect-tech
+Square Sense,https://www.welcometothejungle.com/fr/companies/square-sense
+Uplix,https://www.welcometothejungle.com/fr/companies/uplix
+Whitelab Genomics,https://www.welcometothejungle.com/fr/companies/whitelab-genomics
+Plateforme des Données de Santé / Health Data Hub,https://www.welcometothejungle.com/fr/companies/plateforme-des-donnees-de-sante
+365Talents,https://www.welcometothejungle.com/fr/companies/365talents
+Prose,https://www.welcometothejungle.com/fr/companies/prose
+OVHcloud,https://www.welcometothejungle.com/fr/companies/ovh
+Feedier,https://www.welcometothejungle.com/fr/companies/feedier
+Winddle,https://www.welcometothejungle.com/fr/companies/winddle
+Lalilo,https://www.welcometothejungle.com/fr/companies/lalilo
+Inpulse,https://www.welcometothejungle.com/fr/companies/inpulse
+Dropcontact,https://www.welcometothejungle.com/fr/companies/dropcontact
+WedR,https://www.welcometothejungle.com/fr/companies/wedr
+Sêmeia,https://www.welcometothejungle.com/fr/companies/semeia
+Sinequa,https://www.welcometothejungle.com/fr/companies/sinequa-1
+vialytics FRANCE SAS,https://www.welcometothejungle.com/fr/companies/vialytics
+Tool4staffing,https://www.welcometothejungle.com/fr/companies/tool4staffing
+Descartes & Mauss,https://www.welcometothejungle.com/fr/companies/descartes-mauss
+RS2i,https://www.welcometothejungle.com/fr/companies/rs2i
+CoinShares France,https://www.welcometothejungle.com/fr/companies/coinshares
+Reverso,https://www.welcometothejungle.com/fr/companies/reverso
+Ecojoko,https://www.welcometothejungle.com/fr/companies/ecojoko
+Batvoice AI,https://www.welcometothejungle.com/fr/companies/batvoice
+Hinfact,https://www.welcometothejungle.com/fr/companies/hinfact
+Better World,https://www.welcometothejungle.com/fr/companies/better-world-1
+Jinka,https://www.welcometothejungle.com/fr/companies/jinka
+Kili Technology,https://www.welcometothejungle.com/fr/companies/kili-technology
+Itrust,https://www.welcometothejungle.com/fr/companies/itrust
+Mindee,https://www.welcometothejungle.com/fr/companies/mindee
+Inqom,https://www.welcometothejungle.com/fr/companies/inqom
+PLEDG,https://www.welcometothejungle.com/fr/companies/pledg
+Safran.AI (ex-Preligens),https://www.welcometothejungle.com/fr/companies/safran-ai
+Echosens,https://www.welcometothejungle.com/fr/companies/echosens
+Bodyguard,https://www.welcometothejungle.com/fr/companies/bodyguard
+Jus Mundi,https://www.welcometothejungle.com/fr/companies/jus-mundi
+Luxurynsight,https://www.welcometothejungle.com/fr/companies/luxurynsight
+reciTAL,https://www.welcometothejungle.com/fr/companies/recital
+Allisone Technologies,https://www.welcometothejungle.com/fr/companies/allisone
+Theraclion,https://www.welcometothejungle.com/fr/companies/theraclion
+XXII GROUP,https://www.welcometothejungle.com/fr/companies/xxii-group
+QuantCube Technology,https://www.welcometothejungle.com/fr/companies/quantcube-technology
+Azmed,https://www.welcometothejungle.com/fr/companies/azmed
+Tomorro,https://www.welcometothejungle.com/fr/companies/tomorro
+PowerZ,https://www.welcometothejungle.com/fr/companies/powerz
+Craft AI,https://www.welcometothejungle.com/fr/companies/craft-ai
+eXalt,https://www.welcometothejungle.com/fr/companies/exalt
+Pandascore,https://www.welcometothejungle.com/fr/companies/pandascore
+easiware,https://www.welcometothejungle.com/fr/companies/easiware
+Braincube,https://www.welcometothejungle.com/fr/companies/braincube
+AI Builders,https://www.welcometothejungle.com/fr/companies/ai-builders
+Finovox,https://www.welcometothejungle.com/fr/companies/finovox
+Dataleon,https://www.welcometothejungle.com/fr/companies/dataleon
+Dessia Technologies,https://www.welcometothejungle.com/fr/companies/dessia-technologies
+Pinpo,https://www.welcometothejungle.com/fr/companies/pinpo
+Novagen conseil,https://www.welcometothejungle.com/fr/companies/novagen
+Rogervoice,https://www.welcometothejungle.com/fr/companies/rogervoice
+MP DATA,https://www.welcometothejungle.com/fr/companies/mp-data
+Yanport,https://www.welcometothejungle.com/fr/companies/yanport
+Invoxia,https://www.welcometothejungle.com/fr/companies/invoxia
+Sim&Cure,https://www.welcometothejungle.com/fr/companies/sim-cure
+Letxbe,https://www.welcometothejungle.com/fr/companies/letxbe
+Oneytrust,https://www.welcometothejungle.com/fr/companies/oneytrust
+Bamboo Rose,https://www.welcometothejungle.com/fr/companies/verteego
+Altametris,https://www.welcometothejungle.com/fr/companies/altametris
+ActinVision,https://www.welcometothejungle.com/fr/companies/actinvision
+Ubiqus,https://www.welcometothejungle.com/fr/companies/ubiqus
+CarCutter,https://www.welcometothejungle.com/fr/companies/diffusely
+Incenteev,https://www.welcometothejungle.com/fr/companies/incenteev
+Tengo,https://www.welcometothejungle.com/fr/companies/tengo
+Swapcard,https://www.welcometothejungle.com/fr/companies/swapcard
+Music World Media,https://www.welcometothejungle.com/fr/companies/music-world-media
+Kili,https://www.welcometothejungle.com/fr/companies/kili
+Intersec,https://www.welcometothejungle.com/fr/companies/intersec
+HarfangLab,https://www.welcometothejungle.com/fr/companies/harfanglab-1
+FlexAI,https://www.welcometothejungle.com/fr/companies/flexai-1
+Deepomatic,https://www.welcometothejungle.com/fr/companies/deepomatic-1
+CO2 AI,https://www.welcometothejungle.com/fr/companies/co2-ai
+AZmed,https://www.welcometothejungle.com/fr/companies/azmed-1
+Aqemia,https://www.welcometothejungle.com/fr/companies/aqemia-1
+AKUR8,https://www.welcometothejungle.com/fr/companies/akur8-1
+Babbar,https://www.welcometothejungle.com/fr/companies/babbar
+AICO TECHNOLOGY,https://www.welcometothejungle.com/fr/companies/aico-technology
+Sibyl,https://www.welcometothejungle.com/fr/companies/sibyl
+Flowie,https://www.welcometothejungle.com/fr/companies/flowie

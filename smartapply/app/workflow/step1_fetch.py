@@ -254,6 +254,93 @@ def _reason_text(job: Job) -> str:
     return " · ".join(str(reason) for reason in reasons[:5]) or "Raison non renseignée"
 
 
+def _rejection_reasons(job: Job) -> list[str]:
+    if not job.score or not isinstance(job.score.components, dict):
+        return []
+    components = job.score.components
+    raw = components.get("rejection_reasons") or []
+    if not isinstance(raw, list):
+        return []
+    return [str(reason) for reason in raw if str(reason).strip()]
+
+
+def _terminal_rejection_reason(job: Job) -> str:
+    reasons = _rejection_reasons(job)
+    if not reasons:
+        return ""
+    return reasons[-1]
+
+
+def _clean_reason_value(value: str) -> str:
+    return value.replace("_", " ").strip()
+
+
+def _short_rejection_label(job: Job) -> str:
+    """Human-readable rejection reason for compact dashboard tables."""
+    if not job.score or not isinstance(job.score.components, dict):
+        return "Raison non renseignée"
+    components = job.score.components
+    stage = str(components.get("rejection_stage") or "")
+    reason = _terminal_rejection_reason(job)
+
+    if stage == "deduplication":
+        duplicate_ref = next(
+            (
+                item.split(":", 1)[1].strip()
+                for item in _rejection_reasons(job)
+                if item.startswith("duplicate_reference:")
+            ),
+            "",
+        )
+        return f"Doublon: {duplicate_ref[:80]}" if duplicate_ref else "Doublon"
+
+    label_map = {
+        "missing_role_relevance": "Pas de signal Data/ML cible",
+        "seniority_or_leadership_in_description": "Seniorité/leadership en description",
+        "reporting_bi_without_analytical_ownership": "Reporting/BI sans ownership analytique",
+        "finance_reporting_bi_without_core_data_tech": "BI finance sans data tech",
+        "reporting_without_core_data_tech": "Reporting sans data tech",
+        "web_analytics_tracking_focus": "Tracking web analytics",
+        "pure_data_engineering_role": "Data engineering trop plateforme",
+        "mep_data_center_focus": "MEP/Data center hors cible",
+    }
+    if reason in label_map:
+        return label_map[reason]
+
+    prefix_labels = {
+        "description_hard_reject:": "Techno bloquée",
+        "experience_required_too_high:": "Expérience trop élevée",
+        "title_hard_reject:": "Titre hors cible",
+        "seniority_in_title:": "Seniorité dans le titre",
+        "seniority_blocked:": "Seniorité bloquée",
+        "blocked_contract_visible_text:": "Contrat bloqué",
+        "blocked_contract_type:": "Contrat bloqué",
+        "blocked_contract_structured:": "Contrat bloqué",
+        "blocked_work_time_structured:": "Temps de travail bloqué",
+        "deal_breaker_in_title:": "Deal-breaker dans le titre",
+        "deal_breaker_in_description:": "Deal-breaker en description",
+        "location_rejected_foreign:": "Localisation hors France",
+        "location_rejected_foreign_text:": "Localisation étrangère détectée",
+        "below_min_score:": "Score local trop bas",
+        "negative_desc_token:": "Signal négatif en description",
+    }
+    for prefix, label in prefix_labels.items():
+        if reason.startswith(prefix):
+            return f"{label}: {_clean_reason_value(reason.removeprefix(prefix))}"
+    return _clean_reason_value(reason) if reason else "Raison non renseignée"
+
+
+def _rejection_signal(job: Job) -> str:
+    reason = _terminal_rejection_reason(job)
+    if not reason:
+        return ""
+    if reason.startswith("description_hard_reject:"):
+        return reason.removeprefix("description_hard_reject:").replace("_", " ")
+    if ":" in reason:
+        return reason.split(":", 1)[1].replace("_", " ")[:80]
+    return reason.replace("_", " ")[:80]
+
+
 def _rejected_jobs_df(job_ids: list[int]) -> pd.DataFrame:
     if not job_ids:
         return pd.DataFrame()
@@ -266,6 +353,8 @@ def _rejected_jobs_df(job_ids: list[int]) -> pd.DataFrame:
                     "id": int(job.id),
                     "title": job.title,
                     "company": job.company,
+                    "motif": _short_rejection_label(job),
+                    "signal": _rejection_signal(job),
                     "reason": _reason_text(job),
                     "url": job.application_url or "",
                 }
@@ -304,6 +393,8 @@ def _filter_rejected_jobs_df(
                     "location": job.location or "",
                     "source": job.source,
                     "phase": "Filtre local" if stage == "local_filter" else "Doublon",
+                    "motif": _short_rejection_label(job),
+                    "signal": _rejection_signal(job),
                     "reason": _reason_text(job),
                     "preview": desc[:180] + ("..." if len(desc) > 180 else ""),
                     "url": job.application_url or "",
@@ -353,10 +444,24 @@ def _render_filter_rejected_picker(
                     "location": st.column_config.TextColumn("Lieu", disabled=True, width="small"),
                     "source": st.column_config.TextColumn("Source", disabled=True, width="small"),
                     "phase": st.column_config.TextColumn("Origine", disabled=True, width="small"),
-                    "reason": st.column_config.TextColumn("Raison", disabled=True, width="large"),
+                    "motif": st.column_config.TextColumn("Motif", disabled=True, width="medium"),
+                    "signal": st.column_config.TextColumn("Signal", disabled=True, width="small"),
+                    "reason": st.column_config.TextColumn("Détail brut", disabled=True, width="large"),
                     "preview": st.column_config.TextColumn("Aperçu", disabled=True, width="large"),
                     "url": st.column_config.LinkColumn("URL", disabled=True, width="small"),
                 },
+                column_order=[
+                    "include",
+                    "id",
+                    "phase",
+                    "company",
+                    "title",
+                    "motif",
+                    "signal",
+                    "source",
+                    "location",
+                    "url",
+                ],
                 hide_index=True,
                 width="stretch",
                 key=editor_key,
@@ -371,6 +476,18 @@ def _render_filter_rejected_picker(
                 selection_map[int(row["id"])] = bool(row["include"])
             st.session_state[state_key] = selection_map
             st.success("Sélection mise à jour.")
+        if not visible_df.empty:
+            detail_id = st.selectbox(
+                "Checker une offre rejetée",
+                options=visible_df["id"].astype(int).tolist(),
+                format_func=lambda jid: (
+                    f"[{jid}] "
+                    f"{visible_df.loc[visible_df['id'] == jid, 'company'].iloc[0]} — "
+                    f"{visible_df.loc[visible_df['id'] == jid, 'title'].iloc[0]}"
+                ),
+                key=f"{editor_key}_detail_select",
+            )
+            _render_job_detail(int(detail_id))
         selected_ids = [
             int(row["id"])
             for _, row in df.iterrows()
@@ -437,9 +554,12 @@ def _render_rejected_offer_controls() -> None:
                     "id": st.column_config.NumberColumn("id", disabled=True, width="small"),
                     "title": st.column_config.TextColumn("Titre", disabled=True, width="large"),
                     "company": st.column_config.TextColumn("Entreprise", disabled=True, width="medium"),
-                    "reason": st.column_config.TextColumn("Raison", disabled=True, width="large"),
+                    "motif": st.column_config.TextColumn("Motif", disabled=True, width="medium"),
+                    "signal": st.column_config.TextColumn("Signal", disabled=True, width="small"),
+                    "reason": st.column_config.TextColumn("Détail brut", disabled=True, width="large"),
                     "url": st.column_config.LinkColumn("URL", disabled=True, width="small"),
                 },
+                column_order=["restore", "id", "company", "title", "motif", "signal", "url"],
                 hide_index=True,
                 width="stretch",
                 key="wf_rejected_editor",
@@ -497,6 +617,14 @@ def _render_job_detail(job_id: int) -> None:
             "source": job.source,
             "url": job.application_url,
             "desc": desc,
+            "status": job.status,
+            "rejection_stage": (
+                str(job.score.components.get("rejection_stage") or "")
+                if job.score is not None and isinstance(job.score.components, dict)
+                else ""
+            ),
+            "rejection_reasons": _rejection_reasons(job),
+            "rejection_label": _short_rejection_label(job),
         }
 
     col1, col2 = st.columns([3, 1])
@@ -515,6 +643,21 @@ def _render_job_detail(job_id: int) -> None:
         bits.append(f"Remote : **{data['remote']}**")
     if bits:
         st.markdown(" · ".join(bits))
+
+    if data["rejection_reasons"] and data["rejection_stage"] in {
+        "local_filter",
+        "deduplication",
+    }:
+        st.markdown("**Décision filtre**")
+        stage_label = (
+            "Filtre local"
+            if data["rejection_stage"] == "local_filter"
+            else "Dédoublonnage"
+        )
+        st.caption(f"{stage_label} · {data['rejection_label']}")
+        with st.expander("Voir toutes les raisons techniques", expanded=False):
+            for reason in data["rejection_reasons"]:
+                st.markdown(f"- `{reason}`")
 
     st.markdown("**Description**")
     st.text_area(

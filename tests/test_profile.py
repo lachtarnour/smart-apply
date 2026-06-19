@@ -10,6 +10,9 @@ from pydantic import ValidationError
 
 from smartapply.profile import (
     ProfileLoadError,
+    SkillCategory,
+    SkillProfile,
+    Skills,
     clear_cache,
     get_profile,
     load_profile,
@@ -218,12 +221,25 @@ def test_allowed_skills_whitelist_includes_known_tech() -> None:
     assert "PyTorch" in allowed
     assert "Hugging Face" in allowed
     assert "Statistical modeling" in allowed
+    assert "Statistical analysis" in allowed
     assert "R" in allowed
+    assert "SciPy" in allowed
     assert "ARIMA/SARIMA" in allowed
+    assert "Imputation techniques" in allowed
     assert "FAISS" in allowed
     assert "LangChain" in allowed
-    assert "ONNX" in allowed
+    assert "Grafana" in allowed
+    assert "Model quantization (ONNX)" in allowed
     assert "Weights & Biases" in allowed
+    assert "LLMs" not in allowed
+    assert "Panel" not in allowed
+    assert "ONNX" not in allowed
+    assert "Model quantization" not in allowed
+    assert "Model monitoring" not in allowed
+    assert "Data visualization" not in allowed
+    assert "Bayesian inference" not in allowed
+    assert "Residual diagnostics" not in allowed
+    assert "Imputation" not in allowed
     # Matching keywords are detection cues, not displayable CV skills.
     assert "genai" not in allowed
     assert "Machine learning" not in allowed
@@ -234,6 +250,59 @@ def test_allowed_skills_whitelist_includes_known_tech() -> None:
     assert "MLOps" not in allowed
     # Skill not in any category should NOT be allowed
     assert "Kubernetes" not in allowed
+
+
+def test_allowed_skills_are_canonical_category_skills_only() -> None:
+    profile = load_profile()
+    category_skills = {
+        skill for cat in profile.skills.categories for skill in cat.skills
+    }
+    assert profile.skills.allowed_skills == category_skills
+    by_category = {cat.id: cat.skills for cat in profile.skills.categories}
+    assert "Time-series analysis" not in by_category["data_analysis"]
+    assert "Time-series analysis" in by_category["stats_signal"]
+    assert "Statistical analysis" in by_category["data_analysis"]
+
+
+def test_effective_skills_filters_non_canonical_profile_and_core_skills() -> None:
+    skills = Skills(
+        categories=[
+            SkillCategory(id="data_analysis", name="Data", skills=["Python"]),
+        ],
+        core={
+            "data_analysis": ["Python", "Ghost core skill"],
+            "unknown": ["Ghost category skill"],
+        },
+        profiles=[
+            SkillProfile(
+                id="sample",
+                name="Sample",
+                category_skills={
+                    "data_analysis": ["Ghost profile skill", "Python"],
+                    "unknown": ["Ghost category skill"],
+                },
+            )
+        ],
+    )
+
+    assert skills.allowed_skills == {"Python"}
+    assert skills.effective_category_skills("sample") == {"data_analysis": ["Python"]}
+    assert skills.effective_category_skills("does_not_exist") == {
+        "data_analysis": ["Python"]
+    }
+
+
+def test_certificates_include_verification_urls() -> None:
+    profile = load_profile()
+    certificates = {cert.id: cert for cert in profile.certificates}
+    assert str(certificates["cert_rag_dlai"].url) == (
+        "https://www.coursera.org/account/accomplishments/verify/CBBPHISKRFO6"
+    )
+    assert certificates["cert_foundation_langchain"].name == "Foundation LangChain"
+    assert certificates["cert_foundation_langchain"].issuer == "LangChain"
+    assert str(certificates["cert_foundation_langchain"].url) == (
+        "https://academy.langchain.com/certificates/xu424f3wgm"
+    )
 
 
 def test_profile_has_targeted_skill_profiles() -> None:
@@ -252,7 +321,10 @@ def test_profile_has_targeted_skill_profiles() -> None:
     data_analyst = profile.skills.profile_by_id("data_analyst")
     assert data_analyst is not None
     assert "SQL" in data_analyst.category_skills["data_analysis"]
-    assert "Data visualization" in data_analyst.category_skills["data_analysis"]
+    assert "Streamlit" in data_analyst.category_skills["data_analysis"]
+    assert "Panel" not in data_analyst.category_skills["data_analysis"]
+    assert "Time-series analysis" not in data_analyst.category_skills["data_analysis"]
+    assert "Time-series analysis" in data_analyst.category_skills["stats_signal"]
     medical_ai = profile.skills.profile_by_id("medical_ai")
     assert medical_ai is not None
     assert "Facial analysis" in medical_ai.category_skills["computer_vision"]
@@ -289,9 +361,11 @@ def test_effective_skills_surface_profile_specific_first() -> None:
     merged = profile.skills.effective_category_skills("llm")
     # Profile-specific skills should precede the broader core baseline.
     ml_ai = merged["ml_ai"]
-    assert ml_ai.index("LLMs") < ml_ai.index("PyTorch")
-    assert "RAG" in merged["rag_retrieval"]
-    assert "LangChain" in merged["rag_retrieval"]
+    assert ml_ai.index("Transformers") < ml_ai.index("PyTorch")
+    assert "LLMs" not in ml_ai
+    assert merged["generative_agentic_ai"][0] == "LangChain"
+    assert "RAG" in merged["generative_agentic_ai"]
+    assert "LangChain" in merged["generative_agentic_ai"]
 
 
 def test_matching_keywords_are_kept_separate_from_display_skills() -> None:

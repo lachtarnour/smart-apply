@@ -107,16 +107,13 @@ class Skills(BaseModel):
 
     @property
     def allowed_skills(self) -> set[str]:
-        """Flat whitelist of every skill the candidate is allowed to claim."""
-        category_skills = {s for c in self.categories for s in c.skills}
-        profile_skills = {
-            skill
-            for profile in self.profiles
-            for skills in profile.category_skills.values()
-            for skill in skills
-        }
-        core_skills = {skill for skills in self.core.values() for skill in skills}
-        return category_skills | profile_skills | core_skills
+        """Flat whitelist of canonical display skills.
+
+        ``categories`` is the only source of truth for CV-displayable skills.
+        Profiles, core baselines and role contracts may reorder or select from
+        this catalog, but they must not make a new display skill claim.
+        """
+        return {s for c in self.categories for s in c.skills}
 
     @property
     def profile_ids(self) -> set[str]:
@@ -132,13 +129,15 @@ class Skills(BaseModel):
 
         Order within each category: profile additions first (most relevant to
         the offer), then core skills. This way, when the renderer caps display
-        per category, the offer-specific additions are surfaced first while
-        the core baseline still fills the remaining slots.
+        per category, the offer-specific additions are surfaced first while the
+        core baseline still fills the remaining slots. Skills absent from the
+        canonical category catalog are ignored.
         """
         profile = self.profile_by_id(profile_id)
         profile_skills: dict[str, list[str]] = (
             dict(profile.category_skills) if profile is not None else {}
         )
+        canonical_by_category = {c.id: set(c.skills) for c in self.categories}
         category_ids: list[str] = []
         for cid in list(profile_skills.keys()) + list(self.core.keys()):
             if cid not in category_ids:
@@ -149,6 +148,8 @@ class Skills(BaseModel):
             ordered: list[str] = []
             seen: set[str] = set()
             for skill in profile_skills.get(cid, []) + self.core.get(cid, []):
+                if skill not in canonical_by_category.get(cid, set()):
+                    continue
                 if skill not in seen:
                     ordered.append(skill)
                     seen.add(skill)

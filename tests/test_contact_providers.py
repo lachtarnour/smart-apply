@@ -290,6 +290,79 @@ def test_anymailfinder_demotes_decision_maker_from_different_city(mocker) -> Non
     assert [c.email for c in contacts] == ["contact@acme.com"]
 
 
+def test_anymailfinder_explicit_decision_maker_uses_selected_categories(mocker) -> None:
+    response = MagicMock()
+    response.json.return_value = {
+        "decision_maker_category": "ceo",
+        "email_status": "valid",
+        "valid_email": "founder@acme.com",
+        "person_full_name": "Jane Founder",
+        "person_job_title": "Founder",
+    }
+    response.raise_for_status = MagicMock()
+    requests_post = mocker.patch(
+        "smartapply.email_agent.contact_providers.requests.post",
+        return_value=response,
+    )
+
+    contacts = AnymailFinderContactProvider(api_key="key", timeout=5).decision_maker_search(
+        domain="https://www.acme.com/careers",
+        categories=["ceo"],
+    )
+
+    assert requests_post.call_args_list[0].args[0].endswith("/find-email/decision-maker")
+    assert requests_post.call_args_list[0].kwargs["json"] == {
+        "domain": "acme.com",
+        "decision_maker_category": ["ceo"],
+    }
+    assert contacts[0].email == "founder@acme.com"
+    assert contacts[0].full_name == "Jane Founder"
+    assert contacts[0].kind == "anymailfinder_decision_maker"
+    assert contacts[0].decision_reason == "decision_maker:ceo"
+
+
+def test_anymailfinder_person_search_uses_person_endpoint(mocker) -> None:
+    response = MagicMock()
+    response.json.return_value = {
+        "email_status": "valid",
+        "valid_email": "jane.doe@acme.com",
+        "person_full_name": "Jane Doe",
+        "person_job_title": "Head of People",
+    }
+    response.raise_for_status = MagicMock()
+    requests_post = mocker.patch(
+        "smartapply.email_agent.contact_providers.requests.post",
+        return_value=response,
+    )
+
+    contacts = AnymailFinderContactProvider(api_key="key", timeout=5).person_search(
+        full_name="Jane Doe",
+        domain="acme.com",
+    )
+
+    assert requests_post.call_args_list[0].args[0].endswith("/find-email/person")
+    assert requests_post.call_args_list[0].kwargs["json"] == {
+        "full_name": "Jane Doe",
+        "domain": "acme.com",
+    }
+    assert contacts[0].email == "jane.doe@acme.com"
+    assert contacts[0].full_name == "Jane Doe"
+    assert contacts[0].job_title == "Head of People"
+    assert contacts[0].kind == "anymailfinder_person"
+    assert contacts[0].decision_reason == "person_lookup"
+
+
+def test_anymailfinder_person_search_requires_name_or_linkedin(mocker) -> None:
+    requests_post = mocker.patch("smartapply.email_agent.contact_providers.requests.post")
+
+    contacts = AnymailFinderContactProvider(api_key="key", timeout=5).person_search(
+        domain="acme.com",
+    )
+
+    assert contacts == []
+    requests_post.assert_not_called()
+
+
 def test_french_city_mismatch_only_when_both_cities_are_known() -> None:
     assert canonical_french_city("Paris, France") == "paris"
     assert canonical_french_city("Responsable RH Montpellier") == "montpellier"
@@ -916,8 +989,10 @@ def test_contact_service_uses_local_contact_when_no_provider_configured(
     db_path = tmp_path / "test.db"
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db_path}")
     from smartapply.config import get_settings
+
     get_settings.cache_clear()
     from smartapply.database.session import init_db, reset_engine_cache
+
     reset_engine_cache()
     init_db()
 
@@ -955,8 +1030,10 @@ def test_contact_service_does_not_reuse_external_job_board_contact(
     db_path = tmp_path / "test.db"
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db_path}")
     from smartapply.config import get_settings
+
     get_settings.cache_clear()
     from smartapply.database.session import init_db, reset_engine_cache
+
     reset_engine_cache()
     init_db()
 
@@ -994,8 +1071,10 @@ def test_contact_service_rejects_manual_contact_when_optional_verification_fails
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db_path}")
     monkeypatch.setenv("ANYMAILFINDER_VERIFY_MANUAL_CONTACTS", "true")
     from smartapply.config import get_settings
+
     get_settings.cache_clear()
     from smartapply.database.session import init_db, reset_engine_cache
+
     reset_engine_cache()
     init_db()
 
@@ -1030,8 +1109,10 @@ def test_contact_service_does_not_reuse_local_decision_maker_from_other_city(
     db_path = tmp_path / "test.db"
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db_path}")
     from smartapply.config import get_settings
+
     get_settings.cache_clear()
     from smartapply.database.session import init_db, reset_engine_cache
+
     reset_engine_cache()
     init_db()
 
