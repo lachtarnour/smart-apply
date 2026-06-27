@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pandas as pd
 import streamlit as st
+from sqlalchemy import or_
 
 from smartapply.app._helpers import pipeline_singleton, render_section_header, status_label
 from smartapply.app.workflow.state import _begin_run, _end_run, _stop_requested, settings
@@ -26,26 +27,31 @@ from smartapply.database import session_scope
 from smartapply.database.models import Application, JobStatus
 
 
-def _existing_generated_application_ids(limit: int = 50) -> list[int]:
+def _existing_generated_application_ids(limit: int = 300) -> list[int]:
     with session_scope() as s:
-        apps = s.query(Application).order_by(Application.updated_at.desc()).limit(limit).all()
-        return [
-            int(app.id)
-            for app in apps
-            if app.status not in {JobStatus.SENT, JobStatus.ARCHIVED}
-            and (
-                app.cv_pdf_path
-                or app.cv_docx_path
-                or app.email_body
-                or app.status in {
-                    JobStatus.EMAIL_GENERATED,
-                    JobStatus.READY_FOR_FORM_SUBMISSION,
-                    JobStatus.DRAFT_CREATED,
-                    JobStatus.CONTACT_MISSING,
-                }
+        apps = (
+            s.query(Application)
+            .filter(Application.status.not_in({JobStatus.SENT, JobStatus.ARCHIVED}))
+            .filter(
+                or_(
+                    Application.cv_pdf_path.is_not(None),
+                    Application.cv_docx_path.is_not(None),
+                    Application.email_body.is_not(None),
+                    Application.status.in_(
+                        {
+                            JobStatus.EMAIL_GENERATED,
+                            JobStatus.READY_FOR_FORM_SUBMISSION,
+                            JobStatus.DRAFT_CREATED,
+                            JobStatus.CONTACT_MISSING,
+                        }
+                    ),
+                )
             )
-        ]
-
+            .order_by(Application.updated_at.desc())
+            .limit(limit)
+            .all()
+        )
+        return [int(app.id) for app in apps]
 
 
 def step4_generate() -> None:

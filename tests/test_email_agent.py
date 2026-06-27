@@ -789,3 +789,49 @@ def test_existing_generated_application_ids_excludes_closed_applications(
     assert active_app_id in ids
     assert sent_app_id not in ids
     assert archived_app_id not in ids
+
+
+def test_existing_generated_application_ids_filters_closed_before_limit(
+    isolated_db: Path,
+) -> None:
+    assert isolated_db.exists()
+
+    from datetime import datetime, timezone
+
+    from smartapply.app.workflow.step4_generate import _existing_generated_application_ids
+    from smartapply.database import session_scope
+    from smartapply.database.models import JobStatus
+    from smartapply.database.repository import create_or_get_application, upsert_job
+
+    with session_scope() as s:
+        active_job = upsert_job(
+            s,
+            external_id="manual:older-active-generated",
+            title="Data Scientist",
+            company="Acme",
+            description="desc",
+            source="manual",
+        )
+        active_app = create_or_get_application(s, active_job.id)
+        active_app.status = JobStatus.READY_FOR_FORM_SUBMISSION
+        active_app.form_submission_url = "https://jobs.example.test/apply"
+        active_app.updated_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        active_app_id = active_app.id
+
+        for i in range(3):
+            sent_job = upsert_job(
+                s,
+                external_id=f"manual:newer-sent-generated-{i}",
+                title=f"ML Engineer {i}",
+                company="Beta",
+                description="desc",
+                source="manual",
+            )
+            sent_app = create_or_get_application(s, sent_job.id)
+            sent_app.status = JobStatus.SENT
+            sent_app.cv_pdf_path = f"/tmp/sent-{i}.pdf"
+            sent_app.updated_at = datetime(2026, 1, 2 + i, tzinfo=timezone.utc)
+
+    ids = _existing_generated_application_ids(limit=1)
+
+    assert ids == [active_app_id]
