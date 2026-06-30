@@ -8,7 +8,7 @@ from sqlalchemy import or_
 
 from smartapply.app._helpers import pipeline_singleton, render_section_header, status_label
 from smartapply.app.workflow.state import _begin_run, _end_run, _stop_requested, settings
-from smartapply.app.workflow.step1_fetch import _archive_jobs_for_workflow
+from smartapply.app.workflow.step1_archive import _archive_jobs_for_workflow
 from smartapply.app.workflow.step3_analyze import (
     _analyzed_jobs_df,
     _kept_ids_from_full_df,

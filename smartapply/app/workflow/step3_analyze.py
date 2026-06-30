@@ -9,11 +9,11 @@ import streamlit as st
 
 from smartapply.app._helpers import pipeline_singleton, render_section_header
 from smartapply.app.workflow.state import _begin_run, _end_run, settings
-from smartapply.app.workflow.step1_fetch import (
+from smartapply.app.workflow.step1_archive import (
     _archive_jobs_for_workflow,
-    _render_filter_rejected_picker,
     _restore_archived_jobs_for_manual_flow,
 )
+from smartapply.app.workflow.step1_rejections import _render_filter_rejected_picker
 from smartapply.app.workflow.step2_score import (
     _ranked_jobs_df,
     _selected_analysis_ids_from_df,
