@@ -1,0 +1,54 @@
+"""Ingestion report models."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any
+
+from smartapply.offers import RawJob
+
+
+@dataclass
+class IngestReport:
+    source: str
+    fetched: int
+    persisted: int
+    job_ids: list[int] = field(default_factory=list)
+    inserted: int = 0
+    updated_pending: int = 0
+    skipped_processed: int = 0
+    skipped_existing_during_collect: int = 0
+    skipped_existing_during_persist: int = 0
+    # Raw offers whose external_id was already in the DB and were dropped
+    # during the round-robin *before* counting against ``max_results``.
+    # This is the metric that surfaces "the scraper paginated past known
+    # offers to look for genuinely new ones".
+    skipped_known_during_collect: int = 0
+    # True when the collector stopped because it hit the raw-fetch safety
+    # cap (``max_results`` × scan budget) instead of either reaching
+    # ``max_results`` new offers or exhausting the source. Useful in
+    # the UI to suggest raising the slider.
+    hit_raw_seen_cap: bool = False
+    search_audit: list[dict[str, Any]] = field(default_factory=list)
+
+
+# How many raw offers a single round-robin run is allowed to *examine*
+# before giving up. The cap is multiplicative on ``max_results`` so a
+# small request stays cheap while a 300-item request gets the headroom
+# to skip a few thousand already-known offers if needed. The bound
+# guarantees the loop terminates even if a misbehaving scraper yields
+# endless duplicates.
+_RAW_SEEN_MULTIPLIER = 10
+_RAW_SEEN_MIN = 50
+
+
+@dataclass(frozen=True)
+class _CollectResult:
+    """Outcome of one ``_collect_round_robin`` invocation."""
+
+    raw_jobs: list[RawJob]
+    skipped_known: int
+    skipped_existing: int
+    hit_raw_seen_cap: bool
+
+

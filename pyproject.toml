@@ -52,13 +52,13 @@ smartapply = "smartapply.cli:cli"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["smartapply*", "spontaneous_apply*"]
+include = ["smartapply*"]
 
 [tool.setuptools.package-data]
-smartapply = ["cv/templates/*.j2"]
+smartapply = ["cv/templates/*.j2", "llm/prompts/templates/*/*.j2"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests", "spontaneous_apply/tests"]
+testpaths = ["tests"]
 addopts = "-ra -q --strict-markers"
 markers = [
     "integration: integration tests that may use network or local files",

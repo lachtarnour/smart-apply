@@ -11,9 +11,9 @@ from urllib.parse import urljoin
 import requests
 from bs4 import BeautifulSoup
 
-from smartapply.scrapers.base import RawJob
-from smartapply.scrapers.welcometothejungle import (
-    _IGNORED_SECTION_TEXTS,
+from smartapply.offers import RawJob
+from smartapply.scrapers.wttj.contracts import (
+    IGNORED_SECTION_TEXTS,
     WTTJ_API_BASE_URL,
     WTTJ_BASE_URL,
     WTTJ_HEADERS,
@@ -309,7 +309,7 @@ def _company_summary_from_job_page(soup: BeautifulSoup) -> str | None:
     paragraphs = [
         text
         for text in _leaf_texts(block, tags=("p",))
-        if text.lower() not in _IGNORED_SECTION_TEXTS
+        if text.lower() not in IGNORED_SECTION_TEXTS
     ]
     return _clean_text("\n".join(paragraphs)) or None
 
@@ -356,7 +356,7 @@ def _section_items_by_heading(soup: BeautifulSoup, heading: str) -> list[str]:
         if text == heading:
             continue
         normalized = text.lower()
-        if normalized in _IGNORED_SECTION_TEXTS or re.fullmatch(r"\d+", text):
+        if normalized in IGNORED_SECTION_TEXTS or re.fullmatch(r"\d+", text):
             continue
         if len(text) > 120:
             continue

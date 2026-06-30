@@ -18,7 +18,6 @@ APPRENTICESHIP_CONTRACT_MARKERS = {
 }
 FREELANCE_CONTRACT_MARKERS = {"freelance", "contractor"}
 INDEPENDENT_CONTRACT_MARKERS = {"independant", "independent"}
-CDD_CONTRACT_MARKERS = {"cdd", "fixed term", "fixed-term", "interim"}
 
 _APPRENTICESHIP_SAFE_PHRASES = (
     "apprentissage statistique",

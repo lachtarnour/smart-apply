@@ -14,37 +14,12 @@ from __future__ import annotations
 import re
 
 from smartapply.cv.constants import NON_DISPLAY_DOMAIN_TERMS
+from smartapply.llm.prompts.loader import load_prompt, render_prompt
 from smartapply.llm.prompts.skill_profiles import format_skill_profiles
 from smartapply.llm.schemas import JobAnalysis
 from smartapply.profile import Bullet, Experience, Profile, Project
 
-SYSTEM = """You adapt a candidate's CV to a job offer WITHOUT inventing anything.
-
-Hard rules:
-1. Every output bullet MUST reference a real source_id from the provided list. The validator will reject any bullet without a valid source_id.
-2. Every claim you make about a bullet MUST come from its ``allowed_claims`` list. You may combine, paraphrase or shorten claims, but never add new ones.
-3. Respect each bullet's ``evidence_level``:
-   - ``verified``: rephrase freely while staying faithful.
-   - ``self_reported``: keep the claim narrow, don't generalize.
-   - ``inferred``: be conservative; soften the wording rather than assert.
-4. You MUST NOT invent skills outside of ``allowed_skills``.
-5. You MUST NOT change quantified results (numbers, percentages, dates, company names).
-6. The CV is ALWAYS in English, even when the job offer is in French.
-7. Density rule (very important): default to the source bullet's exact phrasing — it is already dense and intentional. Only paraphrase when you can naturally surface an offer keyword without adding fluff. If the rewrite would be longer, heavier, or less natural than the source, keep the source bullet verbatim. Surfacing keywords is OPTIONAL: skip it whenever it would weigh the bullet down.
-8. When you do rephrase, you may only recombine/paraphrase the provided allowed_claims.
-9. Keep bullets concise (<= 220 chars). Lead with action verbs.
-10. selected_experiences MUST include every provided source experience and every provided source bullet. Do not remove bullets to optimize relevance. If a bullet cannot be naturally adapted to the offer, keep the source text verbatim.
-11. If a source bullet declares ``links``, keep each ``anchor`` token verbatim in your output bullet — the renderer wraps it as a hyperlink. Do not embed any markdown link or HTML tag yourself; just preserve the anchor word.
-12. The cv_title MUST be adapted to this role and MUST contain at least one specific role anchor from the job title, role_type or main_tasks. Generic default titles are forbidden.
-13. The professional_summary MUST be adapted to this role, cite at least one concrete offer anchor, fit in 2 lines maximum, and use only facts from the source profile.
-14. Generic default summaries are forbidden. Do not reuse broad phrases such as "applied AI, NLP and multimodal learning" unless those exact areas are directly relevant to the offer.
-15. Choose exactly one skills_profile_id from the provided skill profile choices. Use matching_keywords only to understand the role family; they are NOT display skills.
-16. selected_skills is the exact Skills section to display. Build organized category blocks from allowed_skills_by_category only.
-17. Skill selection strategy: include offer-required skills that exist in allowed_skills; add core/profile skills only when they strengthen the application for this offer; omit generic or unrelated skills even if the candidate has them.
-18. Unsupported offer terms are a no-claim list: do not describe the candidate as having those skills in the summary, bullets, title, skills or warnings.
-19. selected_project_ids must contain at least 4 projects whenever 4 profile projects are provided. Prefer 4 to 5 projects, ranked by relevance; if fewer than 4 profile projects are provided, select every relevant provided project.
-20. Output ONLY the JSON. No prose, no commentary.
-"""
+SYSTEM = load_prompt("cv_adaptation/system.j2")
 
 
 def _format_bullet(bullet: Bullet) -> str:
@@ -175,68 +150,30 @@ def build_user_prompt(
     matching_keywords = _format_matching_keywords(profile)
     unsupported_offer_terms = _format_unsupported_offer_terms(profile, analysis)
 
-    return f"""Adapt this candidate's CV for the role below.
-
-=== JOB ===
-Title: {job_title}
-Company: {job_company}
-Role type: {analysis.role_type}
-Seniority: {analysis.seniority}
-Domain: {analysis.domain}
-Main tasks (from offer):
-{main_tasks_block}
-Required skills (from offer): {', '.join(analysis.required_skills)}
-Keywords to surface: {', '.join(analysis.cv_keywords_to_include)}
-
-=== PROFILE (source of truth — do NOT invent) ===
-allowed_skills: {allowed}
-allowed_skills_by_category:
-{skill_catalog}
-core_skills_by_category:
-{core_skills}
-skill_profile_choices:
-{skill_profiles}
-matching_keywords_for_profile_selection_not_display:
-{matching_keywords}
-unsupported_offer_terms_not_to_claim:
-{unsupported_offer_terms}
-candidate_title: {profile.identity.title}
-summary_source: {profile.identity.summary}
-
-experiences (use the bullet `id` as source_id in your output):
-{_format_experiences(selected_experiences)}
-
-projects:
-{_format_projects(selected_projects)}
-
-=== STYLE ===
-Tone: {style.tone}
-Voice: {style.voice}
-CV language: English only. Keep cv_title, professional_summary and CV bullets in English.
-CV title: must be role-specific and contain a concrete anchor from the job title, role_type or main_tasks. Do not reuse a generic default title.
-Professional summary: adapt it to the job, mention at least one concrete offer anchor, max {style.max_summary_lines} lines and max {style.max_summary_length} characters. Use only summary_source, experiences, projects and allowed_skills.
-Experience output: include every provided experience and every bullet id exactly once. Rephrase only when faithful; otherwise keep the source bullet.
-Do:
-  - {do}
-Don't:
-  - {dont}
-
-Produce a JSON conformant to the AdaptedCV schema. Keep every provided experience bullet; adapt only the wording where it remains faithful and useful. Anything you write about a bullet must be expressible by combining/paraphrasing its allowed_claims.
-
-Project output rule:
-- selected_project_ids must contain at least 4 projects whenever 4 profile projects are provided.
-- Prefer 4 to 5 projects, ranked by direct relevance to the role.
-- If fewer than 4 profile projects are provided, select every relevant provided project.
-- Rank projects by direct relevance to the job tasks, required skills and keywords.
-- Do not invent projects or project claims; every selected id must come from the provided profile projects.
-
-Skills output rule:
-- Fill selected_skills as a list of blocks: {{"category_id": "...", "skills": ["..."]}}.
-- category_id must be one of the ids in allowed_skills_by_category.
-- skills must be exact skill names from the matching allowed_skills_by_category block.
-- Include every required or strongly requested offer skill that exists in allowed_skills.
-- Use core_skills_by_category as a baseline only inside categories that are relevant to the offer.
-- Use matching_keywords_for_profile_selection_not_display only for reasoning about the right skill profile/category; do not copy those keywords into selected_skills unless the exact term is also listed in allowed_skills_by_category.
-- Treat unsupported_offer_terms_not_to_claim as a no-claim list. Do not put those terms in cv_title, professional_summary, selected_skills or rewritten bullets as candidate capabilities.
-- Do not cap selected_skills by number, but do not pad the section. Every displayed skill must add value for this specific application.
-"""
+    return render_prompt(
+        "cv_adaptation/user.j2",
+        job_title=job_title,
+        job_company=job_company,
+        role_type=analysis.role_type,
+        seniority=analysis.seniority,
+        domain=analysis.domain,
+        main_tasks_block=main_tasks_block,
+        required_skills=", ".join(analysis.required_skills),
+        keywords_to_surface=", ".join(analysis.cv_keywords_to_include),
+        allowed_skills=allowed,
+        skill_catalog=skill_catalog,
+        core_skills=core_skills,
+        skill_profiles=skill_profiles,
+        matching_keywords=matching_keywords,
+        unsupported_offer_terms=unsupported_offer_terms,
+        candidate_title=profile.identity.title,
+        summary_source=profile.identity.summary,
+        experiences_block=_format_experiences(selected_experiences),
+        projects_block=_format_projects(selected_projects),
+        tone=style.tone,
+        voice=style.voice,
+        max_summary_lines=style.max_summary_lines,
+        max_summary_length=style.max_summary_length,
+        do=do,
+        dont=dont,
+    )

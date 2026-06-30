@@ -6,6 +6,7 @@ import json
 from dataclasses import asdict
 from typing import Any
 
+from smartapply.contacts import ContactCandidate
 from smartapply.database import session_scope
 from smartapply.database.models import Application, Job
 from smartapply.database.repository import (
@@ -14,7 +15,7 @@ from smartapply.database.repository import (
     update_status,
     upsert_document,
 )
-from smartapply.email_agent import ContactCandidate, export_eml
+from smartapply.email_agent import export_eml
 from smartapply.llm import EmailDraft, JobAnalysis, MotivationLetter
 from smartapply.pipeline.output_paths import application_output_dir
 from smartapply.pipeline.reports import ApplyReport

@@ -1,12 +1,6 @@
 """Scrapers — collect jobs from multiple sources via a common interface."""
 
-from smartapply.scrapers.base import (
-    RawJob,
-    Scraper,
-    ScraperConfigError,
-    ScraperError,
-    make_external_id,
-)
+from smartapply.scrapers.base import Scraper, ScraperConfigError, ScraperError
 from smartapply.scrapers.francetravail import FranceTravailScraper
 from smartapply.scrapers.manual import ManualScraper
 from smartapply.scrapers.registry import (
@@ -23,7 +17,6 @@ from smartapply.scrapers.welcometothejungle import WelcomeToTheJungleScraper
 __all__ = [
     "FranceTravailScraper",
     "ManualScraper",
-    "RawJob",
     "Scraper",
     "ScraperConfigError",
     "ScraperError",
@@ -33,5 +26,4 @@ __all__ = [
     "WelcomeToTheJungleScraper",
     "available_scrapers",
     "get_scraper",
-    "make_external_id",
 ]

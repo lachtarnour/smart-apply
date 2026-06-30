@@ -98,10 +98,6 @@ class Settings(BaseSettings):
     contact_cache_ttl_days: int = Field(default=45, ge=1)
     contact_cache_negative_ttl_days: int = Field(default=14, ge=1)
 
-    @property
-    def enabled_sources(self) -> list[str]:
-        return [s.strip().lower() for s in self.job_sources.split(",") if s.strip()]
-
     # Gmail
     gmail_credentials_path: Path = Field(default=ROOT_DIR / "secrets" / "credentials.json")
     gmail_token_path: Path = Field(default=ROOT_DIR / "secrets" / "token.json")
@@ -109,7 +105,6 @@ class Settings(BaseSettings):
 
     # Pipeline tuning
     top_k_ranked: int = Field(default=25, ge=1)
-    top_k_cv_blocks: int = Field(default=8, ge=1)
     dedup_title_threshold: int = Field(default=85, ge=0, le=100)
     dedup_desc_threshold: int = Field(default=70, ge=0, le=100)
     autopilot_target_drafts: int = Field(default=25, ge=1)

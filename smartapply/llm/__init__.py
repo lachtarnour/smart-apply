@@ -1,13 +1,13 @@
 """LLM provider abstraction + schemas + prompts."""
 
 from smartapply.llm.cache import make_cache_key
+from smartapply.llm.factory import get_llm_provider
 from smartapply.llm.mock_provider import MockLLMProvider
 from smartapply.llm.openai_provider import OpenAIProvider
 from smartapply.llm.provider import (
     LLMError,
     LLMProvider,
     LLMValidationError,
-    get_llm_provider,
 )
 from smartapply.llm.schemas import (
     AdaptedBullet,

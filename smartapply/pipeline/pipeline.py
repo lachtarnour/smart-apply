@@ -13,23 +13,21 @@ change.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from smartapply.config import get_settings
+from smartapply.contacts import ContactProviderChain, ContactService, default_contact_chain
 from smartapply.cv import CvAdapter, CvValidator
 from smartapply.database import session_scope
 from smartapply.database.repository import top_jobs_by_score
 from smartapply.dedup import Deduplicator
-from smartapply.email_agent import (
-    ContactProviderChain,
-    default_contact_chain,
-)
 from smartapply.filtering import JobFilter, ruleset_from_preferences
 from smartapply.llm import get_llm_provider
 from smartapply.logging_setup import get_logger
+from smartapply.offers import ManualOfferInput
 from smartapply.pipeline.application_renderer import ApplicationDocumentRenderer
 from smartapply.pipeline.applier import Applier
-from smartapply.pipeline.contact_service import ContactService
 from smartapply.pipeline.ingestor import Ingestor, IngestReport
 from smartapply.pipeline.processor import Processor
 from smartapply.pipeline.reports import (
@@ -46,6 +44,7 @@ from smartapply.utils.contracts import (
 )
 
 logger = get_logger(__name__)
+_EMAIL_IN_TEXT_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 
 
 def freshness_kwargs(
@@ -159,6 +158,44 @@ class Pipeline:
     def ingest_url(self, url: str) -> IngestReport:
         return self._ingestor.from_url(url)
 
+    def ingest_manual_offer(self, offer: ManualOfferInput) -> IngestReport:
+        return self._ingestor.from_manual_offer(offer)
+
+    def run_manual_offer(
+        self,
+        offer: ManualOfferInput,
+        *,
+        contact_email: str | None = None,
+        create_gmail_draft: bool = False,
+    ) -> dict[str, Any]:
+        """Ingest one structured manual offer, analyze it, then generate the application."""
+        ingest = self.ingest_manual_offer(offer)
+        job_ids = [int(job_id) for job_id in ingest.job_ids]
+        if not job_ids:
+            return {
+                "ingest": ingest,
+                "process": None,
+                "applications": [],
+            }
+
+        process = self.analyze_jobs(job_ids)
+        resolved_contact_email = contact_email or _extract_email(offer.recruteur)
+        applications: list[ApplyReport] = []
+        for job_id in job_ids:
+            applications.append(
+                self.apply_to(
+                    job_id,
+                    contact_email=resolved_contact_email,
+                    contact_form_url=offer.url_candidature,
+                    create_gmail_draft=create_gmail_draft,
+                )
+            )
+        return {
+            "ingest": ingest,
+            "process": process,
+            "applications": applications,
+        }
+
     def ingest_text(
         self,
         text: str,
@@ -167,6 +204,10 @@ class Pipeline:
         company: str,
         location: str | None = None,
         application_url: str | None = None,
+        company_description: str | None = None,
+        company_url: str | None = None,
+        recruiter: str | None = None,
+        structured: bool = False,
     ) -> IngestReport:
         return self._ingestor.from_text(
             text,
@@ -174,6 +215,10 @@ class Pipeline:
             company=company,
             location=location,
             application_url=application_url,
+            company_description=company_description,
+            company_url=company_url,
+            recruiter=recruiter,
+            structured=structured,
         )
 
     # =================================================================
@@ -292,3 +337,8 @@ class Pipeline:
             "process": process.__dict__,
             "applications": [a.__dict__ for a in applies],
         }
+
+
+def _extract_email(value: str | None) -> str | None:
+    match = _EMAIL_IN_TEXT_RE.search(value or "")
+    return match.group(0).lower() if match else None

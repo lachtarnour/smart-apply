@@ -1,0 +1,15 @@
+Analyze the following job offer and extract structured fields.
+
+=== CANDIDATE ===
+{{ profile_block }}
+
+=== SCRAPER METADATA (CONTEXT ONLY) ===
+These fields come from the scraper and may be incomplete, normalized, or inferred by the job source. Use them for context, but do not treat Structured location as evidence for extracted_location unless the offer body confirms it.
+Title: {{ job_title }}
+
+Company: {{ job_company }}
+Structured location (metadata only; do not copy into extracted_location): {{ job_location }}
+Application URL: {{ application_url }}
+
+{{ source_metadata_block }}=== OFFER BODY (PRIMARY EVIDENCE) ===
+{{ job_description }}

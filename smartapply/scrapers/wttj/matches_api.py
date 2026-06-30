@@ -13,18 +13,18 @@ import requests
 from bs4 import BeautifulSoup
 
 from smartapply.logging_setup import get_logger
-from smartapply.scrapers.base import RawJob
-from smartapply.scrapers.welcometothejungle import (
+from smartapply.offers import RawJob
+from smartapply.scrapers.wttj.company_hydration import (
+    _attach_company_profile,
+    _merge_company_profile_from_matches_api,
+)
+from smartapply.scrapers.wttj.contracts import (
     WTTJ_BASE_URL,
     WTTJ_HEADERS,
     WTTJ_MATCHES_API_URL,
     WTTJ_MATCHES_URL,
     WTTJJobLink,
     WTTJScraperError,
-)
-from smartapply.scrapers.wttj.company_hydration import (
-    _attach_company_profile,
-    _merge_company_profile_from_matches_api,
 )
 from smartapply.scrapers.wttj.normalizers import (
     _as_text,

@@ -12,8 +12,8 @@ from urllib.parse import urlparse, urlunparse
 
 from bs4 import BeautifulSoup
 
-from smartapply.scrapers.welcometothejungle import (
-    _JOB_PATH_RE,
+from smartapply.scrapers.wttj.contracts import (
+    JOB_PATH_RE,
     WTTJ_BASE_URL,
 )
 from smartapply.utils.contracts import normalize_source_contract_type
@@ -218,7 +218,7 @@ def _canonical_job_url(url: str | None) -> str | None:
     parsed = urlparse(url)
     if parsed.netloc and not parsed.netloc.endswith("welcometothejungle.com"):
         return None
-    if not _JOB_PATH_RE.search(parsed.path):
+    if not JOB_PATH_RE.search(parsed.path):
         return None
     return urlunparse(("https", "www.welcometothejungle.com", parsed.path, "", "", ""))
 
@@ -319,20 +319,6 @@ def _domain_from_url(url: str | None) -> str | None:
         domain = domain[4:]
     return domain or None
 
-def _looks_logged_out(text: str, url: str) -> bool:
-    value = f"{url}\n{text}".lower()
-    return any(
-        marker in value
-        for marker in (
-            "login",
-            "sign in",
-            "se connecter",
-            "connexion",
-            "inscription",
-            "/login",
-            "/signin",
-        )
-    )
 
 def _parse_datetime(value: str | None) -> datetime | None:
     if not value:

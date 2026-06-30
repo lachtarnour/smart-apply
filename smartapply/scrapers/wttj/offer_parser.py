@@ -11,15 +11,7 @@ from urllib.parse import urlparse
 import requests
 from bs4 import BeautifulSoup
 
-from smartapply.scrapers.base import RawJob, make_external_id
-from smartapply.scrapers.welcometothejungle import (
-    _CONTRACT_LABELS,
-    WTTJ_BASE_URL,
-    WTTJ_HEADERS,
-    WTTJ_ORGANIZATIONS_API_URL,
-    WTTJ_SOURCE,
-    WTTJScraperError,
-)
+from smartapply.offers import RawJob, make_external_id
 from smartapply.scrapers.wttj.company_hydration import (
     _company_profile_from_detail_api,
     _company_profile_url,
@@ -30,6 +22,14 @@ from smartapply.scrapers.wttj.company_hydration import (
     _section_items_by_heading,
     _social_links,
     _workplace,
+)
+from smartapply.scrapers.wttj.contracts import (
+    CONTRACT_LABELS,
+    WTTJ_BASE_URL,
+    WTTJ_HEADERS,
+    WTTJ_ORGANIZATIONS_API_URL,
+    WTTJ_SOURCE,
+    WTTJScraperError,
 )
 from smartapply.scrapers.wttj.normalizers import (
     _api_company_summary,
@@ -332,7 +332,7 @@ def _contract_type(
     job_posting: dict[str, Any],
 ) -> str | None:
     combined = " ".join([metadata, *faq.values()])
-    for label in _CONTRACT_LABELS:
+    for label in CONTRACT_LABELS:
         if re.search(rf"\b{re.escape(label)}\b", combined, flags=re.IGNORECASE):
             return label
     employment_type = _as_text(job_posting.get("employmentType"))

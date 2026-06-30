@@ -1,0 +1,64 @@
+Adapt this candidate's CV for the role below.
+
+=== JOB ===
+Title: {{ job_title }}
+Company: {{ job_company }}
+Role type: {{ role_type }}
+Seniority: {{ seniority }}
+Domain: {{ domain }}
+Main tasks (from offer):
+{{ main_tasks_block }}
+Required skills (from offer): {{ required_skills }}
+Keywords to surface: {{ keywords_to_surface }}
+
+=== PROFILE (source of truth — do NOT invent) ===
+allowed_skills: {{ allowed_skills }}
+allowed_skills_by_category:
+{{ skill_catalog }}
+core_skills_by_category:
+{{ core_skills }}
+skill_profile_choices:
+{{ skill_profiles }}
+matching_keywords_for_profile_selection_not_display:
+{{ matching_keywords }}
+unsupported_offer_terms_not_to_claim:
+{{ unsupported_offer_terms }}
+candidate_title: {{ candidate_title }}
+summary_source: {{ summary_source }}
+
+experiences (use the bullet `id` as source_id in your output):
+{{ experiences_block }}
+
+projects:
+{{ projects_block }}
+
+=== STYLE ===
+Tone: {{ tone }}
+Voice: {{ voice }}
+CV language: English only. Keep cv_title, professional_summary and CV bullets in English.
+CV title: adapt the professional positioning to the offer, but keep it human and role/domain-oriented. Use domains or specializations when useful, not tools or stack keywords. Skills and tools belong in the summary, experience bullets or Skills section, not in the title.
+Professional summary: adapt it to the job, mention at least one concrete offer anchor, max {{ max_summary_lines }} lines and max {{ max_summary_length }} characters. Use only summary_source, experiences, projects and allowed_skills. Keep the opening role consistent with cv_title; for example, do not write "Data Scientist with..." under an "AI Engineer" title.
+Experience output: include every provided experience and every bullet id exactly once. Rephrase only when faithful; otherwise keep the source bullet.
+Do:
+  - {{ do }}
+Don't:
+  - {{ dont }}
+
+Produce a JSON conformant to the AdaptedCV schema. Keep every provided experience bullet; adapt only the wording where it remains faithful and useful. Anything you write about a bullet must be expressible by combining/paraphrasing its allowed_claims.
+
+Project output rule:
+- selected_project_ids must contain at least 4 projects whenever 4 profile projects are provided.
+- Prefer 4 to 5 projects, ranked by direct relevance to the role.
+- If fewer than 4 profile projects are provided, select every relevant provided project.
+- Rank projects by direct relevance to the job tasks, required skills and keywords.
+- Do not invent projects or project claims; every selected id must come from the provided profile projects.
+
+Skills output rule:
+- Fill selected_skills as a list of blocks: {"category_id": "...", "skills": ["..."]}.
+- category_id must be one of the ids in allowed_skills_by_category.
+- skills must be exact skill names from the matching allowed_skills_by_category block.
+- Include every required or strongly requested offer skill that exists in allowed_skills.
+- Use core_skills_by_category as a baseline only inside categories that are relevant to the offer.
+- Use matching_keywords_for_profile_selection_not_display only for reasoning about the right skill profile/category; do not copy those keywords into selected_skills unless the exact term is also listed in allowed_skills_by_category.
+- Treat unsupported_offer_terms_not_to_claim as a no-claim list. Do not put those terms in cv_title, professional_summary, selected_skills or rewritten bullets as candidate capabilities.
+- Do not cap selected_skills by number, but do not pad the section. Every displayed skill must add value for this specific application.

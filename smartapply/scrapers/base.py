@@ -2,48 +2,11 @@
 
 from __future__ import annotations
 
-import hashlib
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
-from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
-
-
-class RawJob(BaseModel):
-    """Canonical representation of a freshly scraped job.
-
-    Maps 1-1 to the ``Job`` SQLAlchemy model, intentionally without ids so it
-    can be safely (de-)serialized.
-    """
-
-    model_config = ConfigDict(extra="ignore")
-
-    external_id: str
-    title: str
-    company: str
-    location: str | None = None
-    contract_type: str | None = None
-    remote_policy: str | None = None
-    description: str
-    experience: dict[str, Any] | None = None
-    application_url: str | None = None
-    apply_options: list[dict[str, Any]] | None = None
-    published_date: datetime | None = None
-    source: str
-    source_data: dict[str, Any] | None = None
-
-
-def make_external_id(source: str, *parts: str) -> str:
-    """Build a stable external id namespaced by the source.
-
-    The hash makes it independent of accidental whitespace / casing changes
-    while staying short and deterministic.
-    """
-    raw = "|".join(p.strip().lower() for p in parts)
-    digest = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
-    return f"{source}:{digest}"
+from smartapply.offers import RawJob
 
 
 class Scraper(ABC):
@@ -73,3 +36,10 @@ class ScraperError(RuntimeError):
 
 class ScraperConfigError(ScraperError):
     """Raised when a scraper is misconfigured (missing API key, etc.)."""
+
+
+__all__ = [
+    "Scraper",
+    "ScraperConfigError",
+    "ScraperError",
+]

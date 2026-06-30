@@ -7,8 +7,6 @@ from typing import TypeVar
 
 from pydantic import BaseModel
 
-from smartapply.config import get_settings
-
 T = TypeVar("T", bound=BaseModel)
 
 
@@ -50,18 +48,3 @@ class LLMError(RuntimeError):
 
 class LLMValidationError(LLMError):
     """Raised when the model output does not match the schema."""
-
-
-# -------------------- Factory --------------------
-
-
-def get_llm_provider(name: str | None = None) -> LLMProvider:
-    from smartapply.llm.mock_provider import MockLLMProvider
-    from smartapply.llm.openai_provider import OpenAIProvider
-
-    chosen = (name or get_settings().llm_provider).lower()
-    if chosen == "openai":
-        return OpenAIProvider()
-    if chosen == "mock":
-        return MockLLMProvider()
-    raise ValueError(f"Unknown LLM provider {chosen!r}")

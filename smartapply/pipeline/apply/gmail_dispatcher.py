@@ -21,10 +21,8 @@ class GmailDispatcherMixin:
         recipient: str,
         cc_recipient: str | None = None,
     ) -> None:
-        from smartapply.pipeline import applier as applier_module
-
         try:
-            report.gmail_draft_id = applier_module.create_draft(
+            report.gmail_draft_id = self.create_draft(
                 subject=email_draft.subject,
                 body=email_draft.body,
                 recipient=recipient,

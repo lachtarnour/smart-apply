@@ -6,14 +6,14 @@ The public surface is intentionally identical to the previous monolithic
     from smartapply.pipeline import Pipeline
 
 Internally, ``Pipeline`` is a thin facade composing focused phase modules
-(``ingestor``, ``processor``, ``applier``, ``contact_service``,
+(``ingestor``, ``processor``, ``applier``, ``contacts``,
 ``application_renderer``, ``language``).
 """
 
+from smartapply.contacts.service import ContactService
 from smartapply.pipeline.application_renderer import ApplicationDocumentRenderer
 from smartapply.pipeline.applier import Applier
 from smartapply.pipeline.apply_specs import ApplyMode
-from smartapply.pipeline.contact_service import ContactService
 from smartapply.pipeline.ingestor import Ingestor, IngestReport
 from smartapply.pipeline.language import detect_offer_language
 from smartapply.pipeline.pipeline import Pipeline

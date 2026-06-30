@@ -16,7 +16,8 @@ from urllib.parse import urlparse
 import requests
 from bs4 import BeautifulSoup
 
-from smartapply.scrapers.base import RawJob, make_external_id
+from smartapply.offers import RawJob, make_external_id
+from smartapply.offers.sources.manual import ManualOfferAdapter, ManualOfferInput
 
 _DEFAULT_HEADERS = {
     "User-Agent": (
@@ -33,8 +34,12 @@ class ManualScraper:
 
     def __init__(self, timeout: int = 20):
         self.timeout = timeout
+        self.adapter = ManualOfferAdapter()
 
     # -------------------- from text --------------------
+
+    def from_structured(self, offer: ManualOfferInput) -> RawJob:
+        return self.adapter.to_canonical(offer)
 
     def from_text(
         self,
@@ -44,19 +49,21 @@ class ManualScraper:
         company: str,
         location: str | None = None,
         application_url: str | None = None,
+        company_description: str | None = None,
+        company_url: str | None = None,
+        recruiter: str | None = None,
+        structured: bool = False,
     ) -> RawJob:
-        clean = text.strip()
-        if not clean:
-            raise ValueError("Empty job text")
-        return RawJob(
-            external_id=make_external_id("manual", company, title, clean[:200]),
-            title=title.strip(),
-            company=company.strip(),
+        return self.adapter.from_text(
+            text,
+            title=title,
+            company=company,
             location=location,
-            description=clean,
             application_url=application_url,
-            source=self.name,
-            source_data={"input": "text"},
+            company_description=company_description,
+            company_url=company_url,
+            recruiter=recruiter,
+            structured=structured,
         )
 
     # -------------------- from url --------------------
