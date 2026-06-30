@@ -1,0 +1,47 @@
+{
+  "categories": [
+    {
+      "id": "programming",
+      "name": "Programming",
+      "skills": [
+        "Python",
+        "SQL"
+      ]
+    },
+    {
+      "id": "ml_ai",
+      "name": "Machine Learning",
+      "skills": [
+        "Machine Learning",
+        "NLP"
+      ]
+    }
+  ],
+  "core": {
+    "programming": [
+      "Python",
+      "SQL"
+    ]
+  },
+  "matching_keywords": {
+    "ml_ai": [
+      "machine learning",
+      "nlp"
+    ]
+  },
+  "profiles": [
+    {
+      "id": "ml_engineer",
+      "name": "ML Engineer",
+      "description": "Example skill profile for ML-oriented roles.",
+      "category_skills": {
+        "programming": [
+          "Python"
+        ],
+        "ml_ai": [
+          "Machine Learning"
+        ]
+      }
+    }
+  ]
+}

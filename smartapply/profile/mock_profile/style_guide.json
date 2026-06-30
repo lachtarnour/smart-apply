@@ -1,0 +1,15 @@
+{
+  "tone": "professional",
+  "voice": "clear, concrete, concise",
+  "do": [
+    "Use measurable claims only when supported by profile bullets.",
+    "Keep application language aligned with the offer language."
+  ],
+  "dont": [
+    "Do not invent technologies, degrees or employers.",
+    "Do not include private notes."
+  ],
+  "max_bullet_length": 200,
+  "max_summary_length": 180,
+  "max_summary_lines": 2
+}

@@ -50,8 +50,13 @@ Renseigner les variables utiles dans `.env` après copie de `.env.example`.
 | `WTTJ_COOKIE` | Welcome to the Jungle | Si la source est active |
 | `GMAIL_CREDENTIALS_PATH` | Création de brouillons Gmail | Optionnel |
 | `ANYMAILFINDER_API_KEY` | Enrichissement de contacts | Optionnel |
+| `PROFILE_DIR` | Dossier du profil local privé, par défaut `./smartapply/profile/data` | Optionnel |
 | `TOP_K_RANKED` | Nombre d'offres retenues pour analyse | Optionnel |
 | `EMBEDDINGS_PROVIDER` | `openai`, `local` ou `mock` | Optionnel |
+
+Le dossier `smartapply/profile/data/` est volontairement local et ignoré par Git,
+car il contient des données personnelles. Le dossier versionné
+`smartapply/profile/mock_profile/` donne uniquement la forme attendue des JSON.
 
 ## Workflow
 
@@ -113,22 +118,25 @@ Sources d'offres
 Principaux modules :
 
 - `smartapply/scrapers` : connecteurs d'offres.
+- `smartapply/offers` : contrats d'offres et adapters par source.
 - `smartapply/filtering` : signaux locaux et exclusions.
 - `smartapply/ranking` : embeddings et scoring.
 - `smartapply/llm` : analyse et génération structurées.
 - `smartapply/cv` : adaptation, validation et rendu du CV.
-- `smartapply/email_agent` : brouillons Gmail, exports et contacts.
+- `smartapply/contacts` : recherche, validation et cache des contacts.
+- `smartapply/email_agent` : brouillons Gmail, exports `.eml` et template email.
 - `smartapply/pipeline` : orchestration du workflow.
 - `smartapply/app` : interface Streamlit.
 
 ## Qualité et sécurité
 
-- Les tests sont conçus pour tourner offline avec les API externes mockées.
+- Les tests locaux sont ignorés par Git et conçus pour tourner offline avec les API externes mockées.
 - La génération est encadrée par des schémas JSON stricts.
 - Les bullets de CV et la lettre sont contrôlés par des validateurs déterministes.
 - Gmail ne crée que des brouillons via `users().drafts().create`.
 - Les appels d'envoi Gmail sont bloqués par test statique.
 - Les secrets (`.env`, tokens, credentials) sont exclus du versionnement.
+- Le profil personnel (`smartapply/profile/data/`) est exclu du versionnement.
 - Le scraper manuel refuse les URLs locales, privées ou non HTTP(S).
 
 Commandes utiles :
@@ -142,6 +150,7 @@ make format
 
 ## Documentation
 
+- Architecture détaillée : [docs/architecture.md](docs/architecture.md)
 - Détails des sources : [docs/sources](docs/sources/)
 - Captures d'écran : [docs/screenshots](docs/screenshots/)
 - Configuration complète : [.env.example](.env.example)

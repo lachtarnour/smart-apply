@@ -1,0 +1,35 @@
+[
+  {
+    "id": "exp_example",
+    "company": "Example Company",
+    "url": "https://example.com",
+    "title": "Data Intern",
+    "location": "Paris, France",
+    "start_date": "2024-01",
+    "end_date": "Present",
+    "keywords": [
+      "Python",
+      "SQL",
+      "Machine Learning"
+    ],
+    "bullets": [
+      {
+        "id": "exp_example_impact",
+        "text": "Built a data workflow that improved reporting reliability.",
+        "keywords": [
+          "Python",
+          "SQL"
+        ],
+        "numbers": [
+          "1 workflow"
+        ],
+        "evidence_level": "verified",
+        "allowed_claims": [
+          "Built a data workflow",
+          "Improved reporting reliability"
+        ],
+        "links": []
+      }
+    ]
+  }
+]

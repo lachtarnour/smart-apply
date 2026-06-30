@@ -1,0 +1,11 @@
+{
+  "full_name": "Candidate Name",
+  "title": "Data / AI Engineer",
+  "summary": "Short professional summary used by CV and application generation.",
+  "location": "Paris, France",
+  "email": "candidate@example.com",
+  "phone": "+33 0 00 00 00 00",
+  "github": "https://github.com/example",
+  "linkedin": "https://www.linkedin.com/in/example",
+  "website": "https://example.com"
+}

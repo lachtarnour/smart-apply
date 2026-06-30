@@ -1,0 +1,10 @@
+{
+  "primary_color_hex": "2563EB",
+  "text_color_hex": "111827",
+  "muted_color_hex": "6B7280",
+  "font_family": "Calibri",
+  "title_font_size": 24,
+  "section_font_size": 12,
+  "body_font_size": 10,
+  "left_column_width_cm": 4.0
+}

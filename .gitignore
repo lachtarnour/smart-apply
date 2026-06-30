@@ -40,6 +40,8 @@ data/smartapply.db
 data/cache/
 data/output/
 data/scraped/
+smartapply/profile/data/
+spontaneous_apply/
 spontaneous_apply/data/db/*.sqlite
 spontaneous_apply/data/raw/
 spontaneous_apply/data/processed/
@@ -58,8 +60,7 @@ spontaneous_apply/data/logs/
 /data/
 reports/
 scripts/
-!spontaneous_apply/scripts/
-!spontaneous_apply/scripts/*.py
 notebooks/
 daily scrapper/
-
+docs/
+tests/

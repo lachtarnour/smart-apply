@@ -46,7 +46,7 @@ def _read_json(path: Path) -> Any:
         raise ProfileLoadError(f"Invalid JSON in {path}: {e}") from e
 
 
-def load_profile(profile_dir: Path | None = None) -> Profile:
+def load_profile(profile_dir: Path | str | None = None) -> Profile:
     """Build a ``Profile`` from the JSON files in ``profile_dir``."""
     profile_dir = Path(profile_dir) if profile_dir else get_settings().profile_dir
 
@@ -63,10 +63,15 @@ def load_profile(profile_dir: Path | None = None) -> Profile:
 
 
 @lru_cache(maxsize=4)
-def get_profile() -> Profile:
+def _get_profile_cached(profile_dir: str) -> Profile:
+    return load_profile(Path(profile_dir))
+
+
+def get_profile(profile_dir: Path | str | None = None) -> Profile:
     """Cached accessor — use this in pipelines to avoid re-reading."""
-    return load_profile()
+    resolved_dir = Path(profile_dir) if profile_dir else get_settings().profile_dir
+    return _get_profile_cached(str(resolved_dir.expanduser().resolve()))
 
 
 def clear_cache() -> None:
-    get_profile.cache_clear()
+    _get_profile_cached.cache_clear()

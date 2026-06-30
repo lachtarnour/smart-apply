@@ -1,0 +1,11 @@
+[
+  {
+    "id": "edu_example",
+    "title": "Master Degree",
+    "field": "Data Science",
+    "institution": "Example University",
+    "url": "https://example.edu",
+    "start_year": 2022,
+    "end_year": 2024
+  }
+]

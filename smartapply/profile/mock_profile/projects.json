@@ -1,0 +1,29 @@
+[
+  {
+    "id": "project_example",
+    "name": "Example ML Project",
+    "status": "portfolio",
+    "url": "https://example.com/project",
+    "keywords": [
+      "Machine Learning",
+      "Python"
+    ],
+    "bullets": [
+      {
+        "id": "project_example_model",
+        "text": "Trained and evaluated a simple machine learning model on structured data.",
+        "keywords": [
+          "Machine Learning",
+          "Python"
+        ],
+        "numbers": [],
+        "evidence_level": "self_reported",
+        "allowed_claims": [
+          "Trained a machine learning model",
+          "Evaluated model performance"
+        ],
+        "links": []
+      }
+    ]
+  }
+]

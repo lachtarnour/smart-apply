@@ -1,0 +1,34 @@
+{
+  "target_roles": [
+    "data scientist",
+    "machine learning engineer",
+    "data analyst"
+  ],
+  "preferred_locations": [
+    "Paris",
+    "France",
+    "Remote France"
+  ],
+  "accepted_contract_types": [
+    "CDI",
+    "Full-time"
+  ],
+  "accepted_remote_policies": [
+    "remote",
+    "hybrid",
+    "onsite"
+  ],
+  "accepted_job_languages": [
+    "fr",
+    "en"
+  ],
+  "domains_of_interest": [
+    "machine learning",
+    "data products"
+  ],
+  "deal_breakers": [
+    "sales"
+  ],
+  "seniority": "junior-mid",
+  "salary_min_eur": 40000
+}
