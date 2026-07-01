@@ -32,7 +32,7 @@ contexte ROME.
 
 Paramètres importants :
 
-| Paramètre | Origine SmartApply |
+| Paramètre | Origine CandiPilot |
 | --- | --- |
 | `motsCles` | `query`, avec fallback location en texte si non résolue. |
 | `commune`, `departement`, `region` | Résolution de `location` via référentiel geo France. |

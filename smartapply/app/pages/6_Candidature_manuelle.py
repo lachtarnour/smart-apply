@@ -17,8 +17,8 @@ from smartapply.app._helpers import (
 from smartapply.offers import ManualOfferInput
 
 st.set_page_config(
-    page_title="Candidature manuelle | SmartApply",
-    page_icon="SA",
+    page_title="Candidature manuelle | CandiPilot",
+    page_icon="CP",
     layout="wide",
 )
 apply_app_style()
@@ -26,7 +26,7 @@ apply_app_style()
 render_page_header(
     "Offre manuelle",
     "Créer un dossier complet depuis une offre copiée-collée ou reçue hors scraper.",
-    icon="SA",
+    icon="CP",
     badges=[
         ("Import structuré", "blue"),
         ("Analyse IA directe", "good"),

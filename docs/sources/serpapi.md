@@ -35,7 +35,7 @@ des champs Google Jobs et des `detected_extensions`.
 
 Paramètres importants :
 
-| Paramètre | Origine SmartApply |
+| Paramètre | Origine CandiPilot |
 | --- | --- |
 | `q` | Requête rôle. |
 | `location` | Localisation demandée ou défaut. |

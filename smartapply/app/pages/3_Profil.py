@@ -12,7 +12,7 @@ from smartapply.app._helpers import (
 )
 from smartapply.profile import get_profile
 
-st.set_page_config(page_title="Profil | SmartApply", page_icon="👤", layout="wide")
+st.set_page_config(page_title="Profil | CandiPilot", page_icon="👤", layout="wide")
 apply_app_style()
 
 profile = get_profile()

@@ -3,9 +3,9 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "smartapply"
+name = "candipilot"
 version = "0.1.0"
-description = "AI-assisted job application pipeline with semantic ranking, anti-hallucination CV adaptation, contact discovery and Gmail drafts."
+description = "AI-assisted job application copilot with semantic ranking, anti-hallucination CV adaptation, contact discovery and Gmail drafts."
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
@@ -48,6 +48,7 @@ dev = [
 ]
 
 [project.scripts]
+candipilot = "smartapply.cli:cli"
 smartapply = "smartapply.cli:cli"
 
 [tool.setuptools.packages.find]

@@ -42,9 +42,9 @@ def render_app_navigation() -> None:
         st.markdown(
             """
             <div class="sa-sidebar-brand">
-              <div class="sa-sidebar-logo">SA</div>
+              <div class="sa-sidebar-logo">CP</div>
               <div>
-                <div class="sa-sidebar-title">SmartApply</div>
+                <div class="sa-sidebar-title">CandiPilot</div>
                 <div class="sa-sidebar-subtitle">Pilotage candidatures</div>
               </div>
             </div>

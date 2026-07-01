@@ -21,7 +21,7 @@ from smartapply.database import session_scope
 from smartapply.database.models import Job, JobStatus
 from smartapply.database.repository import list_jobs
 
-st.set_page_config(page_title="Offres | SmartApply", page_icon="📋", layout="wide")
+st.set_page_config(page_title="Offres | CandiPilot", page_icon="📋", layout="wide")
 apply_app_style()
 
 render_page_header(

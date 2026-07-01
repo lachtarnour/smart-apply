@@ -20,7 +20,7 @@ from smartapply.app._helpers import (
 from smartapply.database import session_scope
 from smartapply.database.models import JobStatus, LLMUsage
 
-st.set_page_config(page_title="Stats | SmartApply", page_icon="📊", layout="wide")
+st.set_page_config(page_title="Stats | CandiPilot", page_icon="📊", layout="wide")
 apply_app_style()
 render_page_header(
     "Stats",

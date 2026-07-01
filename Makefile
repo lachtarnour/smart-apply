@@ -5,7 +5,7 @@ VENV = .venv
 BIN = $(VENV)/bin
 
 help:
-	@echo "SmartApply AI — commandes disponibles"
+	@echo "CandiPilot — commandes disponibles"
 	@echo ""
 	@echo "  make venv             Cree un venv local"
 	@echo "  make install          Installe le coeur (sans UI/PDF/Gmail)"
@@ -16,7 +16,7 @@ help:
 	@echo "  make lint             Verifie le code"
 	@echo "  make format           Formate le code"
 	@echo "  make run-app          Lance le dashboard Streamlit"
-	@echo "  make run-cli          Lance la CLI (smartapply --help)"
+	@echo "  make run-cli          Lance la CLI (candipilot --help)"
 	@echo "  make sample-pipeline  Lance un pipeline complet sur les samples"
 	@echo "  make clean            Supprime caches et builds"
 
@@ -31,7 +31,7 @@ install-all: venv
 	$(BIN)/pip install -e ".[ui,pdf,gmail,dev]"
 
 init-db:
-	$(BIN)/python -m smartapply.cli init-db
+	$(BIN)/candipilot init-db
 
 test:
 	$(BIN)/pytest
@@ -50,10 +50,10 @@ run-app:
 	$(BIN)/streamlit run smartapply/app/main.py
 
 run-cli:
-	$(BIN)/python -m smartapply.cli --help
+	$(BIN)/candipilot --help
 
 sample-pipeline:
-	$(BIN)/python -m smartapply.cli pipeline --source samples
+	$(BIN)/candipilot pipeline --source samples
 
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} +

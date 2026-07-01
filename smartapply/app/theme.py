@@ -1,4 +1,4 @@
-"""Shared Streamlit theme for the Smart Apply UI."""
+"""Shared Streamlit theme for the CandiPilot UI."""
 
 from __future__ import annotations
 

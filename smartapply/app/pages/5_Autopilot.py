@@ -16,7 +16,7 @@ from smartapply.config import get_settings
 from smartapply.jobsearch import AutopilotRunner
 from smartapply.scrapers import SERPAPI_DATE_POSTED_LABELS
 
-st.set_page_config(page_title="Autopilot | SmartApply", page_icon="🚀", layout="wide")
+st.set_page_config(page_title="Autopilot | CandiPilot", page_icon="🚀", layout="wide")
 apply_app_style()
 
 settings = get_settings()
@@ -75,7 +75,7 @@ with left:
         sources = st.multiselect(
             "Sources",
             options=["serpapi", "francetravail", "linkedin", "welcometothejungle"],
-            default=["serpapi", "francetravail", "linkedin", "welcometothejungle"],
+            default=["francetravail", "linkedin", "welcometothejungle"],
         )
         date_posted = st.selectbox(
             "Fraîcheur des offres",

@@ -1,4 +1,4 @@
-"""SQLAlchemy 2.x models for SmartApply persistence layer."""
+"""SQLAlchemy 2.x models for CandiPilot persistence layer."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Command-line interface for SmartApply AI."""
+"""Command-line interface for CandiPilot."""
 
 from __future__ import annotations
 
@@ -53,7 +53,7 @@ def _optional_int(value: str | None) -> int | None:
 
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})
 def cli() -> None:
-    """SmartApply AI — pipeline d'optimisation de candidatures."""
+    """CandiPilot - pipeline d'optimisation de candidatures."""
     setup_logging()
 
 

@@ -16,7 +16,7 @@ from smartapply.app.workflow import (
 )
 
 st.set_page_config(
-    page_title="Workflow | SmartApply",
+    page_title="Workflow | CandiPilot",
     page_icon="🧭",
     layout="wide",
 )

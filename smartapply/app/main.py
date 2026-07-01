@@ -1,4 +1,4 @@
-"""SmartApply production dashboard."""
+"""CandiPilot production dashboard."""
 
 from __future__ import annotations
 
@@ -22,8 +22,8 @@ from smartapply.database.repository import list_pending_processing
 from smartapply.jobsearch import next_action_for
 
 st.set_page_config(
-    page_title="SmartApply",
-    page_icon="SA",
+    page_title="CandiPilot",
+    page_icon="CP",
     layout="wide",
     initial_sidebar_state="expanded",
 )

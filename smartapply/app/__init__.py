@@ -1,1 +1,1 @@
-"""Streamlit dashboard for SmartApply AI."""
+"""Streamlit dashboard for CandiPilot."""

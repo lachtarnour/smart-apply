@@ -133,7 +133,7 @@ def _regenerate_eml(
     return str(written)
 
 
-st.set_page_config(page_title="Candidatures | SmartApply", page_icon="📝", layout="wide")
+st.set_page_config(page_title="Candidatures | CandiPilot", page_icon="📝", layout="wide")
 apply_app_style()
 render_page_header(
     "Candidatures",
