@@ -50,6 +50,7 @@ _ROLE_PHRASES = (
     "full stack",
     "fullstack",
     "generative ai",
+    "ia engineer",
     "ingénieur data",
     "machine learning",
     "ml engineer",

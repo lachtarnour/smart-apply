@@ -177,7 +177,7 @@ FINANCE_REPORTING_CONTEXT_TOKENS = (
 
 _ROLE_RELEVANCE_TITLE_RE = re.compile(
     r"(?<![a-z0-9])("
-    r"ai engineer|analyste data|analytics engineer|applied scientist|"
+    r"ai engineer|ia engineer|analyste data|analytics engineer|applied scientist|"
     r"business data|computer vision|data analyst|data science|data scientist|"
     r"deep learning|genai|ia generative|ingenieur ia|intelligence artificielle|"
     r"llm|machine learning|ml engineer|nlp|product data analyst|"

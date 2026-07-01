@@ -15,6 +15,7 @@ DEFAULT_POSITIVE_TITLE_KEYWORDS = (
     "machine learning",
     "ml engineer",
     "ai engineer",
+    "ia engineer",
     "ai researcher",
     "research engineer",
     "applied scientist",

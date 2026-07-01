@@ -173,6 +173,7 @@ _GENERIC_PRIMARY_PATTERNS: Final[list[tuple[RoleFamily, list[str]]]] = [
             r"\bml consultant\b",
             r"\bjunior ml\b",
             r"\bai engineer\b",
+            r"\bia engineer\b",
             r"\bingénieur (en )?ia\b",
             r"\bingénieur (en )?ml\b",
             r"\bml[- ]engineer\b",

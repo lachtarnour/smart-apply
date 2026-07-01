@@ -39,6 +39,11 @@ ROLE_QUERY_ALIASES_FR: dict[str, tuple[str, ...]] = {
         "Ingénieur Intelligence Artificielle",
         "AI ML Engineer",
     ),
+    "ia engineer": (
+        "Ingénieur IA",
+        "Ingénieur Intelligence Artificielle",
+        "AI ML Engineer",
+    ),
     "ai ing": (
         "Ingénieur IA",
         "Ingénieur Intelligence Artificielle",
@@ -90,5 +95,4 @@ def expand_query_for_source(source: str, query: str) -> list[str]:
         if alias_query.lower() != normalized.lower():
             variants.append(alias_query)
     return variants
-
 
