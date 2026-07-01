@@ -39,7 +39,6 @@ from smartapply.app.workflow.widgets import (
 )
 from smartapply.database import session_scope
 from smartapply.database.repository import list_pending_processing
-from smartapply.jobsearch import AutopilotRunner
 from smartapply.pipeline.pipeline import freshness_kwargs
 from smartapply.scrapers import SERPAPI_DATE_POSTED_LABELS
 
@@ -153,9 +152,6 @@ def _job_editor(df: pd.DataFrame, key: str) -> list[int]:
         for _, row in df.iterrows()
         if bool(all_keep_map.get(int(row["id"]), bool(row.get("keep", True))))
     ]
-
-
-
 def step1_fetch() -> None:
     st.markdown(
         """
@@ -182,164 +178,85 @@ def step1_fetch() -> None:
         if settings.serpapi_date_posted in SERPAPI_DATE_POSTED_LABELS
         else "week"
     )
-    tab_search, tab_auto = st.tabs(["Recherche contrôlée", "Autopilot express"])
+    with st.form("fetch_form"):
+        col1, col2, col3 = st.columns([1.4, 1.1, 0.8])
+        with col1:
+            query = st.text_input(
+                "Requête",
+                value="Data Scientist OR Machine Learning Engineer OR IA Engineer",
+            )
+            location = st.text_input(
+                "Localisation",
+                value=settings.serpapi_default_location,
+            )
+        with col2:
+            sources = st.multiselect(
+                "Sources",
+                options=["serpapi", "francetravail", "linkedin", "welcometothejungle"],
+                default=["serpapi", "francetravail", "linkedin", "welcometothejungle"],
+            )
+            date_posted = st.selectbox(
+                "Fraîcheur",
+                options=date_options,
+                index=date_options.index(default_date),
+                format_func=lambda value: SERPAPI_DATE_POSTED_LABELS[value],
+            )
+        with col3:
+            slider_max = (
+                settings.linkedin_max_results if "linkedin" in sources else 300
+            )
+            slider_default = (
+                settings.linkedin_max_results if "linkedin" in sources else 15
+            )
+            max_per_source = st.slider(
+                "Résultats/source",
+                1,
+                int(slider_max),
+                min(int(slider_default), int(slider_max)),
+            )
 
-    with tab_search, st.form("fetch_form"):
-            col1, col2, col3 = st.columns([1.5, 1.1, 1])
-            with col1:
-                query = st.text_input("Requête", value="Data Scientist OR Machine Learning Engineer")
-                st.caption("Astuce : `A OR B OR C` lance plusieurs recherches. Les titres anglais sont conservés, avec alias FR en plus si utile.")
-                location = st.text_input("Localisation", value=settings.serpapi_default_location)
-            with col2:
-                sources = st.multiselect(
-                    "Sources",
-                    options=["serpapi", "francetravail", "welcometothejungle"],
-                    default=["serpapi", "francetravail", "welcometothejungle"],
-                    help="SerpApi consomme un crédit par page. France Travail est gratuit. WTTJ lit tes matches personnalisés.",
-                )
-                date_posted = st.selectbox(
-                    "Fraîcheur des offres",
-                    options=date_options,
-                    index=date_options.index(default_date),
-                    format_func=lambda value: SERPAPI_DATE_POSTED_LABELS[value],
-                    help="Appliqué à Google Jobs (chip date_posted) et à France Travail (minCreationDate).",
-                )
+        serpapi_language_label = language_labels[0]
+        unlimited_sources: list[str] = []
+        with st.expander("Options avancées", expanded=False):
+            adv1, adv2 = st.columns(2)
+            with adv1:
                 serpapi_language_label = st.selectbox(
                     "Langue Google Jobs",
                     options=language_labels,
                     index=0,
-                    help="Bilingue lance Google Jobs en contexte anglais puis français, toujours sur le pays/localisation demandés.",
+                    help="Bilingue lance Google Jobs en contexte anglais puis français.",
                 )
-            with col3:
-                max_per_source = st.slider("Résultats/source", 5, 300, 15)
+            with adv2:
                 unlimited_source_options = [
-                    src for src in sources if src != "serpapi"
+                    src for src in sources if src not in {"linkedin", "serpapi"}
                 ]
                 unlimited_sources = (
                     st.multiselect(
                         "Sources sans limite",
                         options=unlimited_source_options,
                         default=[],
-                        help=(
-                            "Passe max_results=None aux sources sélectionnées. "
-                            "SerpApi est volontairement exclu pour éviter des "
-                            "coûts de pagination."
-                        ),
+                        help="LinkedIn et SerpApi restent limités pour éviter les coûts API.",
                     )
                     if unlimited_source_options
                     else []
                 )
-                if unlimited_sources:
-                    unlimited_caption = "Sans limite: " + ", ".join(unlimited_sources)
-                    if "welcometothejungle" in unlimited_sources:
-                        unlimited_caption += (
-                            ". WTTJ utilise "
-                            f"{settings.wttj_pages} page(s) / "
-                            f"{settings.wttj_per_page} offre(s)/page."
-                        )
-                    st.caption(unlimited_caption)
-                if "serpapi" in sources:
-                    st.caption(
-                        _serpapi_effective_config(
-                            max_results=int(max_per_source),
-                            date_posted=date_posted,
-                            location=location,
-                        )
+            if "serpapi" in sources:
+                st.caption(
+                    _serpapi_effective_config(
+                        max_results=int(max_per_source),
+                        date_posted=date_posted,
+                        location=location,
                     )
-            submitted = st.form_submit_button("Lancer la recherche", type="primary")
+                )
+            if "linkedin" in sources:
+                st.caption(
+                    "LinkedIn/Apify : "
+                    f"limite globale {settings.linkedin_max_results} depuis .env."
+                )
+            if unlimited_sources:
+                st.caption("Sans limite : " + ", ".join(unlimited_sources))
 
-    with tab_auto:
-        st.caption("Mode rapide : cherche, analyse, génère et prépare les meilleurs dossiers. Rien n'est envoyé automatiquement.")
-        with st.form("autopilot_form"):
-            a1, a2, a3 = st.columns([1.4, 1, 1])
-            with a1:
-                auto_query = st.text_input(
-                    "Requête autopilot",
-                    value="Data Scientist OR Machine Learning Engineer OR AI Engineer",
-                    key="wf_auto_query",
-                )
-                st.caption("Les parties séparées par `OR` sont recherchées une par une, anglais conservé, alias FR ajouté si utile.")
-                auto_location = st.text_input(
-                    "Localisation autopilot",
-                    value=settings.serpapi_default_location,
-                    key="wf_auto_location",
-                )
-            with a2:
-                auto_sources = st.multiselect(
-                    "Sources autopilot",
-                    options=["serpapi", "francetravail", "welcometothejungle", "manual"],
-                    default=["serpapi", "francetravail", "welcometothejungle"],
-                    key="wf_auto_sources",
-                )
-                auto_date = st.selectbox(
-                    "Fraîcheur des offres autopilot",
-                    options=date_options,
-                    index=date_options.index(default_date),
-                    format_func=lambda value: SERPAPI_DATE_POSTED_LABELS[value],
-                    key="wf_auto_date",
-                    help="Appliqué à Google Jobs (chip date_posted) et à France Travail (minCreationDate).",
-                )
-                auto_language_label = st.selectbox(
-                    "Langue Google Jobs autopilot",
-                    options=language_labels,
-                    index=0,
-                    key="wf_auto_language",
-                    help="Bilingue augmente le rappel mais peut consommer plus de pages SerpApi.",
-                )
-            with a3:
-                auto_target = st.number_input("Objectif", min_value=1, max_value=50, value=8)
-                auto_max = st.number_input("Résultats/source", min_value=5, max_value=300, value=25)
-                if "serpapi" in auto_sources:
-                    st.caption(
-                        _serpapi_effective_config(
-                            max_results=int(auto_max),
-                            date_posted=auto_date,
-                            location=auto_location,
-                        )
-                    )
-                auto_gmail = st.toggle("Créer brouillons Gmail", value=False)
-            auto_submitted = st.form_submit_button("Lancer autopilot", type="primary")
-
-        if auto_submitted:
-            _begin_run("autopilot")
-            with st.spinner("Autopilot en cours..."):
-                try:
-                    report = AutopilotRunner().run(
-                        query=auto_query,
-                        location=auto_location or None,
-                        sources=auto_sources,
-                        max_per_source=int(auto_max),
-                        target_drafts=int(auto_target),
-                        create_gmail_drafts=auto_gmail,
-                        require_quality_gate=True,
-                        date_posted=auto_date,
-                        serpapi_hl=SERPAPI_LANGUAGE_OPTIONS[auto_language_label],
-                    )
-                    data = report.to_dict()
-                    st.session_state["wf_autopilot_report"] = data
-                    generated = [
-                        int(a["application_id"])
-                        for a in data.get("applications", [])
-                        if a.get("application_id")
-                    ]
-                    if generated:
-                        st.session_state["wf_generated_app_ids"] = generated
-                    _end_run(
-                        f"Autopilot : {data['productive_outputs']} sortie(s), "
-                        f"{data['draft_created']} brouillon(s), "
-                        f"{data['quality_rejected']} rejet(s) qualité."
-                    )
-                    st.success(st.session_state["wf_last_run_summary"])
-                    if generated:
-                        st.session_state["wf_step"] = 5
-                        st.rerun()
-                except Exception as e:
-                    _end_run("Autopilot interrompu par erreur.")
-                    st.error(f"Autopilot : {e}")
-
-        if st.session_state.get("wf_autopilot_report"):
-            with st.expander("Dernier rapport autopilot", expanded=False):
-                st.json(st.session_state["wf_autopilot_report"])
+        submitted = st.form_submit_button("Lancer la recherche", type="primary")
 
     st.divider()
 
@@ -370,6 +287,12 @@ def step1_fetch() -> None:
                             source_max_results = (
                                 None if src in unlimited_sources else int(max_per_source)
                             )
+                            if (
+                                src == "linkedin"
+                                and source_max_results is not None
+                                and source_max_results > settings.linkedin_max_results
+                            ):
+                                source_max_results = settings.linkedin_max_results
                             source_progress = None
                             if src == "welcometothejungle":
                                 source_progress = st.progress(

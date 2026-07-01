@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from html import escape
 from pathlib import Path
 from typing import Any
 
@@ -203,6 +204,96 @@ def _render_close_button_styles() -> None:
     st.markdown(
         """
         <style>
+        .sa-step5-card-top {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 1rem;
+            align-items: start;
+            padding: 0.58rem 0.72rem;
+            border: 1px solid var(--sa-border);
+            border-radius: 8px;
+            background: linear-gradient(180deg, #FFFFFF 0%, #F8FBFF 100%);
+            box-shadow: var(--sa-shadow-xs);
+            margin-bottom: 0.62rem;
+        }
+        .sa-step5-title-row {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+            align-items: center;
+            margin-bottom: 0.42rem;
+        }
+        .sa-step5-contact-line {
+            display: flex;
+            gap: 0.55rem;
+            flex-wrap: wrap;
+            align-items: center;
+            color: var(--sa-muted);
+            font-size: 0.88rem;
+            line-height: 1.35;
+        }
+        .sa-step5-contact-line strong {
+            color: var(--sa-ink);
+        }
+        .sa-step5-chip {
+            display: inline-flex;
+            align-items: center;
+            border: 1px solid var(--sa-border);
+            border-radius: 999px;
+            background: #FFFFFF;
+            color: #475467;
+            font-size: 0.78rem;
+            font-weight: 750;
+            padding: 0.18rem 0.52rem;
+        }
+        .sa-step5-action-box {
+            min-width: 17rem;
+            display: grid;
+            gap: 0.45rem;
+        }
+        .sa-step5-action-box [data-testid="stCheckbox"] {
+            margin-bottom: 0 !important;
+        }
+        .sa-step5-action-box label {
+            font-size: 0.88rem !important;
+        }
+        .sa-step5-mini-title {
+            color: var(--sa-ink);
+            font-size: 0.82rem;
+            font-weight: 850;
+            text-transform: uppercase;
+            margin: 0 0 0.25rem 0;
+        }
+        .sa-step5-contact-missing {
+            border: 1px solid #FEDF89;
+            border-radius: 8px;
+            background: #FFFAEB;
+            color: #93370D;
+            font-size: 0.86rem;
+            line-height: 1.35;
+            padding: 0.52rem 0.65rem;
+            margin-bottom: 0.45rem;
+        }
+        .sa-step5-section-note {
+            color: var(--sa-muted);
+            font-size: 0.82rem;
+            line-height: 1.38;
+            margin-top: 0.32rem;
+        }
+        .sa-step5-compact-row {
+            display: flex;
+            gap: 0.45rem;
+            flex-wrap: wrap;
+            align-items: center;
+            margin: 0.1rem 0 0.45rem;
+        }
+        div[class*="st-key-wf_email_body_box_"] textarea {
+            min-height: 7.2rem !important;
+        }
+        div[class*="st-key-wf_contact_tools_"] button,
+        div[class*="st-key-wf_gmail_preview_"] button {
+            min-height: 2.35rem;
+        }
         div[class*="st-key-wf_close_done_"] button {
             background: #1F7A4D !important;
             border-color: #35B66B !important;
@@ -439,7 +530,7 @@ def _mark_application_done(app: Application) -> None:
 
 
 def _render_send_card(row: dict[str, Any]) -> None:
-    app_id = row["id"]
+    app_id = int(row["id"])
     strategy_icon = {
         "email_only": "📧",
         "email_and_form": "📧🗂",
@@ -455,212 +546,315 @@ def _render_send_card(row: dict[str, Any]) -> None:
         st.session_state.setdefault(subject_key, row["subject"])
         st.session_state.setdefault(body_key, row["body"])
 
-        col1, col2 = st.columns([2, 1])
-        with col1:
-            status_kind = "good" if row["gmail_draft_id"] or row["email_sent_at"] else "warn"
-            st.markdown(
-                f"{_status_pill(str(row['strategy']), 'blue')} "
-                f"{_status_pill(str(row['status_label']), status_kind)}",
-                unsafe_allow_html=True,
-            )
-            st.markdown(f"**Contact** : `{row['contact'] or '— aucun —'}`")
-            contact_bits = [
-                row.get("contact_full_name"),
-                row.get("contact_job_title"),
-                f"raison={row.get('contact_reason')}" if row.get("contact_reason") else None,
-                f"lieu={row.get('contact_location_hint')}" if row.get("contact_location_hint") else None,
-                (
-                    f"score={float(row['contact_confidence']):.2f}"
-                    if row.get("contact_confidence") is not None
-                    else None
-                ),
-            ]
-            contact_summary = " · ".join(str(bit) for bit in contact_bits if bit)
-            if contact_summary:
-                st.caption(contact_summary)
-            if row.get("email_cc"):
-                st.markdown(f"**CC** : `{row['email_cc']}`")
-            if row["form_url"]:
-                st.link_button("Ouvrir le formulaire ATS", row["form_url"], width="stretch")
-            if row["validation_warnings"]:
-                with st.expander(
-                    f"Warnings validation CV ({len(row['validation_warnings'])})",
-                    expanded=False,
-                ):
-                    for warning in row["validation_warnings"]:
-                        st.write(f"- {warning}")
+        _render_step5_card_summary(row)
 
-            st.markdown("**Documents finaux**")
-            doc_cols = st.columns(2)
-            with doc_cols[0]:
-                render_html_open_button(
-                    "Ouvrir le CV HTML",
-                    row.get("cv_html_path"),
-                    key=f"wf_open_cv_html_{app_id}",
-                )
-            with doc_cols[1]:
-                render_html_open_button(
-                    "Ouvrir la lettre HTML",
-                    row.get("letter_html_path"),
-                    key=f"wf_open_letter_html_{app_id}",
-                )
-
-            st.text_input("Sujet final", key=subject_key)
-            st.text_area(
-                "Email final",
-                height=240,
-                key=body_key,
-            )
-            st.button(
-                "Recharger l'email généré",
-                key=f"wf_reset_email_{app_id}",
-                on_click=_reset_final_email,
-                args=(subject_key, body_key, row["subject"], row["body"]),
-            )
-        with col2:
-            reviewed = st.checkbox(
-                "J'ai vérifié le contact, le CV, la lettre et l'email",
-                key=f"wf_reviewed_{app_id}",
-            )
+        editor_col, action_col = st.columns([1.52, 1])
+        with editor_col:
+            _render_step5_email_workspace(row, app_id, subject_key, body_key)
+        with action_col:
             final_subject = str(st.session_state.get(subject_key, "")).strip()
             final_body = str(st.session_state.get(body_key, "")).strip()
+            reviewed = st.checkbox(
+                "Revue finale OK",
+                key=f"wf_reviewed_{app_id}",
+                help="Contact, CV, lettre et email relus.",
+            )
+            _render_step5_actions(row, app_id, reviewed, final_subject, final_body)
+            _render_step5_contact_workspace(row, app_id)
+            _render_step5_secondary_tools(row, app_id, final_subject, final_body)
 
-            contact_key = f"wf_manual_contact_{app_id}"
-            st.session_state.setdefault(contact_key, row["contact"] or "")
-            with st.expander(
-                "Ajouter / modifier le contact email",
-                expanded=not row["contact"],
-            ):
-                st.text_input(
-                    "Email contact",
-                    key=contact_key,
-                    placeholder="recrutement@entreprise.com",
-                )
-                if st.button(
-                    "Enregistrer le contact",
-                    key=f"wf_save_manual_contact_{app_id}",
-                ):
-                    saved = _save_manual_contact_for_application(
-                        row,
-                        str(st.session_state.get(contact_key) or ""),
-                    )
-                    if saved:
-                        st.rerun()
-                st.divider()
-                _render_contact_lookup_controls(row)
 
-            if row["contact"]:
-                if row["strategy"] == "form_only":
-                    st.caption(
-                        "Stratégie initiale formulaire. Comme un contact est disponible, "
-                        "tu peux aussi préparer un email si tu le choisis."
-                    )
-            else:
-                st.caption("Aucun contact email attaché à cette candidature.")
+def _render_step5_card_summary(row: dict[str, Any]) -> None:
+    status_kind = "good" if row["gmail_draft_id"] or row["email_sent_at"] else "warn"
+    contact_text = row["contact"] or "Contact à trouver"
+    form_text = "Formulaire disponible" if row["form_url"] else "Pas de formulaire"
+    contact_detail = _contact_detail_line(row)
+    cc_html = (
+        f"<span class='sa-step5-chip'>CC {escape(str(row['email_cc']))}</span>"
+        if row.get("email_cc")
+        else ""
+    )
+    contact_detail_html = (
+        f"<span>{escape(contact_detail)}</span>" if contact_detail else ""
+    )
+    html = (
+        '<div class="sa-step5-card-top">'
+        "<div>"
+        '<div class="sa-step5-title-row">'
+        f"{_status_pill(_strategy_label(row.get('strategy')), 'blue')}"
+        f"{_status_pill(str(row['status_label']), status_kind)}"
+        f'<span class="sa-step5-chip">{escape(form_text)}</span>'
+        f"{cc_html}"
+        "</div>"
+        '<div class="sa-step5-contact-line">'
+        "<strong>Contact</strong>"
+        f"<span>{escape(contact_text)}</span>"
+        f"{contact_detail_html}"
+        "</div>"
+        "</div>"
+        "</div>"
+    )
+    st.markdown(html, unsafe_allow_html=True)
 
-            _render_form_questions_assistant(row)
 
-            # ---- Gmail draft button ----
-            if row["gmail_draft_id"]:
-                st.success(f"✓ Brouillon Gmail : `{row['gmail_draft_id']}`")
-            else:
-                disabled = (
-                    not row["contact"]
-                    or not reviewed
-                    or not final_subject
-                    or not final_body
-                )
-                # Dry-run preview: shows exactly what would be passed to
-                # ``drafts().create`` if the user clicked the button. No
-                # Gmail call is made; if the MIME cannot be built we
-                # surface the validation error in the same expander so
-                # the user fixes it before clicking.
-                with st.expander(
-                    "Aperçu du brouillon avant création (dry-run)",
-                    expanded=False,
-                ):
-                    _render_gmail_dry_run_preview(
-                        {
-                            **row,
-                            "subject": final_subject,
-                            "body": final_body,
-                        }
-                    )
-                if st.button(
-                    "📧 Créer le brouillon Gmail",
-                    disabled=disabled,
-                    key=f"wf_gmail_{app_id}",
-                    type="primary",
-                ):
-                    _create_gmail_draft(
-                        {
-                            **row,
-                            "subject": final_subject,
-                            "body": final_body,
-                        }
-                    )
-                    st.rerun()
-                if row["strategy"] == "form_only":
-                    st.caption(
-                        "Formulaire prioritaire. Le brouillon Gmail reste possible "
-                        "si tu as volontairement attaché un contact."
-                    )
-                elif not row["contact"]:
-                    st.caption("Pas de contact → cherche un contact ou soumets via le formulaire.")
-                elif not reviewed:
-                    st.caption("Coche la validation finale avant Gmail.")
-                elif not final_subject or not final_body:
-                    st.caption("Sujet et email final obligatoires.")
+def _render_step5_email_workspace(
+    row: dict[str, Any],
+    app_id: int,
+    subject_key: str,
+    body_key: str,
+) -> None:
+    st.markdown("<div class='sa-step5-mini-title'>Email et documents</div>", unsafe_allow_html=True)
 
-            st.divider()
+    doc_cols = st.columns([1, 1, 0.72])
+    with doc_cols[0]:
+        render_html_open_button(
+            "CV HTML",
+            row.get("cv_html_path"),
+            key=f"wf_open_cv_html_{app_id}",
+        )
+    with doc_cols[1]:
+        render_html_open_button(
+            "Lettre HTML",
+            row.get("letter_html_path"),
+            key=f"wf_open_letter_html_{app_id}",
+        )
+    with doc_cols[2]:
+        _render_validation_warnings_popover(row, app_id)
 
-            # ---- Manual tracking buttons ----
-            if row["email_sent_at"]:
-                st.markdown(f"✓ Email envoyé : `{row['email_sent_at'].strftime('%d/%m %H:%M')}`")
-            else:
-                st.button(
-                    "✉ Marquer email envoyé",
-                    key=f"wf_mark_email_{app_id}",
-                    disabled=not row["contact"],
-                    on_click=_track_application_action_from_step5,
-                    args=(app_id,),
-                    kwargs={"email_sent": True},
-                )
+    st.text_input("Sujet final", key=subject_key)
+    with st.container(key=f"wf_email_body_box_{app_id}"):
+        st.text_area(
+            "Email final",
+            height=118,
+            key=body_key,
+        )
 
-            if row["strategy"] in ("email_and_form", "form_only"):
-                if row["form_submitted_at"]:
-                    st.markdown(
-                        f"✓ Form soumis : `{row['form_submitted_at'].strftime('%d/%m %H:%M')}`"
-                    )
-                else:
-                    st.button(
-                        "🗂 Marquer formulaire soumis",
-                        key=f"wf_mark_form_{app_id}",
-                        on_click=_track_application_action_from_step5,
-                        args=(app_id,),
-                        kwargs={"form_submitted": True},
-                    )
+    st.button(
+        "Recharger l'email généré",
+        key=f"wf_reset_email_{app_id}",
+        on_click=_reset_final_email,
+        args=(subject_key, body_key, row["subject"], row["body"]),
+    )
 
-            st.divider()
-            st.markdown("**Clôture**")
-            close_done, close_archive = st.columns(2)
-            with close_done:
-                st.button(
-                    "Candidature faite",
-                    key=f"wf_close_done_{app_id}",
-                    type="primary",
-                    width="stretch",
-                    on_click=_close_application_from_step5,
-                    args=(app_id, "done"),
-                )
-            with close_archive:
-                st.button(
-                    "Archiver",
-                    key=f"wf_close_archive_{app_id}",
-                    width="stretch",
-                    on_click=_close_application_from_step5,
-                    args=(app_id, "archive"),
-                )
+
+def _render_step5_actions(
+    row: dict[str, Any],
+    app_id: int,
+    reviewed: bool,
+    final_subject: str,
+    final_body: str,
+) -> None:
+    st.markdown("<div class='sa-step5-mini-title'>Actions visibles</div>", unsafe_allow_html=True)
+
+    if row["form_url"]:
+        st.link_button("Ouvrir le formulaire ATS", row["form_url"], width="stretch")
+
+    _render_gmail_action(row, app_id, reviewed, final_subject, final_body)
+    _render_tracking_actions(row, app_id)
+    _render_close_actions(app_id)
+
+
+def _render_gmail_action(
+    row: dict[str, Any],
+    app_id: int,
+    reviewed: bool,
+    final_subject: str,
+    final_body: str,
+) -> None:
+    if row["gmail_draft_id"]:
+        st.success(f"Brouillon Gmail : `{row['gmail_draft_id']}`")
+        return
+
+    disabled = not row["contact"] or not reviewed or not final_subject or not final_body
+    if st.button(
+        "Créer le brouillon Gmail",
+        disabled=disabled,
+        key=f"wf_gmail_{app_id}",
+        type="primary",
+        width="stretch",
+    ):
+        _create_gmail_draft(
+            {
+                **row,
+                "subject": final_subject,
+                "body": final_body,
+            }
+        )
+        st.rerun()
+    _render_gmail_blocker_hint(row, reviewed, final_subject, final_body)
+
+
+def _render_tracking_actions(row: dict[str, Any], app_id: int) -> None:
+    track_cols = st.columns(2)
+    with track_cols[0]:
+        if row["email_sent_at"]:
+            st.caption(f"Email envoyé {row['email_sent_at'].strftime('%d/%m %H:%M')}")
+        else:
+            st.button(
+                "Email envoyé",
+                key=f"wf_mark_email_{app_id}",
+                disabled=not row["contact"],
+                width="stretch",
+                on_click=_track_application_action_from_step5,
+                args=(app_id,),
+                kwargs={"email_sent": True},
+            )
+
+    with track_cols[1]:
+        if row["strategy"] not in ("email_and_form", "form_only"):
+            st.button("Form soumis", key=f"wf_mark_form_hidden_{app_id}", disabled=True, width="stretch")
+        elif row["form_submitted_at"]:
+            st.caption(f"Form soumis {row['form_submitted_at'].strftime('%d/%m %H:%M')}")
+        else:
+            st.button(
+                "Form soumis",
+                key=f"wf_mark_form_{app_id}",
+                width="stretch",
+                on_click=_track_application_action_from_step5,
+                args=(app_id,),
+                kwargs={"form_submitted": True},
+            )
+
+
+def _render_close_actions(app_id: int) -> None:
+    close_done, close_archive = st.columns(2)
+    with close_done:
+        st.button(
+            "Candidature faite",
+            key=f"wf_close_done_{app_id}",
+            type="primary",
+            width="stretch",
+            on_click=_close_application_from_step5,
+            args=(app_id, "done"),
+        )
+    with close_archive:
+        st.button(
+            "Archiver",
+            key=f"wf_close_archive_{app_id}",
+            width="stretch",
+            on_click=_close_application_from_step5,
+            args=(app_id, "archive"),
+        )
+
+
+def _render_step5_contact_workspace(row: dict[str, Any], app_id: int) -> None:
+    st.markdown("<div class='sa-step5-mini-title'>Contact</div>", unsafe_allow_html=True)
+    if row["contact"]:
+        st.markdown(f"**{row['contact']}**")
+        detail = _contact_detail_line(row)
+        if detail:
+            st.caption(detail)
+        if row["strategy"] == "form_only":
+            st.caption("Email possible si tu gardes ce contact.")
+    else:
+        st.markdown(
+            '<div class="sa-step5-contact-missing">Aucun contact attaché.</div>',
+            unsafe_allow_html=True,
+        )
+
+    contact_key = f"wf_manual_contact_{app_id}"
+    st.session_state.setdefault(contact_key, row["contact"] or "")
+    with st.popover(
+        "Modifier / trouver un contact",
+        key=f"wf_contact_tools_{app_id}",
+        width="stretch",
+    ):
+        st.text_input(
+            "Email contact",
+            key=contact_key,
+            placeholder="recrutement@entreprise.com",
+        )
+        if st.button(
+            "Enregistrer le contact",
+            key=f"wf_save_manual_contact_{app_id}",
+            width="stretch",
+        ):
+            saved = _save_manual_contact_for_application(
+                row,
+                str(st.session_state.get(contact_key) or ""),
+            )
+            if saved:
+                st.rerun()
+        st.divider()
+        _render_contact_lookup_controls(row)
+
+
+def _render_step5_secondary_tools(
+    row: dict[str, Any],
+    app_id: int,
+    final_subject: str,
+    final_body: str,
+) -> None:
+    tools_cols = st.columns(2)
+    with tools_cols[0]:
+        _render_form_questions_assistant(row)
+    with tools_cols[1], st.popover(
+        "Aperçu Gmail",
+        key=f"wf_gmail_preview_{app_id}",
+        width="stretch",
+        help="Valide localement le contenu du brouillon sans appel Gmail.",
+    ):
+        _render_gmail_dry_run_preview(
+            {
+                **row,
+                "subject": final_subject,
+                "body": final_body,
+            }
+        )
+
+
+def _render_validation_warnings_popover(row: dict[str, Any], app_id: int) -> None:
+    warnings = row.get("validation_warnings") or []
+    if not warnings:
+        st.button("Warnings", key=f"wf_warnings_empty_{app_id}", disabled=True, width="stretch")
+        return
+
+    with st.popover(
+        f"Warnings ({len(warnings)})",
+        key=f"wf_validation_warnings_{app_id}",
+        width="stretch",
+    ):
+        for warning in warnings:
+            st.write(f"- {warning}")
+
+
+def _render_gmail_blocker_hint(
+    row: dict[str, Any],
+    reviewed: bool,
+    final_subject: str,
+    final_body: str,
+) -> None:
+    if row["strategy"] == "form_only":
+        st.caption("Gmail possible si un contact est attaché.")
+    elif not row["contact"]:
+        st.caption("Gmail bloqué : trouve un contact ou soumets via formulaire.")
+    elif not reviewed:
+        st.caption("Gmail bloqué : coche la revue finale.")
+    elif not final_subject or not final_body:
+        st.caption("Gmail bloqué : sujet et email obligatoires.")
+
+
+def _contact_detail_line(row: dict[str, Any]) -> str:
+    contact_bits = [
+        row.get("contact_full_name"),
+        row.get("contact_job_title"),
+        f"raison={row.get('contact_reason')}" if row.get("contact_reason") else None,
+        f"lieu={row.get('contact_location_hint')}" if row.get("contact_location_hint") else None,
+        (
+            f"score={float(row['contact_confidence']):.2f}"
+            if row.get("contact_confidence") is not None
+            else None
+        ),
+    ]
+    return " · ".join(str(bit) for bit in contact_bits if bit)
+
+
+def _strategy_label(strategy: Any) -> str:
+    return {
+        "email_only": "Email",
+        "email_and_form": "Email + formulaire",
+        "form_only": "Formulaire",
+    }.get(str(strategy or ""), str(strategy or "Stratégie"))
 
 
 # ============================================================

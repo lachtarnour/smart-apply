@@ -21,7 +21,7 @@ def _render_form_questions_assistant(row: dict[str, Any]) -> None:
     st.session_state.setdefault(questions_key, "")
 
     with st.popover(
-        "Questions formulaire",
+        "Questions",
         key=f"wf_form_questions_popover_{app_id}",
         width="stretch",
         help="Colle les questions du formulaire ATS pour générer des réponses ancrées dans le profil et l'offre.",

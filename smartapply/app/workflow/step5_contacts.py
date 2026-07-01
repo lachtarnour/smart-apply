@@ -17,16 +17,16 @@ from smartapply.pipeline.output_paths import application_output_dir
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 DECISION_MAKER_CATEGORY_LABELS = {
-    "ceo": "CEO / Owner / President / Founder",
-    "engineering": "Engineering",
+    "ceo": "Direction générale",
+    "engineering": "Technique / Engineering",
     "finance": "Finance",
-    "hr": "Human Resources (HR)",
-    "it": "IT (Information Technology)",
-    "logistics": "Logistics",
+    "hr": "Ressources humaines",
+    "it": "IT",
+    "logistics": "Logistique",
     "marketing": "Marketing",
-    "operations": "Operations / Administration",
-    "buyer": "Procurement (Buyer)",
-    "sales": "Sales",
+    "operations": "Opérations / Administration",
+    "buyer": "Achats",
+    "sales": "Commercial / Sales",
 }
 
 
@@ -86,13 +86,14 @@ def _render_decision_maker_lookup(
 
     options = list(DECISION_MAKER_CATEGORY_LABELS)
     categories = st.multiselect(
-        "decision_maker_category",
+        "Profil à contacter",
         options=options,
         default=["hr"],
-        format_func=lambda value: f"{value} · {DECISION_MAKER_CATEGORY_LABELS.get(value, value)}",
+        format_func=lambda value: DECISION_MAKER_CATEGORY_LABELS.get(value, value),
         key=f"wf_decision_categories_{app_id}",
+        help="Choisis le profil à contacter en priorité pour cette entreprise.",
     )
-    if st.button("Chercher décisionnaire", key=f"wf_lookup_decision_maker_{app_id}"):
+    if st.button("Trouver un décisionnaire", key=f"wf_lookup_decision_maker_{app_id}"):
         found = _lookup_decision_maker_for_application(
             row,
             domain=str(st.session_state.get(domain_key) or "") if lookup_by == "Domaine" else "",
