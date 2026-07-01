@@ -1,10 +1,10 @@
-# SmartApply
+# CandiPilot
 
-SmartApply est un assistant de candidature pour le marché français. Il recherche des offres, filtre les doublons, classe les opportunités par pertinence, génère un dossier adapté (CV, lettre, email) et prépare un brouillon Gmail ou un export `.eml`.
+CandiPilot est un assistant de candidature pour le marché français. Il recherche des offres, filtre les doublons, classe les opportunités par pertinence, génère un dossier adapté (CV, lettre, email) et prépare un brouillon Gmail ou un export `.eml`.
 
 Le principe est simple : automatiser la préparation, jamais l'envoi. Chaque candidature reste sous contrôle humain.
 
-![Accueil SmartApply](docs/screenshots/home.png)
+![Tableau de bord CandiPilot](docs/screenshots/dashboard.png)
 
 ## Fonctionnalités
 
@@ -62,16 +62,17 @@ car il contient des données personnelles. Le dossier versionné
 
 ## Workflow
 
-![Workflow SmartApply](docs/screenshots/workflow.png)
+![Workflow CandiPilot - collecte](docs/screenshots/workflow-collecte.png)
+
+![Workflow CandiPilot - finalisation](docs/screenshots/workflow-finalisation.png)
 
 | Étape | Objectif | Sortie |
 |---|---|---|
-| 1. Recherche | Collecter les offres depuis les sources configurées | Offres brutes |
-| 2. Filtrage | Nettoyer, dédoublonner et exclure les offres non pertinentes | Offres candidates |
-| 3. Scoring | Classer les offres selon le profil | Shortlist priorisée |
-| 4. Analyse | Extraire les critères, risques et contacts utiles | Fiche offre structurée |
-| 5. Génération | Produire CV, lettre et email personnalisés | Dossier de candidature |
-| 6. Finalisation | Prévisualiser puis créer un brouillon Gmail ou un `.eml` | Candidature prête |
+| 1. Collecte | Chercher les offres, filtrer localement et dédoublonner | Offres candidates |
+| 2. Scoring | Classer les offres selon le profil | Shortlist priorisée |
+| 3. Analyse | Extraire les critères, risques et contacts utiles | Fiche offre structurée |
+| 4. Dossier | Produire CV, lettre et email personnalisés | Dossier de candidature |
+| 5. Action | Prévisualiser puis créer un brouillon Gmail, soumettre un formulaire ou exporter un `.eml` | Candidature prête |
 
 Deux modes sont disponibles :
 
@@ -82,27 +83,36 @@ Deux modes sont disponibles :
 
 | Page | Description |
 |---|---|
-| [Workflow](docs/screenshots/workflow.png) | Pipeline guidé, manuel ou autopilot |
+| [Tableau de bord](docs/screenshots/dashboard.png) | Vue de pilotage et prochaine action prioritaire |
+| [Workflow](docs/screenshots/workflow-collecte.png) | Pipeline guidé, manuel ou autopilot |
 | [Offres](docs/screenshots/offres.png) | Recherche, détail et récupération d'offres archivées |
-| [Candidatures](docs/screenshots/candidatures.png) | Dossiers générés et brouillons |
+| [Candidatures](docs/screenshots/candidature-finalisation.png) | Dossiers générés, formulaires et actions finales |
 | [Profil](docs/screenshots/profil.png) | Profil candidat et sources utilisées par le validateur |
-| [Stats](docs/screenshots/stats.png) | Entonnoir, coût LLM et suivi de pertinence |
+| [Stats](docs/screenshots/stats-entonnoir.png) | Entonnoir logique du pipeline et blocages à surveiller |
 | [Autopilot](docs/screenshots/autopilot.png) | Runs haut volume contrôlés |
+
+### Finalisation et suivi
+
+![Détail d'une candidature prête](docs/screenshots/candidature-finalisation.png)
+
+![Entonnoir logique du pipeline](docs/screenshots/stats-entonnoir.png)
 
 ## CLI
 
 ```bash
-smartapply init-db
-smartapply ingest --source francetravail --query "Data Scientist" -l "Paris" --date-posted week
-smartapply ingest --source linkedin --query "Data Scientist" -l "France" --date-posted today --max-results 10
-smartapply ingest-url --url https://example.com/jobs/42
-smartapply ingest-text --title "ML Engineer" --company "Acme" --file offer.txt
-smartapply process --top-k 20
-smartapply apply --job-id 42 --gmail-draft
-smartapply pipeline --source francetravail --query "Data Scientist" -l "Paris" --top-apply 5
-smartapply autopilot --query "Data Scientist OR ML Engineer" -l "Paris" --target-drafts 25 --gmail-draft
-smartapply stats
+candipilot init-db
+candipilot ingest --source francetravail --query "Data Scientist" -l "Paris" --date-posted week
+candipilot ingest --source linkedin --query "Data Scientist" -l "France" --date-posted today --max-results 10
+candipilot ingest-url --url https://example.com/jobs/42
+candipilot ingest-text --title "ML Engineer" --company "Acme" --file offer.txt
+candipilot process --top-k 20
+candipilot apply --job-id 42 --gmail-draft
+candipilot pipeline --source francetravail --query "Data Scientist" -l "Paris" --top-apply 5
+candipilot autopilot --query "Data Scientist OR ML Engineer" -l "Paris" --target-drafts 25 --gmail-draft
+candipilot stats
 ```
+
+La commande historique `smartapply` reste disponible comme alias.
 
 ## Architecture
 

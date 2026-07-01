@@ -62,5 +62,7 @@ reports/
 scripts/
 notebooks/
 daily scrapper/
-docs/
+docs/*
+!docs/screenshots/
+!docs/screenshots/*.png
 tests/
