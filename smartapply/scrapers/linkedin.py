@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import datetime
 from typing import Any
 
@@ -20,6 +20,10 @@ from smartapply.utils.contracts import normalize_source_contract_type
 
 logger = get_logger(__name__)
 
+
+def _should_stop(stop_requested: Callable[[], bool] | None) -> bool:
+    return bool(stop_requested and stop_requested())
+
 APIFY_LINKEDIN_JOBS_URL = (
     "https://api.apify.com/v2/acts/"
     "valig~linkedin-jobs-scraper/run-sync-get-dataset-items"
@@ -29,7 +33,7 @@ _DATE_POSTED_TO_APIFY = {
     "any": None,
     "today": "r86400",
     # The actor schema only exposes 24h, week and month. Keep the shared
-    # SmartApply "3days" selector valid by widening it to the closest supported
+    # Keep the app's "3days" selector valid by widening it to the closest supported
     # LinkedIn filter instead of sending an out-of-schema value.
     "3days": "r604800",
     "week": "r604800",
@@ -156,8 +160,11 @@ class LinkedInJobsScraper(Scraper):
         experience_level: list[str] | tuple[str, ...] | str | None = None,
         remote: list[str] | tuple[str, ...] | str | None = None,
         url_path: str = "/jobs/search",
+        stop_requested: Callable[[], bool] | None = None,
         **kwargs: Any,
     ) -> Iterator[RawJob]:
+        if _should_stop(stop_requested):
+            return
         if not self.token:
             raise ScraperConfigError("APIFY_TOKEN is not set")
         limit = self._resolve_max_results(max_results)
@@ -210,6 +217,8 @@ class LinkedInJobsScraper(Scraper):
             experience_passes.append(fallback_experience)
 
         for pass_index, experience_pass in enumerate(experience_passes, start=1):
+            if _should_stop(stop_requested):
+                return
             remaining = limit - yielded
             if remaining <= 0:
                 return
@@ -233,6 +242,8 @@ class LinkedInJobsScraper(Scraper):
 
             skipped_experience_mismatch = 0
             for raw in items:
+                if _should_stop(stop_requested):
+                    return
                 raw_id = _text(raw.get("id"))
                 raw_experience_code = _linkedin_experience_code(
                     raw.get("experienceLevel")
