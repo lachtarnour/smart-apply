@@ -162,7 +162,10 @@ def _contains_marker(text: str, marker: str) -> bool:
     if not marker_norm:
         return False
     if marker_norm.startswith(","):
-        return marker_norm in text
+        admin_code = marker_norm[1:].strip()
+        if not admin_code:
+            return False
+        return bool(re.search(rf",\s*{re.escape(admin_code)}(?=$|[\s,])", text))
 
     marker_words = _wordish_location(marker_norm)
     if not marker_words:
