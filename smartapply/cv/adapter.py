@@ -42,6 +42,8 @@ _CV_HEAD_UNSUPPORTED_REPLACEMENTS: tuple[tuple[str, str], ...] = (
     ("GCP", "cloud-adjacent"),
 )
 
+_TARGET_PROJECT_COUNT = 4
+
 
 class CvAdapter:
     def __init__(
@@ -86,6 +88,7 @@ class CvAdapter:
         adapted = self._apply_role_family_contract(adapted, analysis, job_title)
         adapted = self._avoid_unsupported_cv_head_terms(adapted, analysis)
         adapted = self._enforce_complete_experiences(adapted)
+        adapted = self._enforce_project_count(adapted)
         adapted = self._enforce_summary_length(adapted)
         return adapted, selection
 
@@ -122,6 +125,7 @@ class CvAdapter:
         adapted = self._apply_role_family_contract(adapted, analysis, job_title)
         adapted = self._avoid_unsupported_cv_head_terms(adapted, analysis)
         adapted = self._enforce_complete_experiences(adapted)
+        adapted = self._enforce_project_count(adapted)
         adapted = self._enforce_summary_length(adapted)
         letter = draft.to_motivation_letter()
         letter = letter.model_copy(
@@ -131,6 +135,7 @@ class CvAdapter:
             }
         )
         adapted = self._ensure_letter_projects_visible(adapted, letter)
+        adapted = self._enforce_project_count(adapted)
         return adapted, letter, selection
 
     def _ensure_letter_projects_visible(
@@ -138,7 +143,7 @@ class CvAdapter:
         adapted: AdaptedCV,
         letter: MotivationLetter,
         *,
-        max_projects: int = 4,
+        max_projects: int = _TARGET_PROJECT_COUNT,
     ) -> AdaptedCV:
         """Keep the CV project list consistent with projects named in the letter."""
         mentioned = mentioned_project_ids(letter.body, self.profile)
@@ -155,6 +160,88 @@ class CvAdapter:
         if aligned == selected:
             return adapted
         return adapted.model_copy(update={"selected_project_ids": aligned})
+
+    def _enforce_project_count(
+        self,
+        adapted: AdaptedCV,
+        *,
+        target_count: int = _TARGET_PROJECT_COUNT,
+    ) -> AdaptedCV:
+        """Keep the rendered Projects section at exactly the configured size."""
+        project_by_id = {project.id: project for project in self.profile.projects}
+        max_count = min(target_count, len(project_by_id))
+        if max_count <= 0:
+            return adapted
+
+        selected: list[str] = []
+        seen: set[str] = set()
+        for project_id in adapted.selected_project_ids:
+            if project_id in project_by_id and project_id not in seen:
+                selected.append(project_id)
+                seen.add(project_id)
+
+        if len(selected) < max_count:
+            context = self._adapted_project_context(adapted)
+            remaining = [
+                project
+                for project in self.profile.projects
+                if project.id not in seen
+            ]
+            remaining.sort(
+                key=lambda project: self._project_relevance(project, context),
+                reverse=True,
+            )
+            for project in remaining:
+                selected.append(project.id)
+                seen.add(project.id)
+                if len(selected) >= max_count:
+                    break
+
+        selected = selected[:max_count]
+        if selected == adapted.selected_project_ids:
+            return adapted
+
+        warnings = list(adapted.warnings)
+        marker = f"project_count_enforced:{len(selected)}"
+        if marker not in warnings:
+            warnings.append(marker)
+        return adapted.model_copy(
+            update={
+                "selected_project_ids": selected,
+                "warnings": warnings,
+            }
+        )
+
+    def _adapted_project_context(self, adapted: AdaptedCV) -> str:
+        return " ".join(
+            [
+                adapted.cv_title,
+                adapted.professional_summary,
+                " ".join(adapted.selected_project_ids),
+                " ".join(
+                    bullet.text
+                    for exp in adapted.selected_experiences
+                    for bullet in exp.bullets
+                ),
+            ]
+        ).lower()
+
+    @staticmethod
+    def _project_relevance(project, context: str) -> tuple[int, int]:
+        keywords = [kw.lower() for kw in getattr(project, "keywords", [])]
+        name_tokens = re.findall(r"[a-z0-9]+", getattr(project, "name", "").lower())
+        description_tokens = re.findall(
+            r"[a-z0-9]+",
+            getattr(project, "description", "").lower(),
+        )
+        score = sum(1 for keyword in keywords if keyword and keyword in context)
+        score += sum(1 for token in name_tokens if len(token) > 2 and token in context)
+        score += sum(
+            1
+            for token in description_tokens
+            if len(token) > 4 and token in context
+        )
+        return (score, len(keywords))
 
     def _enforce_summary_length(self, adapted: AdaptedCV) -> AdaptedCV:
         """Trim overlong summaries deterministically at a word boundary."""

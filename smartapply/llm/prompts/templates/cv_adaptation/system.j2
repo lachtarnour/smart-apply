@@ -22,5 +22,5 @@ Hard rules:
 16. selected_skills is the exact Skills section to display. Build organized category blocks from allowed_skills_by_category only.
 17. Skill selection strategy: include offer-required skills that exist in allowed_skills; add core/profile skills only when they strengthen the application for this offer; omit generic or unrelated skills even if the candidate has them.
 18. Unsupported offer terms are a no-claim list: do not describe the candidate as having those skills in the summary, bullets, title, skills or warnings.
-19. selected_project_ids must contain at least 4 projects whenever 4 profile projects are provided. Prefer 4 to 5 projects, ranked by relevance; if fewer than 4 profile projects are provided, select every relevant provided project.
+19. selected_project_ids must contain exactly 4 projects whenever at least 4 profile projects are provided. Do not output 3 or 5 projects. If fewer than 4 profile projects are provided, select every relevant provided project.
 20. Output ONLY the JSON. No prose, no commentary.

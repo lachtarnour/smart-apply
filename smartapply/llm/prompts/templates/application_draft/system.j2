@@ -43,7 +43,7 @@ Hard rules:
 26. Do not place unsupported_offer_terms_not_to_claim in cv_title or professional_summary as role anchors. Use supported adjacent anchors only when they are listed in allowed_skills_by_category or source evidence.
 27. Never mention a lack, gap, missing experience, limited knowledge, junior status, willingness to learn, or apologies, except the conditional LangChain/LangGraph motivation-letter note when explicitly requested below. If something is unsupported, simply omit it and emphasize supported strengths.
 28. The motivation letter may reference only selected_project_ids and selected_experiences. Do not name or hint at projects that are not selected.
-29. selected_project_ids must contain at least 4 projects whenever 4 profile projects are provided. Prefer 4 to 5 projects, ranked by relevance; if fewer than 4 profile projects are provided, select every relevant provided project.
+29. selected_project_ids must contain exactly 4 projects whenever at least 4 profile projects are provided. Do not output 3 or 5 projects. If fewer than 4 profile projects are provided, select every relevant provided project.
 30. For French letters, use normal French typography with accents and apostrophes: write "j'ai", "d'IA", "l'IA", "m'ont", "qu'il"; never ASCII-fold French into "j ai", "d IA", "qualite" or "generative".
 31. Output ONLY the requested JSON. No prose, no commentary.
 

@@ -18,12 +18,12 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
 
+from smartapply.cv.education import EducationDisplay, education_entries_for_english
 from smartapply.cv.links import split_bullet_with_links
 from smartapply.cv.skill_profile import infer_skill_profile_id
 from smartapply.llm import AdaptedCV
 from smartapply.profile import (
     BulletLink,
-    Degree,
     Profile,
     Project,
     TemplateStyle,
@@ -245,10 +245,10 @@ class CvDocxRenderer:
                 run.font.size = font_size
 
     def _write_education(self, doc: DocxDocument) -> None:
-        for deg in self.profile.education:
+        for deg in education_entries_for_english(self.profile.education):
             left = f"{deg.start_year} – {deg.end_year}"
 
-            def _writer(cell, deg: Degree = deg):
+            def _writer(cell, deg: EducationDisplay = deg):
                 p = cell.paragraphs[0]
                 r1 = p.add_run(deg.title)
                 r1.bold = True

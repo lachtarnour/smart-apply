@@ -81,8 +81,8 @@ Return JSON conforming to ApplicationDraft:
 - Motivation letter fields: motivation_letter_subject, motivation_letter_body.
 
 Project output rule:
-- selected_project_ids must contain at least 4 projects whenever 4 profile projects are provided.
-- Prefer 4 to 5 projects, ranked by direct relevance to the role.
+- selected_project_ids must contain exactly 4 projects whenever at least 4 profile projects are provided.
+- Do not output 3 or 5 projects when 4 or more profile projects are available.
 - If fewer than 4 profile projects are provided, select every relevant provided project.
 - Rank projects by direct relevance to the job tasks, required skills and keywords.
 - Do not invent projects or project claims; every selected id must come from the provided profile projects.

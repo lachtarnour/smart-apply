@@ -175,9 +175,9 @@ class AdaptedCV(BaseModel):
     )
     selected_project_ids: list[str] = Field(
         description=(
-            "IDs of profile projects to keep. Select at least 4 projects whenever "
-            "4 profile projects are available; otherwise select every relevant "
-            "provided project."
+            "IDs of profile projects to keep. Select exactly 4 projects whenever "
+            "at least 4 profile projects are available; otherwise select every "
+            "relevant provided project."
         )
     )
     skills_profile_id: str = Field(
@@ -263,9 +263,9 @@ class ApplicationDraft(BaseModel):
     )
     selected_project_ids: list[str] = Field(
         description=(
-            "IDs of profile projects to keep. Select at least 4 projects whenever "
-            "4 profile projects are available; otherwise select every relevant "
-            "provided project."
+            "IDs of profile projects to keep. Select exactly 4 projects whenever "
+            "at least 4 profile projects are available; otherwise select every "
+            "relevant provided project."
         )
     )
     skills_profile_id: str = Field(

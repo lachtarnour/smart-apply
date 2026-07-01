@@ -15,6 +15,7 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
+from smartapply.cv.education import education_entries_for_english
 from smartapply.cv.links import render_bullet_html
 from smartapply.cv.skill_profile import infer_skill_profile_id
 from smartapply.llm import AdaptedCV, EmailDraft
@@ -172,7 +173,7 @@ class HtmlApplicationRenderer:
             profile=self.profile,
             adapted=adapted,
             experiences=experiences,
-            education=list(self.profile.education),
+            education=education_entries_for_english(self.profile.education),
             skill_categories=skill_categories,
             projects=selected_projects,
             languages=list(self.profile.languages),
