@@ -18,4 +18,5 @@ Sources documentées :
 
 - [SerpAPI / Google Jobs](serpapi.md)
 - [France Travail](francetravail.md)
+- [LinkedIn via Apify](linkedin.md)
 - [Welcome to the Jungle](welcometothejungle.md)

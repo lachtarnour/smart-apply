@@ -2,6 +2,7 @@
 
 from smartapply.offers.sources.base import OfferSourceAdapter
 from smartapply.offers.sources.francetravail import FranceTravailOfferAdapter
+from smartapply.offers.sources.linkedin import LinkedInOfferAdapter
 from smartapply.offers.sources.manual import ManualOfferAdapter, ManualOfferInput
 from smartapply.offers.sources.registry import (
     get_offer_source_adapter,
@@ -12,6 +13,7 @@ from smartapply.offers.sources.wttj import WttjOfferAdapter
 
 __all__ = [
     "FranceTravailOfferAdapter",
+    "LinkedInOfferAdapter",
     "ManualOfferAdapter",
     "ManualOfferInput",
     "OfferSourceAdapter",

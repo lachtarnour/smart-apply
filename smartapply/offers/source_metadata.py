@@ -7,6 +7,7 @@ from typing import Any
 
 from smartapply.offers.source_metadata_builders import (
     build_francetravail_source_metadata,
+    build_linkedin_source_metadata,
     build_manual_source_metadata,
     build_serpapi_source_metadata,
     build_wttj_source_metadata,
@@ -43,6 +44,7 @@ def build_analyzer_source_metadata(job: Any) -> str:
 
 
 register_source_metadata_builder("francetravail", build_francetravail_source_metadata)
+register_source_metadata_builder("linkedin", build_linkedin_source_metadata)
 register_source_metadata_builder("manual", build_manual_source_metadata)
 register_source_metadata_builder("serpapi", build_serpapi_source_metadata)
 register_source_metadata_builder("welcometothejungle", build_wttj_source_metadata)

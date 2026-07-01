@@ -8,11 +8,13 @@ from smartapply.pipeline.ingest.reports import _CollectResult
 
 _RAW_SEEN_MULTIPLIER = 10
 _RAW_SEEN_MIN = 50
+_STRICT_API_BUDGET_SOURCES = {"linkedin", "serpapi"}
 
 
 def collect_round_robin(
     *,
     scraper,
+    source: str | None = None,
     queries: list[str],
     location: str | None,
     max_results: int | None,
@@ -46,12 +48,10 @@ def collect_round_robin(
     # enough to surface new offers. The round-robin enforces the real
     # cap below; the per-iterator value is just a safety bound to
     # avoid SerpApi-style overshoots.
-    if max_results is None:
-        scraper_budget: int | None = None
-        raw_seen_cap: int | None = None
-    else:
-        scraper_budget = max(_RAW_SEEN_MIN, max_results * _RAW_SEEN_MULTIPLIER)
-        raw_seen_cap = scraper_budget
+    scraper_budget, raw_seen_cap = _collection_budget(
+        source or getattr(scraper, "name", ""),
+        max_results,
+    )
     iterators = [
         iter(
             scraper.search(
@@ -98,3 +98,15 @@ def collect_round_robin(
             if max_results is not None and len(raw_jobs) >= max_results:
                 return _CollectResult(raw_jobs, skipped_known, skipped_existing, hit_cap)
     return _CollectResult(raw_jobs, skipped_known, skipped_existing, hit_cap)
+
+
+def _collection_budget(
+    source: str,
+    max_results: int | None,
+) -> tuple[int | None, int | None]:
+    if max_results is None:
+        return None, None
+    if source.strip().lower() in _STRICT_API_BUDGET_SOURCES:
+        return max_results, max_results
+    budget = max(_RAW_SEEN_MIN, max_results * _RAW_SEEN_MULTIPLIER)
+    return budget, budget

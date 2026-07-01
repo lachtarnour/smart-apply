@@ -11,12 +11,14 @@ from collections.abc import Callable
 
 from smartapply.scrapers.base import Scraper
 from smartapply.scrapers.francetravail import FranceTravailScraper
+from smartapply.scrapers.linkedin import LinkedInJobsScraper
 from smartapply.scrapers.serpapi import SerpApiGoogleJobsScraper
 from smartapply.scrapers.welcometothejungle import WelcomeToTheJungleScraper
 
 _BUILDERS: dict[str, Callable[[], Scraper]] = {
     "serpapi": SerpApiGoogleJobsScraper,
     "francetravail": FranceTravailScraper,
+    "linkedin": LinkedInJobsScraper,
     "welcometothejungle": WelcomeToTheJungleScraper,
 }
 

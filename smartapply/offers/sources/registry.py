@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from smartapply.offers.sources.base import OfferSourceAdapter
 from smartapply.offers.sources.francetravail import FranceTravailOfferAdapter
+from smartapply.offers.sources.linkedin import LinkedInOfferAdapter
 from smartapply.offers.sources.manual import ManualOfferAdapter
 from smartapply.offers.sources.serpapi import SerpApiOfferAdapter
 from smartapply.offers.sources.wttj import WttjOfferAdapter
@@ -26,3 +27,4 @@ register_offer_source_adapter(ManualOfferAdapter())
 register_offer_source_adapter(WttjOfferAdapter())
 register_offer_source_adapter(FranceTravailOfferAdapter())
 register_offer_source_adapter(SerpApiOfferAdapter())
+register_offer_source_adapter(LinkedInOfferAdapter())

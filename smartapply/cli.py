@@ -28,9 +28,11 @@ from smartapply.logging_setup import setup_logging
 from smartapply.scrapers import SERPAPI_DATE_POSTED_OPTIONS
 
 DATE_POSTED_CHOICE = click.Choice(list(SERPAPI_DATE_POSTED_OPTIONS))
-SCRAPER_SOURCE_CHOICE = click.Choice(["serpapi", "francetravail", "welcometothejungle"])
+SCRAPER_SOURCE_CHOICE = click.Choice(
+    ["serpapi", "francetravail", "linkedin", "welcometothejungle"]
+)
 AUTOPILOT_SOURCE_CHOICE = click.Choice(
-    ["serpapi", "francetravail", "welcometothejungle", "manual"]
+    ["serpapi", "francetravail", "linkedin", "welcometothejungle", "manual"]
 )
 
 
@@ -83,7 +85,12 @@ def ingest_command(
 
     if source == "serpapi" and max_results is None:
         raise click.BadParameter(
-            "SerpApi requires a bounded --max-results value.",
+            f"{source} requires a bounded --max-results value.",
+            param_hint="--max-results",
+        )
+    if source == "linkedin" and max_results is None:
+        raise click.BadParameter(
+            "LinkedIn has no unlimited mode. Set --max-results below LINKEDIN_MAX_RESULTS.",
             param_hint="--max-results",
         )
 
@@ -222,7 +229,7 @@ def pipeline_command(
 @click.option(
     "--query",
     "-q",
-    default="Data Scientist OR Machine Learning Engineer",
+    default="Data Scientist OR Machine Learning Engineer OR IA Engineer",
     show_default=True,
 )
 @click.option("--location", "-l", default=None)
@@ -231,7 +238,7 @@ def pipeline_command(
     "sources",
     multiple=True,
     type=AUTOPILOT_SOURCE_CHOICE,
-    default=("serpapi", "francetravail", "welcometothejungle", "manual"),
+    default=("serpapi", "francetravail", "linkedin", "welcometothejungle", "manual"),
     show_default=True,
 )
 @click.option("--max-per-source", type=int, default=None)

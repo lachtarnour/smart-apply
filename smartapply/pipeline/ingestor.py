@@ -47,7 +47,7 @@ class Ingestor:
         if not scraper.is_available():
             raise RuntimeError(
                 f"Source {source!r} is not configured. "
-                "Check your .env (SERPAPI_API_KEY or FRANCETRAVAIL_*)."
+                "Check your .env (SERPAPI_API_KEY, FRANCETRAVAIL_* or APIFY_TOKEN)."
             )
         source_key = source.lower()
         should_split_query = split_or and source_key not in QUERY_AGNOSTIC_SOURCES
@@ -73,6 +73,7 @@ class Ingestor:
             known_index = _KnownJobIndex.from_jobs(list_known_jobs(s))
         collect_result = collect_round_robin(
             scraper=scraper,
+            source=source,
             queries=queries,
             location=location,
             max_results=max_results,

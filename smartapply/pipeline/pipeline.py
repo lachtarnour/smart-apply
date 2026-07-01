@@ -55,16 +55,27 @@ def freshness_kwargs(
 ) -> dict[str, Any]:
     """Build per-source ingest kwargs for the freshness filter and SerpApi locale.
 
-    ``date_posted`` is meaningful for both SerpApi (Google Jobs chip) and France
-    Travail (``minCreationDate`` ISO). ``serpapi_hl`` is SerpApi-only — France
-    Travail has no UI language to switch.
+    ``date_posted`` is meaningful for SerpApi (Google Jobs chip), France Travail
+    (``minCreationDate`` ISO) and LinkedIn/Apify (rolling seconds token).
+    ``serpapi_hl`` is SerpApi-only — the other sources have no UI language to
+    switch.
     """
     kwargs: dict[str, Any] = {}
-    if date_posted and source in {"serpapi", "francetravail"}:
+    if date_posted and source in {"serpapi", "francetravail", "linkedin"}:
         kwargs["date_posted"] = date_posted
     if serpapi_hl and source == "serpapi":
         kwargs["hl"] = serpapi_hl
     return kwargs
+
+
+def _linkedin_max_results(max_results: int | None, settings) -> int:
+    requested = settings.linkedin_max_results if max_results is None else max_results
+    if requested > settings.linkedin_max_results:
+        raise ValueError(
+            "linkedin max_results exceeds LINKEDIN_MAX_RESULTS "
+            f"({settings.linkedin_max_results})."
+        )
+    return requested
 
 
 class Pipeline:
@@ -125,18 +136,21 @@ class Pipeline:
         max_results: int | None = 20,
         **search_kwargs: Any,
     ) -> IngestReport:
-        if source == "serpapi" and max_results is None:
+        source_key = source.strip().lower()
+        if source_key == "linkedin":
+            max_results = _linkedin_max_results(max_results, self.settings)
+        elif source_key == "serpapi" and max_results is None:
             raise ValueError(
-                "SerpApi requires a bounded max_results to avoid paid unbounded pagination."
+                f"{source_key} requires a bounded max_results to avoid unbounded API usage."
             )
         accepted = self.profile.preferences.accepted_contract_types or []
         if (
-            source == "francetravail"
+            source_key == "francetravail"
             and "type_contrat" not in search_kwargs
             and should_filter_france_travail_to_cdi(accepted)
         ):
             search_kwargs["type_contrat"] = "CDI"
-        if source == "serpapi" and should_filter_serpapi_to_fulltime(accepted):
+        if source_key == "serpapi" and should_filter_serpapi_to_fulltime(accepted):
             existing_chips = search_kwargs.get("chips", "")
             fulltime_chip = "employment_type:FULLTIME"
             chips = [

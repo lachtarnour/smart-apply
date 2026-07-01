@@ -78,20 +78,28 @@ class AutopilotRunner:
         date_posted: str | None = None,
         serpapi_hl: str | None = None,
     ) -> AutopilotReport:
-        sources = sources or ["serpapi", "francetravail", "welcometothejungle", "manual"]
+        sources = sources or [
+            "serpapi",
+            "francetravail",
+            "linkedin",
+            "welcometothejungle",
+            "manual",
+        ]
         target = target_drafts or self.settings.autopilot_target_drafts
-        max_results = max_per_source or max(target, 25)
         report = AutopilotReport(query=query, location=location, target_drafts=target)
 
         for source in sources:
             if source == "manual":
                 continue
+            source_max_results = max_per_source or target
+            if source == "linkedin" and max_per_source is None:
+                source_max_results = self.settings.linkedin_max_results
             try:
                 ingest = self.pipeline.ingest(
                     source,
                     query,
                     location,
-                    max_results=max_results,
+                    max_results=source_max_results,
                     **freshness_kwargs(source, date_posted=date_posted, serpapi_hl=serpapi_hl),
                 )
                 report.ingest.append(ingest.__dict__)

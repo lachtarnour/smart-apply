@@ -43,7 +43,7 @@ class Settings(BaseSettings):
     samples_dir: Path = Field(default=ROOT_DIR / "data" / "samples")
 
     # Job sources (comma-separated names)
-    job_sources: str = Field(default="serpapi,francetravail,manual")
+    job_sources: str = Field(default="serpapi,francetravail,linkedin,manual")
 
     # SerpApi Google Jobs
     serpapi_api_key: str = Field(default="")
@@ -67,6 +67,14 @@ class Settings(BaseSettings):
     francetravail_client_id: str = Field(default="")
     francetravail_client_secret: str = Field(default="")
     francetravail_scope: str = Field(default="api_offresdemploiv2 o2dsoffre")
+
+    # LinkedIn via Apify valig/linkedin-jobs-scraper
+    apify_token: str = Field(default="")
+    linkedin_contract_type: str = Field(default="F")
+    linkedin_experience_level: str = Field(default="2,3,4")
+    linkedin_remote: str = Field(default="1,2,3")
+    linkedin_date_posted: str = Field(default="week")
+    linkedin_max_results: int = Field(default=50, ge=1, le=50)
 
     # Welcome to the Jungle personalized matches
     wttj_cookie: str = Field(default="")

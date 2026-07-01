@@ -27,7 +27,7 @@ gardés dans `_smartapply_search` pour audit.
 | `WTTJ_ANALYZER_METADATA_FIELDS` | Champs transmis au LLM. |
 
 ```env
-JOB_SOURCES=serpapi,francetravail,welcometothejungle,manual
+JOB_SOURCES=serpapi,francetravail,linkedin,welcometothejungle,manual
 WTTJ_COOKIE=...
 ```
 

@@ -8,7 +8,7 @@ Le principe est simple : automatiser la préparation, jamais l'envoi. Chaque can
 
 ## Fonctionnalités
 
-- Recherche multi-sources : France Travail, Welcome to the Jungle, Google Jobs via SerpApi et saisie manuelle.
+- Recherche multi-sources : France Travail, Welcome to the Jungle, LinkedIn via Apify, Google Jobs via SerpApi et saisie manuelle.
 - Filtrage local : dédoublonnage, signaux de contrat, localisation, rôle et niveau d'expérience.
 - Scoring sémantique : classement des offres selon le profil candidat.
 - Génération assistée par IA : CV, lettre de motivation et email adaptés à l'offre.
@@ -47,6 +47,8 @@ Renseigner les variables utiles dans `.env` après copie de `.env.example`.
 | `OPENAI_API_KEY` | LLM et embeddings | Oui, sauf provider `mock` |
 | `FRANCETRAVAIL_CLIENT_ID` / `FRANCETRAVAIL_CLIENT_SECRET` | API France Travail | Si la source est active |
 | `SERPAPI_API_KEY` | Google Jobs via SerpApi | Si la source est active |
+| `APIFY_TOKEN` | LinkedIn Jobs via Apify | Si la source `linkedin` est active |
+| `LINKEDIN_MAX_RESULTS` | Limite globale des appels LinkedIn/Apify, maximum `50` | Optionnel |
 | `WTTJ_COOKIE` | Welcome to the Jungle | Si la source est active |
 | `GMAIL_CREDENTIALS_PATH` | Création de brouillons Gmail | Optionnel |
 | `ANYMAILFINDER_API_KEY` | Enrichissement de contacts | Optionnel |
@@ -92,6 +94,7 @@ Deux modes sont disponibles :
 ```bash
 smartapply init-db
 smartapply ingest --source francetravail --query "Data Scientist" -l "Paris" --date-posted week
+smartapply ingest --source linkedin --query "Data Scientist" -l "France" --date-posted today --max-results 10
 smartapply ingest-url --url https://example.com/jobs/42
 smartapply ingest-text --title "ML Engineer" --company "Acme" --file offer.txt
 smartapply process --top-k 20

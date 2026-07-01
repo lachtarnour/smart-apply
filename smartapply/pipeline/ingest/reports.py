@@ -25,19 +25,16 @@ class IngestReport:
     # offers to look for genuinely new ones".
     skipped_known_during_collect: int = 0
     # True when the collector stopped because it hit the raw-fetch safety
-    # cap (``max_results`` × scan budget) instead of either reaching
-    # ``max_results`` new offers or exhausting the source. Useful in
-    # the UI to suggest raising the slider.
+    # cap instead of either reaching ``max_results`` new offers or exhausting
+    # the source. LinkedIn/SerpApi use a strict cap equal to ``max_results``;
+    # other sources may use extra scan headroom to skip known duplicates.
     hit_raw_seen_cap: bool = False
     search_audit: list[dict[str, Any]] = field(default_factory=list)
 
 
-# How many raw offers a single round-robin run is allowed to *examine*
-# before giving up. The cap is multiplicative on ``max_results`` so a
-# small request stays cheap while a 300-item request gets the headroom
-# to skip a few thousand already-known offers if needed. The bound
-# guarantees the loop terminates even if a misbehaving scraper yields
-# endless duplicates.
+# How many raw offers a single non-strict source run is allowed to *examine*
+# before giving up. LinkedIn/SerpApi are intentionally stricter in
+# ``collection.py`` to avoid unexpected paid API usage.
 _RAW_SEEN_MULTIPLIER = 10
 _RAW_SEEN_MIN = 50
 
@@ -50,5 +47,4 @@ class _CollectResult:
     skipped_known: int
     skipped_existing: int
     hit_raw_seen_cap: bool
-
 
