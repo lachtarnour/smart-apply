@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from smartapply.database import session_scope
@@ -41,6 +42,7 @@ class Ingestor:
         *,
         max_results: int | None = 20,
         split_or: bool = True,
+        stop_requested: Callable[[], bool] | None = None,
         **search_kwargs,
     ) -> IngestReport:
         scraper = get_scraper(source)
@@ -80,6 +82,7 @@ class Ingestor:
             search_kwargs=search_kwargs,
             known_external_ids=known_external_ids,
             known_index=known_index,
+            stop_requested=stop_requested,
         )
         search_audit = _build_search_audit(collect_result.raw_jobs)
         return self._persist(
@@ -89,6 +92,7 @@ class Ingestor:
             collect_skipped_known=collect_result.skipped_known,
             collect_skipped_existing=collect_result.skipped_existing,
             hit_raw_seen_cap=collect_result.hit_raw_seen_cap,
+            cancelled=collect_result.cancelled,
         )
 
     def from_url(self, url: str) -> IngestReport:
@@ -132,6 +136,7 @@ class Ingestor:
         collect_skipped_known: int = 0,
         collect_skipped_existing: int = 0,
         hit_raw_seen_cap: bool = False,
+        cancelled: bool = False,
     ) -> IngestReport:
         job_ids: list[int] = []
         inserted = 0
@@ -182,6 +187,7 @@ class Ingestor:
             skipped_existing_during_persist=skipped_existing,
             skipped_known_during_collect=collect_skipped_known,
             hit_raw_seen_cap=hit_raw_seen_cap,
+            cancelled=cancelled,
             search_audit=search_audit or [],
         )
 

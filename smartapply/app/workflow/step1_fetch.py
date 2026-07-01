@@ -13,10 +13,12 @@ from smartapply.app._helpers import (
     render_section_header,
 )
 from smartapply.app.workflow.state import (
-    _begin_run,
     _end_run,
+    _force_clear_run_lock,
+    _request_stop,
     _serpapi_effective_config,
     _stop_requested,
+    _try_begin_run,
     settings,
 )
 from smartapply.app.workflow.step1_archive import (
@@ -39,8 +41,62 @@ from smartapply.app.workflow.widgets import (
 )
 from smartapply.database import session_scope
 from smartapply.database.repository import list_pending_processing
+from smartapply.logging_setup import get_logger
 from smartapply.pipeline.pipeline import freshness_kwargs
 from smartapply.scrapers import SERPAPI_DATE_POSTED_LABELS
+
+logger = get_logger(__name__)
+
+
+def _render_fetch_stop_control() -> None:
+    if st.session_state.get("wf_running") != "recherche":
+        return
+    status_col, stop_col = st.columns([2, 1])
+    with status_col:
+        if _stop_requested():
+            st.warning(
+                "Arrêt demandé : la recherche se termine au prochain point sûr. "
+                "Une requête réseau déjà partie peut encore prendre quelques secondes."
+            )
+        else:
+            st.info(
+                "Recherche en cours. L'arrêt coupe toutes les sources au prochain point sûr."
+            )
+    with stop_col:
+        if st.button(
+            "Arrêter toutes les sources",
+            key="wf_stop_fetch_all_sources",
+            type="secondary",
+            width="stretch",
+        ):
+            _request_stop()
+            st.warning("Arrêt demandé pour toutes les sources en cours.")
+
+
+def _render_run_notice() -> None:
+    notice = st.session_state.get("wf_run_notice")
+    if not notice:
+        return
+    if str(notice).startswith("Recherche arrêtée") or "Arrêt demandé" in str(notice):
+        st.warning(str(notice))
+    else:
+        st.info(str(notice))
+
+
+def _render_blocked_search_controls() -> None:
+    logger.warning(
+        "Search launch blocked in step1 UI: running=%r stop_requested=%s",
+        st.session_state.get("wf_running"),
+        st.session_state.get("wf_stop_requested"),
+    )
+    st.warning(
+        "Une recherche est encore verrouillée. Si tu viens de demander l'arrêt "
+        "et que rien ne bouge, débloque le verrou puis relance la recherche."
+    )
+    if st.button("Débloquer la recherche", key="wf_force_unlock_search", type="secondary"):
+        _force_clear_run_lock("manual unlock from step1 search")
+        st.success("Recherche débloquée. Relance la recherche.")
+        st.rerun()
 
 
 def _pending_jobs_df(keep_map: dict[int, bool], recent_ids: list[int]) -> pd.DataFrame:
@@ -193,7 +249,7 @@ def step1_fetch() -> None:
             sources = st.multiselect(
                 "Sources",
                 options=["serpapi", "francetravail", "linkedin", "welcometothejungle"],
-                default=["serpapi", "francetravail", "linkedin", "welcometothejungle"],
+                default=["francetravail", "linkedin", "welcometothejungle"],
             )
             date_posted = st.selectbox(
                 "Fraîcheur",
@@ -258,25 +314,42 @@ def step1_fetch() -> None:
 
         submitted = st.form_submit_button("Lancer la recherche", type="primary")
 
+    _render_run_notice()
+    _render_fetch_stop_control()
+
     st.divider()
 
     if "submitted" not in locals():
         submitted = False
 
     if submitted:
-        _begin_run("recherche")
+        if not _try_begin_run("recherche"):
+            _render_blocked_search_controls()
+            return
+        _render_fetch_stop_control()
         try:
             if not sources:
                 st.error("Choisis au moins une source.")
             else:
+                logger.info(
+                    "Search run started: sources=%s query=%r location=%r max_per_source=%s",
+                    sources,
+                    query,
+                    location,
+                    max_per_source,
+                )
                 all_ids: list[int] = []
+                stopped = False
                 p = pipeline_singleton()
                 progress = st.progress(0.0, text="Préparation de la recherche...")
                 for i, src in enumerate(sources, start=1):
                     if _stop_requested():
+                        stopped = True
+                        logger.warning("Search run stop observed before source=%s", src)
                         st.warning("Recherche arrêtée avant la source suivante.")
                         break
                     progress.progress((i - 1) / len(sources), text=f"Recherche sur {src}...")
+                    logger.info("Search source started: source=%s index=%s/%s", src, i, len(sources))
                     with st.spinner(f"Recherche sur {src}..."):
                         try:
                             kwargs = freshness_kwargs(
@@ -308,9 +381,26 @@ def step1_fetch() -> None:
                                 query,
                                 location,
                                 max_results=source_max_results,
+                                stop_requested=_stop_requested,
                                 **kwargs,
                             )
                             summary_bits = [f"{report.inserted} nouvelle(s)"]
+                            logger.info(
+                                "Search source finished: source=%s accepted_for_persist=%s "
+                                "inserted=%s updated_pending=%s skipped_processed=%s "
+                                "skipped_known_collect=%s skipped_existing_collect=%s "
+                                "skipped_existing_persist=%s hit_raw_seen_cap=%s cancelled=%s",
+                                src,
+                                report.fetched,
+                                report.inserted,
+                                report.updated_pending,
+                                report.skipped_processed,
+                                report.skipped_known_during_collect,
+                                report.skipped_existing_during_collect,
+                                report.skipped_existing_during_persist,
+                                report.hit_raw_seen_cap,
+                                report.cancelled,
+                            )
                             skipped_existing = (
                                 report.skipped_existing_during_collect
                                 + report.skipped_existing_during_persist
@@ -337,15 +427,35 @@ def step1_fetch() -> None:
                                     f"{src} : limite de scan atteinte avant de trouver de nouvelles offres. "
                                     "Augmente le slider 'Résultats/source' ou élargis la requête."
                                 )
+                            if report.cancelled:
+                                stopped = True
+                                logger.warning("Search source cancelled: source=%s", src)
+                                st.warning(f"{src} : arrêt demandé, collecte interrompue.")
                             if source_progress is not None:
                                 source_progress.progress(
-                                    1.0,
-                                    text=f"WTTJ: terminé · {report.fetched} offre(s) collectée(s)",
+                                    0.99 if report.cancelled else 1.0,
+                                    text=(
+                                        f"WTTJ: arrêt demandé · {report.fetched} offre(s) collectée(s)"
+                                        if report.cancelled
+                                        else f"WTTJ: terminé · {report.fetched} offre(s) collectée(s)"
+                                    ),
                                 )
                             all_ids.extend(report.job_ids)
+                            if stopped or _stop_requested():
+                                stopped = True
+                                logger.warning("Search run stopping after source=%s", src)
+                                break
                         except Exception as e:
+                            logger.exception("Search source failed: source=%s", src)
                             st.error(f"{src} : {e}")
-                progress.progress(1.0, text="Filtre local automatique...")
+                progress.progress(
+                    1.0,
+                    text=(
+                        "Recherche arrêtée · filtre local automatique..."
+                        if stopped
+                        else "Filtre local automatique..."
+                    ),
+                )
                 st.session_state["wf_fetched_ids"] = all_ids
                 with st.spinner("Filtre local automatique..."):
                     filter_report = _filter_pending_for_step1()
@@ -361,7 +471,10 @@ def step1_fetch() -> None:
                         )
                     )
                 progress.empty()
-                _end_run(f"Recherche terminée : {len(all_ids)} offre(s) candidate(s).")
+                summary_prefix = "Recherche arrêtée" if stopped else "Recherche terminée"
+                summary = f"{summary_prefix} : {len(all_ids)} offre(s) candidate(s)."
+                logger.info("Search run ended: stopped=%s candidate_ids=%s", stopped, len(all_ids))
+                _end_run(summary)
         finally:
             if st.session_state.get("wf_running") == "recherche":
                 _end_run()

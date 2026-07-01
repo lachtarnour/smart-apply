@@ -67,6 +67,7 @@ class Settings(BaseSettings):
     francetravail_client_id: str = Field(default="")
     francetravail_client_secret: str = Field(default="")
     francetravail_scope: str = Field(default="api_offresdemploiv2 o2dsoffre")
+    francetravail_timeout: int = Field(default=30, ge=1, le=120)
 
     # LinkedIn via Apify valig/linkedin-jobs-scraper
     apify_token: str = Field(default="")

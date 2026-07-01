@@ -6,6 +6,10 @@ WTTJ lit le feed personnalisé `jobs-matches` du compte connecté. Les champs
 `query` et `location` de `Scraper.search` ne filtrent pas côté WTTJ : ils sont
 gardés dans `_smartapply_search` pour audit.
 
+La fraîcheur de recherche est transmise au feed WTTJ avec `published_since` :
+`today` → `last_24h`, `3days` → `last_3d`, `week` → `last_7d`. Pour `month`
+(`30 derniers jours`) ou `any`, aucun paramètre de date n'est ajouté à l'URL.
+
 ## Stratégie rapide
 
 | Phase | Stratégie |

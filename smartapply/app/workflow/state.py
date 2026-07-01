@@ -2,15 +2,24 @@
 
 from __future__ import annotations
 
+from threading import Lock
+from uuid import uuid4
+
 import streamlit as st
 
 from smartapply.config import get_settings
 from smartapply.database import session_scope
 from smartapply.database.models import Application, Job, JobStatus
 from smartapply.database.repository import list_pending_processing
+from smartapply.logging_setup import get_logger
 from smartapply.scrapers import SERPAPI_DATE_POSTED_LABELS
 
+logger = get_logger(__name__)
 settings = get_settings()
+_RUN_LOCK = Lock()
+_RUN_STATE_LOCK = Lock()
+_RUN_LOCK_OWNER: str | None = None
+_RUN_STOP_REQUESTS: set[str] = set()
 
 # ============================================================
 # Session state
@@ -62,6 +71,7 @@ DEFAULTS = {
     "wf_use_contact_lookup": False,
     "wf_running": None,
     "wf_stop_requested": False,
+    "wf_run_notice": None,
     "wf_last_run_summary": None,
     "wf_search_text": "",
     "wf_hide_low_signal": True,
@@ -94,17 +104,109 @@ def reset_workflow() -> None:
 def _begin_run(name: str) -> None:
     st.session_state["wf_running"] = name
     st.session_state["wf_stop_requested"] = False
+    st.session_state["wf_run_notice"] = None
+
+
+def _try_begin_run(name: str) -> bool:
+    """Start a workflow run if no other run is active in this app process."""
+    global _RUN_LOCK_OWNER
+    if not _RUN_LOCK.acquire(blocking=False):
+        logger.warning(
+            "Workflow run start blocked: requested=%s running=%r stop_requested=%s owner=%s",
+            name,
+            st.session_state.get("wf_running"),
+            st.session_state.get("wf_stop_requested"),
+            _RUN_LOCK_OWNER,
+        )
+        return False
+    token = str(uuid4())
+    with _RUN_STATE_LOCK:
+        _RUN_LOCK_OWNER = token
+        _RUN_STOP_REQUESTS.discard(token)
+    st.session_state["wf_run_lock_token"] = token
+    _begin_run(name)
+    logger.info("Workflow run started: name=%s token=%s", name, token)
+    return True
 
 
 def _end_run(summary: str | None = None) -> None:
+    global _RUN_LOCK_OWNER
+    token = st.session_state.pop("wf_run_lock_token", None)
+    running = st.session_state.get("wf_running")
     st.session_state["wf_running"] = None
     st.session_state["wf_stop_requested"] = False
+    with _RUN_STATE_LOCK:
+        if token:
+            _RUN_STOP_REQUESTS.discard(str(token))
+        if token and token == _RUN_LOCK_OWNER:
+            _RUN_LOCK_OWNER = None
+            if _RUN_LOCK.locked():
+                _RUN_LOCK.release()
+                logger.info("Workflow run lock released: name=%s token=%s", running, token)
+        elif _RUN_LOCK.locked() and token:
+            logger.warning(
+                "Workflow run ended without releasing lock: name=%s token=%s owner=%s",
+                running,
+                token,
+                _RUN_LOCK_OWNER,
+            )
     if summary:
         st.session_state["wf_last_run_summary"] = summary
+        st.session_state["wf_run_notice"] = summary
+    logger.info("Workflow run ended: name=%s token=%s summary=%r", running, token, summary)
+
+
+def _current_run_token() -> str | None:
+    token = st.session_state.get("wf_run_lock_token")
+    return token if isinstance(token, str) and token else None
+
+
+def _request_stop() -> None:
+    st.session_state["wf_stop_requested"] = True
+    st.session_state["wf_run_notice"] = (
+        "Arrêt demandé : la recherche va se terminer au prochain point sûr."
+    )
+    token = _current_run_token()
+    if token:
+        with _RUN_STATE_LOCK:
+            _RUN_STOP_REQUESTS.add(token)
+    logger.warning(
+        "Workflow stop requested: running=%r token=%s owner=%s",
+        st.session_state.get("wf_running"),
+        token,
+        _RUN_LOCK_OWNER,
+    )
 
 
 def _stop_requested() -> bool:
-    return bool(st.session_state.get("wf_stop_requested"))
+    if st.session_state.get("wf_stop_requested"):
+        return True
+    token = _current_run_token()
+    if not token:
+        return False
+    with _RUN_STATE_LOCK:
+        return token in _RUN_STOP_REQUESTS
+
+
+def _force_clear_run_lock(reason: str) -> None:
+    """Release an orphaned workflow lock after a user-visible recovery action."""
+    global _RUN_LOCK_OWNER
+    token = st.session_state.pop("wf_run_lock_token", None)
+    logger.warning(
+        "Force-clearing workflow run lock: reason=%s token=%s owner=%s running=%r",
+        reason,
+        token,
+        _RUN_LOCK_OWNER,
+        st.session_state.get("wf_running"),
+    )
+    with _RUN_STATE_LOCK:
+        _RUN_STOP_REQUESTS.clear()
+        _RUN_LOCK_OWNER = None
+        if _RUN_LOCK.locked():
+            _RUN_LOCK.release()
+    st.session_state["wf_running"] = None
+    st.session_state["wf_stop_requested"] = False
+    st.session_state["wf_run_notice"] = "Recherche débloquée. Tu peux relancer une recherche."
 
 
 def _request_stop_button(key: str) -> None:
@@ -117,7 +219,7 @@ def _request_stop_button(key: str) -> None:
         unsafe_allow_html=True,
     )
     if st.button("Arrêter au prochain point sûr", key=key, type="secondary"):
-        st.session_state["wf_stop_requested"] = True
+        _request_stop()
         st.warning("Arrêt demandé. Le traitement s'arrêtera entre deux éléments.")
 
 

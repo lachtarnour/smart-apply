@@ -11,6 +11,7 @@ from smartapply.config import get_settings
 from smartapply.logging_setup import get_logger
 from smartapply.offers import RawJob
 from smartapply.scrapers.base import Scraper, ScraperConfigError
+from smartapply.scrapers.serpapi_query import normalize_date_posted
 from smartapply.scrapers.wttj.contracts import (
     WTTJ_SOURCE,
     WTTJJobLink,
@@ -41,6 +42,21 @@ from smartapply.scrapers.wttj.offer_parser import (  # noqa: E402
     parse_saved_detail,
 )
 
+WTTJ_DATE_POSTED_TO_PUBLISHED_SINCE = {
+    "today": "last_24h",
+    "3days": "last_3d",
+    "week": "last_7d",
+}
+
+
+def _published_since_from_date_posted(date_posted: str | None) -> str | None:
+    normalized = normalize_date_posted(date_posted)
+    return WTTJ_DATE_POSTED_TO_PUBLISHED_SINCE.get(normalized)
+
+
+def _should_stop(stop_requested: Callable[[], bool] | None) -> bool:
+    return bool(stop_requested and stop_requested())
+
 
 def fetch_matches_api_page(*args: Any, **kwargs: Any) -> dict[str, Any]:
     return _matches_api.fetch_matches_api_page(*args, **kwargs)
@@ -57,11 +73,13 @@ def scrape_matches_requests(
     max_jobs: int | None = None,
     progress_target: int | None = None,
     per_page: int | None = None,
+    published_since: str | None = None,
     include_company_profile: bool = True,
     skip_failed_jobs: bool = True,
     timeout: int = 30,
     delay_seconds: float = 0.5,
     extra_headers: dict[str, str] | None = None,
+    stop_requested: Callable[[], bool] | None = None,
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> Iterator[RawJob]:
     return _matches_api.scrape_matches_requests(
@@ -70,11 +88,13 @@ def scrape_matches_requests(
         max_jobs=max_jobs,
         progress_target=progress_target,
         per_page=per_page,
+        published_since=published_since,
         include_company_profile=include_company_profile,
         skip_failed_jobs=skip_failed_jobs,
         timeout=timeout,
         delay_seconds=delay_seconds,
         extra_headers=extra_headers,
+        stop_requested=stop_requested,
         progress_callback=progress_callback,
         fetch_matches_api_page_fn=fetch_matches_api_page,
         fetch_detail_api_job_fn=fetch_detail_api_job,
@@ -136,6 +156,9 @@ class WelcomeToTheJungleScraper(Scraper):
             raise ScraperConfigError("WTTJ_COOKIE must be set to use the WTTJ scraper")
         if max_results is not None and max_results <= 0:
             return
+        stop_requested = kwargs.pop("stop_requested", None)
+        if _should_stop(stop_requested):
+            return
 
         pages = min(int(kwargs.pop("pages", self.pages)), int(self.max_pages))
         per_page = kwargs.pop("per_page", self.per_page)
@@ -147,6 +170,8 @@ class WelcomeToTheJungleScraper(Scraper):
         delay_seconds = float(kwargs.pop("delay_seconds", self.delay_seconds))
         progress_callback = kwargs.pop("progress_callback", None)
         progress_target = kwargs.pop("progress_target", max_results)
+        date_posted = kwargs.pop("date_posted", None)
+        published_since = _published_since_from_date_posted(date_posted)
         page_numbers = range(1, pages + 1)
         if progress_callback is not None:
             progress_callback(
@@ -166,12 +191,16 @@ class WelcomeToTheJungleScraper(Scraper):
             max_jobs=max_results,
             progress_target=progress_target,
             per_page=per_page,
+            published_since=published_since,
             include_company_profile=include_company_profile,
             skip_failed_jobs=skip_failed_jobs,
             timeout=timeout,
             delay_seconds=delay_seconds,
+            stop_requested=stop_requested,
             progress_callback=progress_callback,
         ):
+            if _should_stop(stop_requested):
+                return
             source_data = dict(job.source_data or {})
             source_data["_smartapply_search"] = {
                 "source_mode": "personalized_matches",
@@ -179,6 +208,8 @@ class WelcomeToTheJungleScraper(Scraper):
                 "location": location,
                 "pages": pages,
                 "per_page": per_page,
+                "date_posted": date_posted,
+                "published_since": published_since,
                 "include_company_profile": include_company_profile,
             }
             job.source_data = source_data

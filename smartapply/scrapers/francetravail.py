@@ -9,12 +9,13 @@ lifetime (1500s default).
 from __future__ import annotations
 
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import datetime, timedelta, timezone
+from queue import Empty, Queue
+from threading import Thread
 from typing import Any
 
 import requests
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from smartapply.config import get_settings
 from smartapply.logging_setup import get_logger
@@ -28,6 +29,15 @@ from smartapply.utils.contracts import normalize_source_contract_type
 from smartapply.utils.french_geo import resolve_french_location
 
 logger = get_logger(__name__)
+
+
+def _should_stop(stop_requested: Callable[[], bool] | None) -> bool:
+    return bool(stop_requested and stop_requested())
+
+
+class FranceTravailSearchCancelled(RuntimeError):
+    """Raised internally when a cooperative stop abandons an in-flight FT request."""
+
 
 TOKEN_URL = (
     "https://entreprise.francetravail.fr/connexion/oauth2/access_token?realm=%2Fpartenaire"
@@ -121,11 +131,13 @@ class FranceTravailScraper(Scraper):
         client_id: str | None = None,
         client_secret: str | None = None,
         scope: str | None = None,
+        timeout: int | None = None,
     ):
         settings = get_settings()
         self.client_id = client_id or settings.francetravail_client_id
         self.client_secret = client_secret or settings.francetravail_client_secret
         self.scope = scope or settings.francetravail_scope
+        self.timeout = timeout if timeout is not None else settings.francetravail_timeout
         self._token: str | None = None
         self._token_expires_at: float = 0.0
 
@@ -134,15 +146,18 @@ class FranceTravailScraper(Scraper):
 
     # -------------------- auth --------------------
 
-    def _get_token(self) -> str:
+    def _get_token(self, *, stop_requested: Callable[[], bool] | None = None) -> str:
         if self._token and time.time() < self._token_expires_at - 30:
             return self._token
         if not self.is_available():
             raise ScraperConfigError(
                 "FRANCETRAVAIL_CLIENT_ID/SECRET must be set to use this scraper"
             )
-        response = requests.post(
+        response = self._request_with_cancel(
+            "POST",
             TOKEN_URL,
+            operation="France Travail token request",
+            stop_requested=stop_requested,
             data={
                 "grant_type": "client_credentials",
                 "client_id": self.client_id,
@@ -150,7 +165,7 @@ class FranceTravailScraper(Scraper):
                 "scope": self.scope,
             },
             headers={"Content-Type": "application/x-www-form-urlencoded"},
-            timeout=20,
+            timeout=self.timeout,
         )
         response.raise_for_status()
         payload = response.json()
@@ -160,20 +175,87 @@ class FranceTravailScraper(Scraper):
 
     # -------------------- search --------------------
 
-    @retry(
-        retry=retry_if_exception_type(requests.RequestException),
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=8),
-        reraise=True,
-    )
+    def _request_with_cancel(
+        self,
+        method: str,
+        url: str,
+        *,
+        operation: str,
+        stop_requested: Callable[[], bool] | None = None,
+        **kwargs: Any,
+    ) -> requests.Response:
+        if _should_stop(stop_requested):
+            raise FranceTravailSearchCancelled(f"{operation} cancelled before request")
+        if stop_requested is None:
+            request_fn = requests.post if method.upper() == "POST" else requests.get
+            return request_fn(url, **kwargs)
+
+        result_queue: Queue[tuple[str, Any]] = Queue(maxsize=1)
+        request_fn = requests.post if method.upper() == "POST" else requests.get
+
+        def _worker() -> None:
+            try:
+                result_queue.put(("response", request_fn(url, **kwargs)))
+            except Exception as exc:  # pragma: no cover - relayed to caller
+                result_queue.put(("error", exc))
+
+        thread = Thread(target=_worker, name="francetravail-http", daemon=True)
+        thread.start()
+        while True:
+            if _should_stop(stop_requested):
+                logger.warning("%s cancelled while HTTP request is still in-flight", operation)
+                raise FranceTravailSearchCancelled(operation)
+            try:
+                kind, value = result_queue.get(timeout=0.2)
+            except Empty:
+                continue
+            if kind == "error":
+                raise value
+            return value
+
     def _fetch_range(
-        self, *, params: dict[str, Any], headers: dict[str, str]
+        self,
+        *,
+        params: dict[str, Any],
+        headers: dict[str, str],
+        stop_requested: Callable[[], bool] | None = None,
     ) -> dict[str, Any]:
-        response = requests.get(SEARCH_URL, params=params, headers=headers, timeout=30)
+        logger.info(
+            "France Travail request start: q=%r range=%s timeout=%ss",
+            params.get("motsCles"),
+            params.get("range"),
+            self.timeout,
+        )
+        response = self._request_with_cancel(
+            "GET",
+            SEARCH_URL,
+            operation=(
+                "France Travail search request "
+                f"q={params.get('motsCles')!r} range={params.get('range')}"
+            ),
+            stop_requested=stop_requested,
+            params=params,
+            headers=headers,
+            timeout=self.timeout,
+        )
         if response.status_code == 204:
+            logger.info(
+                "France Travail request done: q=%r range=%s status=204 results=0",
+                params.get("motsCles"),
+                params.get("range"),
+            )
             return {}
         response.raise_for_status()
-        return response.json()
+        payload = response.json()
+        results = payload.get("resultats") if isinstance(payload, dict) else None
+        logger.info(
+            "France Travail request done: q=%r range=%s status=%s results=%s",
+            params.get("motsCles"),
+            params.get("range"),
+            response.status_code,
+            len(results) if isinstance(results, list) else "?",
+        )
+        return payload
 
     def search(
         self,
@@ -185,12 +267,20 @@ class FranceTravailScraper(Scraper):
         departement: str | None = None,
         type_contrat: str | None = None,
         date_posted: str | None = None,
+        stop_requested: Callable[[], bool] | None = None,
         **kwargs: Any,
     ) -> Iterator[RawJob]:
+        if _should_stop(stop_requested):
+            logger.warning("France Travail search cancelled before start: q=%r", query)
+            return
         if max_results is not None and max_results <= 0:
             return
 
-        token = self._get_token()
+        try:
+            token = self._get_token(stop_requested=stop_requested)
+        except FranceTravailSearchCancelled:
+            logger.warning("France Travail search cancelled during auth: q=%r", query)
+            return
         headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
         creation_window = _date_posted_to_creation_window(date_posted)
 
@@ -209,6 +299,14 @@ class FranceTravailScraper(Scraper):
         offset = 0
 
         while True:
+            if _should_stop(stop_requested):
+                logger.warning(
+                    "France Travail search cancelled before page fetch: q=%r offset=%s yielded=%s",
+                    query,
+                    offset,
+                    results_yielded,
+                )
+                return
             end = offset + page_size - 1
             params: dict[str, Any] = {
                 "motsCles": query,
@@ -228,16 +326,49 @@ class FranceTravailScraper(Scraper):
                 params["motsCles"] = f"{query} {keyword_location}".strip()
 
             try:
-                payload = self._fetch_range(params=params, headers=headers)
+                payload = self._fetch_range(
+                    params=params,
+                    headers=headers,
+                    stop_requested=stop_requested,
+                )
+            except FranceTravailSearchCancelled:
+                logger.warning(
+                    "France Travail search cancelled during request: q=%r yielded=%s",
+                    query,
+                    results_yielded,
+                )
+                return
             except requests.RequestException as e:
                 logger.error("France Travail request failed: %s", e)
+                if _should_stop(stop_requested):
+                    logger.warning(
+                        "France Travail search stopped after request failure: q=%r yielded=%s",
+                        query,
+                        results_yielded,
+                    )
+                    return
                 break
+            if _should_stop(stop_requested):
+                logger.warning(
+                    "France Travail search cancelled after request before parsing jobs: "
+                    "q=%r yielded=%s",
+                    query,
+                    results_yielded,
+                )
+                return
 
             jobs = payload.get("resultats") or []
             if not jobs:
                 break
 
             for raw in jobs:
+                if _should_stop(stop_requested):
+                    logger.warning(
+                        "France Travail search cancelled while reading jobs: q=%r yielded=%s",
+                        query,
+                        results_yielded,
+                    )
+                    return
                 job = self._to_raw_job(raw)
                 if job is None:
                     continue

@@ -5,7 +5,7 @@ Documentation: https://serpapi.com/google-jobs-api
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Any
 
 import requests
@@ -33,6 +33,10 @@ from smartapply.utils.contracts import normalize_source_contract_type
 logger = get_logger(__name__)
 
 SERPAPI_URL = "https://serpapi.com/search.json"
+
+
+def _should_stop(stop_requested: Callable[[], bool] | None) -> bool:
+    return bool(stop_requested and stop_requested())
 
 
 class SerpApiGoogleJobsScraper(Scraper):
@@ -90,8 +94,11 @@ class SerpApiGoogleJobsScraper(Scraper):
         hl: str | None = None,
         gl: str | None = None,
         google_domain: str | None = None,
+        stop_requested: Callable[[], bool] | None = None,
         **kwargs: Any,
     ) -> Iterator[RawJob]:
+        if _should_stop(stop_requested):
+            return
         if not self.api_key:
             raise ScraperConfigError("SERPAPI_API_KEY is not set")
         if max_results is None:
@@ -113,22 +120,28 @@ class SerpApiGoogleJobsScraper(Scraper):
         languages = split_localization_values(hl, fallback=self.hl)
         countries = split_localization_values(gl, fallback=self.gl)
         domains = split_localization_values(google_domain, fallback=self.google_domain)
-        collected: list[RawJob] = []
+        yielded = 0
         seen_external_ids: set[str] = set()
         for domain in domains:
+            if _should_stop(stop_requested):
+                return
             for country in countries:
+                if _should_stop(stop_requested):
+                    return
                 for language in market_languages(
                     languages,
                     country=country,
                     location=location or self.default_location,
                 ):
+                    if _should_stop(stop_requested):
+                        return
                     remaining = (
-                        max_results - len(collected)
+                        max_results - yielded
                         if max_results is not None
                         else None
                     )
                     if remaining is not None and remaining <= 0:
-                        break
+                        return
                     params: dict[str, Any] = {
                         "engine": "google_jobs",
                         "q": search_query,
@@ -148,27 +161,38 @@ class SerpApiGoogleJobsScraper(Scraper):
                     for job in self._search_pages_with_fallback(
                         params,
                         max_results=remaining,
+                        stop_requested=stop_requested,
                     ):
+                        if _should_stop(stop_requested):
+                            return
                         if job.external_id in seen_external_ids:
                             continue
                         seen_external_ids.add(job.external_id)
-                        collected.append(job)
-                        if max_results is not None and len(collected) >= max_results:
-                            break
-
-        for job in collected[:max_results] if max_results is not None else collected:
-            yield job
+                        yielded += 1
+                        yield job
+                        if max_results is not None and yielded >= max_results:
+                            return
 
     def _search_pages_with_fallback(
         self,
         params: dict[str, Any],
         *,
         max_results: int | None,
+        stop_requested: Callable[[], bool] | None = None,
     ) -> Iterator[RawJob]:
         seen_external_ids: set[str] = set()
         yielded = 0
 
-        for job in self._search_pages(params, max_results=max_results):
+        if _should_stop(stop_requested):
+            return
+
+        for job in self._search_pages(
+            params,
+            max_results=max_results,
+            stop_requested=stop_requested,
+        ):
+            if _should_stop(stop_requested):
+                return
             if job.external_id in seen_external_ids:
                 continue
             seen_external_ids.add(job.external_id)
@@ -177,6 +201,8 @@ class SerpApiGoogleJobsScraper(Scraper):
 
         if yielded == 0:
             for fallback_params in zero_result_fallback_params(params):
+                if _should_stop(stop_requested):
+                    return
                 logger.info(
                     "SerpApi zero-result filter widening: q=%r hl=%s gl=%s chips=%r -> %r",
                     params.get("q"),
@@ -189,7 +215,10 @@ class SerpApiGoogleJobsScraper(Scraper):
                 for job in self._search_pages(
                     fallback_params,
                     max_results=max_results,
+                    stop_requested=stop_requested,
                 ):
+                    if _should_stop(stop_requested):
+                        return
                     if job.external_id in seen_external_ids:
                         continue
                     seen_external_ids.add(job.external_id)
@@ -218,7 +247,13 @@ class SerpApiGoogleJobsScraper(Scraper):
                 fallback_params.get("gl"),
                 fallback_params.get("chips"),
             )
-            for job in self._search_pages(fallback_params, max_results=max_results):
+            for job in self._search_pages(
+                fallback_params,
+                max_results=max_results,
+                stop_requested=stop_requested,
+            ):
+                if _should_stop(stop_requested):
+                    return
                 if job.external_id in seen_external_ids:
                     continue
                 seen_external_ids.add(job.external_id)
@@ -241,6 +276,8 @@ class SerpApiGoogleJobsScraper(Scraper):
 
         target = _low_result_target(max_results, self.low_result_fallback_target)
         for fallback_params in zero_result_fallback_params(params):
+            if _should_stop(stop_requested):
+                return
             if yielded >= target:
                 return
             remaining = target - yielded
@@ -253,7 +290,13 @@ class SerpApiGoogleJobsScraper(Scraper):
                 params.get("chips"),
                 fallback_params.get("chips"),
             )
-            for job in self._search_pages(fallback_params, max_results=remaining):
+            for job in self._search_pages(
+                fallback_params,
+                max_results=remaining,
+                stop_requested=stop_requested,
+            ):
+                if _should_stop(stop_requested):
+                    return
                 if job.external_id in seen_external_ids:
                     continue
                 seen_external_ids.add(job.external_id)
@@ -273,6 +316,7 @@ class SerpApiGoogleJobsScraper(Scraper):
         params: dict[str, Any],
         *,
         max_results: int | None,
+        stop_requested: Callable[[], bool] | None = None,
     ) -> Iterator[RawJob]:
         pages_limit = self.max_pages
         pages_fetched = 0
@@ -280,6 +324,8 @@ class SerpApiGoogleJobsScraper(Scraper):
         next_token: str | None = None
 
         while pages_fetched < pages_limit:
+            if _should_stop(stop_requested):
+                return
             page_params = dict(params)
             if next_token:
                 page_params["next_page_token"] = next_token
@@ -308,6 +354,8 @@ class SerpApiGoogleJobsScraper(Scraper):
                 break
 
             for raw in jobs:
+                if _should_stop(stop_requested):
+                    return
                 job = self._to_raw_job(raw)
                 if job is None:
                     continue

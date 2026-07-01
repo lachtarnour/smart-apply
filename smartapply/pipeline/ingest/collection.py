@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
+from smartapply.logging_setup import get_logger
 from smartapply.offers import RawJob
 from smartapply.pipeline.ingest.dedupe import _KnownJobIndex
 from smartapply.pipeline.ingest.reports import _CollectResult
+
+logger = get_logger(__name__)
 
 _RAW_SEEN_MULTIPLIER = 10
 _RAW_SEEN_MIN = 50
@@ -21,6 +26,7 @@ def collect_round_robin(
     search_kwargs: dict,
     known_external_ids: set[str] | None = None,
     known_index: _KnownJobIndex | None = None,
+    stop_requested: Callable[[], bool] | None = None,
 ) -> _CollectResult:
     """Collect results fairly across expanded queries.
 
@@ -37,6 +43,9 @@ def collect_round_robin(
     """
     if not queries:
         return _CollectResult([], 0, 0, False)
+    if _should_stop(stop_requested):
+        logger.warning("Collection cancelled before iterator setup: source=%s", source)
+        return _CollectResult([], 0, 0, False, cancelled=True)
     known = known_external_ids or set()
     known_jobs = known_index or _KnownJobIndex(frozenset(), frozenset())
     raw_jobs: list[RawJob] = []
@@ -52,13 +61,16 @@ def collect_round_robin(
         source or getattr(scraper, "name", ""),
         max_results,
     )
+    scraper_search_kwargs = dict(search_kwargs)
+    if stop_requested is not None:
+        scraper_search_kwargs["stop_requested"] = stop_requested
     iterators = [
         iter(
             scraper.search(
                 concrete_query,
                 location=location,
                 max_results=scraper_budget,
-                **search_kwargs,
+                **scraper_search_kwargs,
             )
         )
         for concrete_query in queries
@@ -69,6 +81,20 @@ def collect_round_robin(
         for i, iterator in enumerate(iterators):
             if not active[i]:
                 continue
+            if _should_stop(stop_requested):
+                logger.warning(
+                    "Collection cancelled before next item: source=%s raw_jobs=%s raw_seen=%s",
+                    source,
+                    len(raw_jobs),
+                    raw_seen,
+                )
+                return _CollectResult(
+                    raw_jobs,
+                    skipped_known,
+                    skipped_existing,
+                    hit_cap,
+                    cancelled=True,
+                )
             if max_results is not None and len(raw_jobs) >= max_results:
                 return _CollectResult(raw_jobs, skipped_known, skipped_existing, hit_cap)
             if raw_seen_cap is not None and raw_seen >= raw_seen_cap:
@@ -78,6 +104,20 @@ def collect_round_robin(
                 raw = next(iterator)
             except StopIteration:
                 active[i] = False
+                if _should_stop(stop_requested):
+                    logger.warning(
+                        "Collection cancelled after iterator stopped: source=%s raw_jobs=%s raw_seen=%s",
+                        source,
+                        len(raw_jobs),
+                        raw_seen,
+                    )
+                    return _CollectResult(
+                        raw_jobs,
+                        skipped_known,
+                        skipped_existing,
+                        hit_cap,
+                        cancelled=True,
+                    )
                 continue
             raw_seen += 1
             if raw.external_id in seen_external_ids:
@@ -97,7 +137,31 @@ def collect_round_robin(
             raw_jobs.append(raw)
             if max_results is not None and len(raw_jobs) >= max_results:
                 return _CollectResult(raw_jobs, skipped_known, skipped_existing, hit_cap)
-    return _CollectResult(raw_jobs, skipped_known, skipped_existing, hit_cap)
+            if _should_stop(stop_requested):
+                logger.warning(
+                    "Collection cancelled after accepted item: source=%s raw_jobs=%s raw_seen=%s",
+                    source,
+                    len(raw_jobs),
+                    raw_seen,
+                )
+                return _CollectResult(
+                    raw_jobs,
+                    skipped_known,
+                    skipped_existing,
+                    hit_cap,
+                    cancelled=True,
+                )
+    return _CollectResult(
+        raw_jobs,
+        skipped_known,
+        skipped_existing,
+        hit_cap,
+        cancelled=_should_stop(stop_requested),
+    )
+
+
+def _should_stop(stop_requested: Callable[[], bool] | None) -> bool:
+    return bool(stop_requested and stop_requested())
 
 
 def _collection_budget(

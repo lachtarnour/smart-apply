@@ -7,7 +7,7 @@ from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
 from time import sleep
 from typing import Any
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urlencode, urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -53,11 +53,22 @@ def _emit_progress(callback: ProgressCallback | None, **event: Any) -> None:
     except Exception as exc:
         logger.debug("Ignoring WTTJ progress callback error: %s", exc)
 
-def matches_page_url(page: int) -> str:
+
+def _should_stop(stop_requested: Callable[[], bool] | None) -> bool:
+    return bool(stop_requested and stop_requested())
+
+
+def matches_page_url(page: int, *, published_since: str | None = None) -> str:
     """Build the personalized matches URL for a 1-indexed page number."""
     if page < 1:
         raise ValueError("page must be >= 1")
-    return f"{WTTJ_MATCHES_URL}?page={page}"
+    params: dict[str, Any] = {}
+    if published_since:
+        params["published_since"] = published_since
+    if page > 1:
+        params["page"] = page
+    query = urlencode(params)
+    return f"{WTTJ_MATCHES_URL}?{query}" if query else WTTJ_MATCHES_URL
 
 def parse_listing_links(html: str, *, base_url: str = WTTJ_BASE_URL) -> list[WTTJJobLink]:
     """Extract unique WTTJ job links from a jobs-matches HTML page."""
@@ -78,6 +89,7 @@ def fetch_matches_api_page(
     page: int,
     cookie_header: str,
     per_page: int | None = None,
+    published_since: str | None = None,
     timeout: int = 30,
     extra_headers: dict[str, str] | None = None,
 ) -> dict[str, Any]:
@@ -92,11 +104,17 @@ def fetch_matches_api_page(
     if not cookie_header.strip():
         raise WTTJScraperError("A logged-in WTTJ Cookie header is required for jobs-matches.")
 
-    params: dict[str, int] = {"page": page}
+    params: dict[str, Any] = {"page": page}
     if per_page is not None:
         params["per_page"] = per_page
+    if published_since:
+        params["published_since"] = published_since
 
-    headers = _api_headers(cookie_header, extra_headers=extra_headers)
+    headers = _api_headers(
+        cookie_header,
+        published_since=published_since,
+        extra_headers=extra_headers,
+    )
     response = requests.get(WTTJ_MATCHES_API_URL, headers=headers, params=params, timeout=timeout)
     if response.status_code in {401, 403}:
         raise WTTJScraperError(
@@ -175,11 +193,13 @@ def scrape_matches_requests(
     max_jobs: int | None = None,
     progress_target: int | None = None,
     per_page: int | None = None,
+    published_since: str | None = None,
     include_company_profile: bool = True,
     skip_failed_jobs: bool = True,
     timeout: int = 30,
     delay_seconds: float = 0.5,
     extra_headers: dict[str, str] | None = None,
+    stop_requested: Callable[[], bool] | None = None,
     progress_callback: ProgressCallback | None = None,
     fetch_matches_api_page_fn: Callable[..., dict[str, Any]] | None = None,
     fetch_detail_api_job_fn: Callable[..., dict[str, Any]] | None = None,
@@ -191,6 +211,9 @@ def scrape_matches_requests(
     """
     if not cookie_header.strip():
         raise WTTJScraperError("A logged-in WTTJ Cookie header is required for jobs-matches.")
+    if _should_stop(stop_requested):
+        _emit_progress(progress_callback, event="cancelled", yielded=0)
+        return
 
     seen: set[str] = set()
     company_cache: dict[str, dict[str, Any]] = {}
@@ -198,6 +221,17 @@ def scrape_matches_requests(
     page_count: int | None = None
     pages_total = len(pages)
     for page_number in pages:
+        if _should_stop(stop_requested):
+            _emit_progress(
+                progress_callback,
+                event="cancelled",
+                pages_total=pages_total,
+                page_count=page_count,
+                max_jobs=max_jobs,
+                progress_target=progress_target,
+                yielded=yielded,
+            )
+            return
         if page_count is not None and page_number > page_count:
             break
         _emit_progress(
@@ -215,6 +249,7 @@ def scrape_matches_requests(
                 page=page_number,
                 cookie_header=cookie_header,
                 per_page=per_page,
+                published_since=published_since,
                 timeout=timeout,
                 extra_headers=extra_headers,
             )
@@ -252,6 +287,18 @@ def scrape_matches_requests(
 
         page_has_new_link = False
         for page_job_index, link in enumerate(links, start=1):
+            if _should_stop(stop_requested):
+                _emit_progress(
+                    progress_callback,
+                    event="cancelled",
+                    page=page_number,
+                    pages_total=pages_total,
+                    page_count=page_count,
+                    max_jobs=max_jobs,
+                    progress_target=progress_target,
+                    yielded=yielded,
+                )
+                return
             if link.url in seen:
                 continue
             page_has_new_link = True
@@ -301,6 +348,18 @@ def scrape_matches_requests(
                 _merge_company_profile_from_matches_api(source_data, link.api_data)
             job.source_data = source_data
             if include_company_profile:
+                if _should_stop(stop_requested):
+                    _emit_progress(
+                        progress_callback,
+                        event="cancelled",
+                        page=page_number,
+                        pages_total=pages_total,
+                        page_count=page_count,
+                        max_jobs=max_jobs,
+                        progress_target=progress_target,
+                        yielded=yielded,
+                    )
+                    return
                 _emit_progress(
                     progress_callback,
                     event="company_profile_start",
@@ -328,6 +387,18 @@ def scrape_matches_requests(
                 company=job.company,
             )
             yield job
+            if _should_stop(stop_requested):
+                _emit_progress(
+                    progress_callback,
+                    event="cancelled",
+                    page=page_number,
+                    pages_total=pages_total,
+                    page_count=page_count,
+                    max_jobs=max_jobs,
+                    progress_target=progress_target,
+                    yielded=yielded,
+                )
+                return
             if max_jobs is not None and yielded >= max_jobs:
                 _emit_progress(
                     progress_callback,
@@ -368,6 +439,8 @@ def scrape_matches_live(
     *,
     pages: Sequence[int],
     max_jobs: int | None = None,
+    published_since: str | None = None,
+    stop_requested: Callable[[], bool] | None = None,
     cdp_url: str | None = None,
     user_data_dir: str | Path | None = None,
     headless: bool = False,
@@ -421,7 +494,9 @@ def scrape_matches_live(
 
         try:
             for page_number in pages:
-                url = matches_page_url(page_number)
+                if _should_stop(stop_requested):
+                    return
+                url = matches_page_url(page_number, published_since=published_since)
                 list_page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
                 _wait_for_wttj_content(list_page, timeout_ms, PlaywrightTimeoutError)
                 listing_html = list_page.content()
@@ -432,6 +507,8 @@ def scrape_matches_live(
                     )
 
                 for link in parse_listing_links(listing_html):
+                    if _should_stop(stop_requested):
+                        return
                     if link.url in seen:
                         continue
                     seen.add(link.url)
@@ -459,6 +536,7 @@ def scrape_matches_live(
 def _api_headers(
     cookie_header: str,
     *,
+    published_since: str | None = None,
     extra_headers: dict[str, str] | None = None,
 ) -> dict[str, str]:
     headers = dict(WTTJ_HEADERS)
@@ -467,7 +545,7 @@ def _api_headers(
             "Accept": "application/json, text/plain, */*",
             "Cookie": cookie_header.strip(),
             "Origin": WTTJ_BASE_URL,
-            "Referer": matches_page_url(1),
+            "Referer": matches_page_url(1, published_since=published_since),
         }
     )
     csrf_token = _cookie_value(cookie_header, "csrf-token")

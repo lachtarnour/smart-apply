@@ -14,6 +14,7 @@ change.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from typing import Any
 
 from smartapply.config import get_settings
@@ -56,12 +57,18 @@ def freshness_kwargs(
     """Build per-source ingest kwargs for the freshness filter and SerpApi locale.
 
     ``date_posted`` is meaningful for SerpApi (Google Jobs chip), France Travail
-    (``minCreationDate`` ISO) and LinkedIn/Apify (rolling seconds token).
+    (``minCreationDate`` ISO), LinkedIn/Apify (rolling seconds token), and WTTJ
+    (``published_since`` on the personalized matches feed).
     ``serpapi_hl`` is SerpApi-only — the other sources have no UI language to
     switch.
     """
     kwargs: dict[str, Any] = {}
-    if date_posted and source in {"serpapi", "francetravail", "linkedin"}:
+    if date_posted and source in {
+        "serpapi",
+        "francetravail",
+        "linkedin",
+        "welcometothejungle",
+    }:
         kwargs["date_posted"] = date_posted
     if serpapi_hl and source == "serpapi":
         kwargs["hl"] = serpapi_hl
@@ -134,6 +141,7 @@ class Pipeline:
         location: str | None = None,
         *,
         max_results: int | None = 20,
+        stop_requested: Callable[[], bool] | None = None,
         **search_kwargs: Any,
     ) -> IngestReport:
         source_key = source.strip().lower()
@@ -166,6 +174,7 @@ class Pipeline:
             query,
             location,
             max_results=max_results,
+            stop_requested=stop_requested,
             **search_kwargs,
         )
 

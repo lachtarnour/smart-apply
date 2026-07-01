@@ -29,6 +29,9 @@ class IngestReport:
     # the source. LinkedIn/SerpApi use a strict cap equal to ``max_results``;
     # other sources may use extra scan headroom to skip known duplicates.
     hit_raw_seen_cap: bool = False
+    # True when collection stopped because the UI/user cancellation callback
+    # requested a cooperative stop.
+    cancelled: bool = False
     search_audit: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -47,4 +50,4 @@ class _CollectResult:
     skipped_known: int
     skipped_existing: int
     hit_raw_seen_cap: bool
-
+    cancelled: bool = False

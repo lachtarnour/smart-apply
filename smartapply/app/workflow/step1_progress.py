@@ -21,6 +21,8 @@ def _wttj_progress_fraction(event: dict[str, Any]) -> float:
     target = _event_int(event, "progress_target") or _event_int(event, "max_jobs")
     if event_name == "done":
         return 1.0
+    if event_name == "cancelled":
+        return max(0.0, min(0.99, yielded / target)) if target else 0.0
     if target and target > 0:
         partial = {
             "page_fetch_start": 0.05,
@@ -76,6 +78,8 @@ def _wttj_progress_text(event: dict[str, Any]) -> str:
         return f"WTTJ: {count_text} · {title[:50]}"
     if event_name == "done":
         return f"WTTJ: terminé · {count_text}"
+    if event_name == "cancelled":
+        return f"WTTJ: arrêt demandé · {count_text}"
     return f"WTTJ: {page_text} · {count_text}"
 
 
