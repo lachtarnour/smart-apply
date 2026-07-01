@@ -33,6 +33,33 @@ def ensure_db() -> None:
 def apply_app_style() -> None:
     ensure_db()
     render_app_style()
+    render_app_navigation()
+
+
+def render_app_navigation() -> None:
+    """Render a product-oriented navigation instead of Streamlit's file list."""
+    with st.sidebar:
+        st.markdown(
+            """
+            <div class="sa-sidebar-brand">
+              <div class="sa-sidebar-logo">SA</div>
+              <div>
+                <div class="sa-sidebar-title">SmartApply</div>
+                <div class="sa-sidebar-subtitle">Pilotage candidatures</div>
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.page_link("main.py", label="Tableau de bord", icon=":material/dashboard:")
+        st.page_link("pages/0_Workflow.py", label="Workflow", icon=":material/account_tree:")
+        st.page_link("pages/2_Candidatures.py", label="Candidatures", icon=":material/outgoing_mail:")
+        st.page_link("pages/6_Candidature_manuelle.py", label="Offre manuelle", icon=":material/edit_note:")
+        st.page_link("pages/1_Offres.py", label="Offres", icon=":material/view_list:")
+        with st.expander("Administration", expanded=False):
+            st.page_link("pages/4_Stats.py", label="Stats", icon=":material/monitoring:")
+            st.page_link("pages/3_Profil.py", label="Profil", icon=":material/manage_accounts:")
+            st.page_link("pages/5_Autopilot.py", label="Autopilot", icon=":material/rocket_launch:")
 
 
 def render_status_badge(label: str, kind: str = "blue") -> str:
@@ -98,7 +125,7 @@ def render_page_header(
     icon: str | None = None,
     badges: list[tuple[str, str]] | None = None,
 ) -> None:
-    heading = f"{escape(icon)} {escape(title)}" if icon else escape(title)
+    heading = escape(title)
     badge_html = ""
     if badges:
         badge_html = (
@@ -241,7 +268,7 @@ def render_status_funnel(
     for start in range(0, len(pipeline_rows), 5):
         cols = st.columns(5)
         for col, row in zip(cols, pipeline_rows[start : start + 5], strict=False):
-            with col, st.container(border=True):
+            with col, st.container():
                 st.caption(f"Étape {row['order']}")
                 st.metric(row["label"], row["count"])
                 st.caption(row["description"])

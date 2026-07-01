@@ -42,8 +42,8 @@ def _serpapi_effective_config(
 
 
 render_page_header(
-    "Autopilot candidatures",
-    "Lancer un run contrôlé qui cherche, trie, analyse et prépare des dossiers sans envoi automatique.",
+    "Autopilot",
+    "Mode avancé pour produire plusieurs dossiers en une seule passe contrôlée.",
     icon="🚀",
     badges=[
         ("Quality gate recommandé", "good"),
@@ -61,21 +61,21 @@ default_date = (
 
 left, right = st.columns(2)
 with left:
-    with st.container(border=True):
+    with st.container():
         st.markdown("### 1. Cible de recherche")
         query = st.text_input(
             "Requête",
-            value="Data Scientist OR Machine Learning Engineer",
+            value="Data Scientist OR Machine Learning Engineer OR IA Engineer",
         )
         st.caption("Les rôles séparés par `OR` sont recherchés séparément. L'anglais est gardé, un alias FR est ajouté si utile.")
         location = st.text_input("Localisation", value=settings.serpapi_default_location)
 
-    with st.container(border=True):
+    with st.container():
         st.markdown("### 2. Sources et fraîcheur")
         sources = st.multiselect(
             "Sources",
-            options=["serpapi", "francetravail", "welcometothejungle"],
-            default=["serpapi", "francetravail", "welcometothejungle"],
+            options=["serpapi", "francetravail", "linkedin", "welcometothejungle"],
+            default=["serpapi", "francetravail", "linkedin", "welcometothejungle"],
         )
         date_posted = st.selectbox(
             "Fraîcheur des offres",
@@ -92,7 +92,7 @@ with left:
         )
 
 with right:
-    with st.container(border=True):
+    with st.container():
         st.markdown("### 3. Volume")
         target = st.number_input(
             "Objectif brouillons/dossiers",
@@ -100,11 +100,19 @@ with right:
             max_value=300,
             value=settings.autopilot_target_drafts,
         )
+        max_source_limit = (
+            settings.linkedin_max_results if "linkedin" in sources else 300
+        )
+        max_source_default = (
+            settings.linkedin_max_results
+            if "linkedin" in sources
+            else settings.autopilot_target_drafts
+        )
         max_per_source = st.number_input(
             "Résultats max par source",
-            min_value=5,
-            max_value=300,
-            value=max(25, settings.autopilot_target_drafts),
+            min_value=1,
+            max_value=int(max_source_limit),
+            value=min(int(max_source_default), int(max_source_limit)),
         )
         with st.expander("Détails de recherche", expanded=False):
             if "serpapi" in sources:
@@ -115,11 +123,15 @@ with right:
                         location=location,
                     )
                 )
-                st.caption("SerpApi consomme des crédits selon les pages et fallbacks utilisés.")
             else:
                 st.caption("SerpApi désactivé pour ce run.")
+            if "linkedin" in sources:
+                st.caption(
+                    "LinkedIn/Apify : "
+                    f"limite globale {settings.linkedin_max_results} depuis .env."
+                )
 
-    with st.container(border=True):
+    with st.container():
         st.markdown("### 4. Sécurité")
         gmail_draft = st.toggle("Créer des brouillons Gmail", value=False)
         quality_gate = st.toggle("Quality gate IA strict", value=True)

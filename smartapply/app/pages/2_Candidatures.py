@@ -136,8 +136,8 @@ def _regenerate_eml(
 st.set_page_config(page_title="Candidatures | SmartApply", page_icon="📝", layout="wide")
 apply_app_style()
 render_page_header(
-    "Centre de contrôle des candidatures",
-    "Piloter les dossiers générés, vérifier les contacts, relire les documents et préparer les actions sans envoi automatique.",
+    "Candidatures",
+    "Relire les dossiers, corriger les contacts et préparer les actions.",
     icon="📝",
     badges=[
         ("Revue manuelle obligatoire", "warn"),
@@ -240,18 +240,20 @@ ready_statuses = {
     JobStatus.READY_FOR_FORM_SUBMISSION,
     JobStatus.DRAFT_CREATED,
 }
+contact_required = ~visible_df["status"].isin([JobStatus.READY_FOR_FORM_SUBMISSION])
+contact_required = contact_required & visible_df["strategy"].fillna("").ne("form_only")
 needs_review = visible_df[
-    visible_df["contact"].fillna("").astype(str).eq("")
-    | visible_df["status"].isin([JobStatus.CONTACT_MISSING, JobStatus.QUALITY_REJECTED])
+    visible_df["status"].isin([JobStatus.CONTACT_MISSING, JobStatus.QUALITY_REJECTED])
+    | (contact_required & visible_df["contact"].fillna("").astype(str).eq(""))
 ]
 k1, k2, k3, k4, k5 = st.columns(5)
-k1.metric("Candidatures visibles", len(visible_df))
+k1.metric("Visibles", len(visible_df))
 k2.metric("Prêtes", int(visible_df["status"].isin(ready_statuses).sum()))
 k3.metric("À revoir", len(needs_review))
 k4.metric("Contact trouvé", int(visible_df["contact"].fillna("").astype(str).ne("").sum()))
 k5.metric("Formulaire requis", int(visible_df["form_url"].notna().sum()))
 
-st.markdown("### 1. Liste des candidatures")
+st.markdown("### Liste")
 st.dataframe(
     visible_df.drop(
         columns=[
@@ -280,7 +282,7 @@ st.dataframe(
 
 st.divider()
 
-st.markdown("### 2. Détail candidature sélectionnée")
+st.markdown("### Détail")
 app_id = st.selectbox(
     "Candidature",
     options=visible_df["id"].astype(int).tolist(),
@@ -306,6 +308,12 @@ _session_text_default(body_key, r["body"])
 contact_valid_now = _is_valid_email(contact or "")
 has_form = bool(_optional_text(r["form_url"]))
 has_draft = _text(r["status"]) == JobStatus.DRAFT_CREATED
+is_form_flow = (
+    has_form
+    or _text(r["status"]) == JobStatus.READY_FOR_FORM_SUBMISSION
+    or _text(r["strategy"]) == "form_only"
+)
+contact_required_now = not is_form_flow
 placeholder_visible = any(
     MISSING_RECIPIENT_PLACEHOLDER in value
     for value in [contact or "", _text(r["subject"]), _text(r["body"])]
@@ -322,12 +330,23 @@ st.markdown(
 render_badge_row(
     [
         (status_label(_text(r["status"])), "good" if _text(r["status"]) in ready_statuses else "blue"),
-        ("Contact fiable" if contact_valid_now else "Contact à vérifier", "good" if contact_valid_now else "warn"),
+        (
+            "Contact fiable"
+            if contact_valid_now
+            else "Formulaire sans contact"
+            if is_form_flow
+            else "Contact à vérifier",
+            "good"
+            if contact_valid_now
+            else "neutral"
+            if is_form_flow
+            else "warn",
+        ),
         ("Formulaire requis", "purple" if has_form else "neutral"),
         ("Brouillon Gmail créé" if has_draft else "Revue nécessaire", "good" if has_draft else "warn"),
     ]
 )
-if not contact_valid_now:
+if contact_required_now and not contact_valid_now:
     render_info_panel(
         "Contact à vérifier avant usage",
         "Aucun destinataire fiable n'est attaché à cette candidature. Corrige le contact avant d'utiliser l'EML ou Gmail.",
@@ -517,7 +536,7 @@ with tab_follow:
             st.error(f"Echec : {e}")
 
 st.divider()
-st.markdown("### 3. Actions et documents")
+st.markdown("### Documents et actions")
 cols = st.columns(4)
 cv_path = _optional_text(r["cv_path"])
 if cv_path and Path(cv_path).exists():
@@ -559,14 +578,16 @@ if eml_path and Path(eml_path).exists():
         )
 
 st.divider()
-if not contact:
+if is_form_flow and not contact:
+    st.info("Cette candidature est prévue pour dépôt via formulaire.")
+elif not contact:
     st.info("Ajoute ou trouve un contact avant de créer un brouillon Gmail.")
 
 final_subject = str(st.session_state.get(subject_key, "")).strip()
 final_body = str(st.session_state.get(body_key, "")).strip()
 contact_valid = _is_valid_email(contact)
 draft_disabled = not contact_valid or not final_subject or not final_body
-if st.button("📧 Créer un brouillon Gmail", type="primary", disabled=draft_disabled):
+if st.button("Créer un brouillon Gmail", type="primary", disabled=draft_disabled):
     try:
         from smartapply.email_agent.gmail_draft import create_draft_result
 

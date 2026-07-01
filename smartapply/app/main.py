@@ -1,4 +1,4 @@
-"""SmartApply AI — compact Streamlit home."""
+"""SmartApply production dashboard."""
 
 from __future__ import annotations
 
@@ -16,19 +16,25 @@ from smartapply.app._helpers import (
     status_label,
     total_jobs,
 )
-from smartapply.config import get_settings
 from smartapply.database import session_scope
 from smartapply.database.models import Application, Job, JobStatus
 from smartapply.database.repository import list_pending_processing
 from smartapply.jobsearch import next_action_for
 
 st.set_page_config(
-    page_title="SmartApply AI",
-    page_icon="🎯",
+    page_title="SmartApply",
+    page_icon="SA",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 apply_app_style()
+
+
+READY_STATUSES = {
+    JobStatus.EMAIL_GENERATED,
+    JobStatus.DRAFT_CREATED,
+    JobStatus.READY_FOR_FORM_SUBMISSION,
+}
 
 
 def _dashboard_snapshot() -> dict[str, Any]:
@@ -36,17 +42,18 @@ def _dashboard_snapshot() -> dict[str, Any]:
         pending_jobs = list_pending_processing(s)
         apps = s.execute(select(Application)).scalars().all()
         latest_jobs = (
-            s.execute(select(Job).order_by(Job.scraped_at.desc()).limit(6))
+            s.execute(select(Job).order_by(Job.scraped_at.desc()).limit(5))
             .scalars()
             .all()
         )
         latest_apps = (
             s.execute(
-                select(Application).order_by(Application.updated_at.desc()).limit(6)
+                select(Application).order_by(Application.updated_at.desc()).limit(8)
             )
             .scalars()
             .all()
         )
+
         recent_jobs = [
             {
                 "id": job.id,
@@ -57,13 +64,13 @@ def _dashboard_snapshot() -> dict[str, Any]:
             }
             for job in latest_jobs
         ]
-        recent_apps = [
+        application_queue = [
             {
                 "id": app.id,
                 "entreprise": app.job.company if app.job else "",
                 "poste": app.job.title if app.job else "",
                 "statut": status_label(app.status),
-                "action": next_action_for(
+                "prochaine action": next_action_for(
                     app.status,
                     app.updated_at,
                     has_contact=app.contact is not None,
@@ -73,212 +80,175 @@ def _dashboard_snapshot() -> dict[str, Any]:
             for app in latest_apps
         ]
 
-    ready_statuses = {
-        JobStatus.EMAIL_GENERATED,
-        JobStatus.DRAFT_CREATED,
-        JobStatus.READY_FOR_FORM_SUBMISSION,
-    }
+    needs_review = [
+        app
+        for app in apps
+        if app.status in {JobStatus.CONTACT_MISSING, JobStatus.QUALITY_REJECTED}
+        or (
+            app.status in {JobStatus.EMAIL_GENERATED, JobStatus.DRAFT_CREATED}
+            and not app.contact
+        )
+    ]
     return {
         "pending": len(pending_jobs),
         "applications": len(apps),
-        "ready": sum(1 for app in apps if app.status in ready_statuses),
+        "ready": sum(1 for app in apps if app.status in READY_STATUSES),
         "drafts": sum(1 for app in apps if app.gmail_draft_id),
+        "needs_review": len(needs_review),
         "recent_jobs": recent_jobs,
-        "recent_apps": recent_apps,
+        "application_queue": application_queue,
     }
 
 
-def _recommended_action(status_counts: dict[str, int], snapshot: dict[str, Any]) -> tuple[str, str, str]:
+def _recommended_action(
+    status_counts: dict[str, int],
+    snapshot: dict[str, Any],
+) -> tuple[str, str, str, str]:
     if snapshot["pending"]:
         return (
-            "Trier les offres en attente",
-            "Ouvre le workflow pour sélectionner, scorer, shortlister puis lancer l'analyse IA.",
+            "Trier les offres",
+            f"{snapshot['pending']} offre(s) attendent une décision avant scoring.",
             "pages/0_Workflow.py",
+            ":material/account_tree:",
         )
     if status_counts.get(JobStatus.ANALYZED, 0):
         return (
-            "Générer les candidatures",
-            "Des offres analysées attendent un CV, une lettre, un email et un contact.",
+            "Générer les dossiers",
+            "Des offres analysées attendent CV, lettre, email et contact.",
             "pages/0_Workflow.py",
+            ":material/auto_awesome:",
+        )
+    if snapshot["needs_review"]:
+        return (
+            "Corriger les dossiers",
+            f"{snapshot['needs_review']} candidature(s) ont besoin d'un contact ou d'une revue.",
+            "pages/2_Candidatures.py",
+            ":material/rule:",
         )
     if snapshot["ready"]:
         return (
-            "Finaliser les dossiers prêts",
-            "Relis les emails, crée les brouillons Gmail ou soumets les formulaires.",
+            "Finaliser les candidatures",
+            f"{snapshot['ready']} dossier(s) sont prêts à relire ou déposer.",
             "pages/2_Candidatures.py",
+            ":material/outgoing_mail:",
         )
     return (
         "Lancer une recherche",
-        "Commence par le workflow pour collecter des offres fraîches et garder le contrôle.",
+        "Collecte quelques offres ciblées pour remplir la file de travail.",
         "pages/0_Workflow.py",
+        ":material/search:",
     )
+
+
+def _metric_card(label: str, value: int | str, note: str, tone: str) -> str:
+    return f"""
+      <div class="sa-custom-metric sa-tone-{escape(tone)}">
+        <div class="sa-custom-metric-top">
+          <div class="sa-custom-metric-label">{escape(label)}</div>
+          <div class="sa-custom-metric-mark"></div>
+        </div>
+        <div class="sa-custom-metric-value">{escape(str(value))}</div>
+        <div class="sa-custom-metric-note">{escape(note)}</div>
+      </div>
+    """
 
 
 status_counts = jobs_per_status()
 snapshot = _dashboard_snapshot()
-next_title, next_caption, next_page = _recommended_action(status_counts, snapshot)
-settings = get_settings()
+next_title, next_caption, next_page, next_icon = _recommended_action(
+    status_counts,
+    snapshot,
+)
 
-total_job_count = total_jobs()
 st.markdown(
     f"""
     <div class="sa-home-layout">
       <div class="sa-home-hero">
-        <div class="sa-home-eyebrow">Mode manuel contrôlé</div>
-        <div class="sa-home-title">SmartApply</div>
+        <div class="sa-home-eyebrow">Pilotage production</div>
+        <div class="sa-home-title">Tableau de bord</div>
         <div class="sa-home-copy">
-          Un cockpit sobre pour collecter les offres, choisir les bons lots,
-          générer des dossiers propres et garder le contrôle sur chaque envoi.
+          Un espace de travail pour décider quoi traiter maintenant :
+          collecte, génération, revue des contacts et finalisation.
         </div>
-        <div class="sa-pill-row">
-          <span class="sa-pill sa-pill-good">Aucun envoi automatique</span>
-          <span class="sa-pill sa-pill-blue">Analyse IA {escape(settings.openai_model_cheap)}</span>
-          <span class="sa-pill sa-pill-neutral">Contacts contrôlés</span>
+        <div class="sa-home-meta">
+          <span>Revue manuelle</span>
+          <span>Données locales</span>
+          <span>Actions contrôlées</span>
         </div>
       </div>
       <div class="sa-home-panel">
-        <div class="sa-focus-kicker">Prochaine action</div>
+        <div class="sa-home-panel-head">
+          <div class="sa-focus-kicker">Action prioritaire</div>
+          <div class="sa-home-panel-icon">1</div>
+        </div>
         <div class="sa-home-next-title">{escape(next_title)}</div>
         <div class="sa-home-next-copy">{escape(next_caption)}</div>
+        <div class="sa-home-panel-foot">Une seule prochaine décision mise en avant pour garder le flux simple.</div>
       </div>
     </div>
     <div class="sa-custom-metrics">
-      <div class="sa-custom-metric" style="--metric-accent:#78A9FF;">
-        <div class="sa-custom-metric-label">Offres</div>
-        <div class="sa-custom-metric-value">{total_job_count}</div>
-        <div class="sa-custom-metric-note">Total collecté</div>
-      </div>
-      <div class="sa-custom-metric" style="--metric-accent:#A8A8A8;">
-        <div class="sa-custom-metric-label">A traiter</div>
-        <div class="sa-custom-metric-value">{snapshot["pending"]}</div>
-        <div class="sa-custom-metric-note">Dans le vivier actif</div>
-      </div>
-      <div class="sa-custom-metric" style="--metric-accent:#D0E2FF;">
-        <div class="sa-custom-metric-label">Dossiers prêts</div>
-        <div class="sa-custom-metric-value">{snapshot["ready"]}</div>
-        <div class="sa-custom-metric-note">A relire ou finaliser</div>
-      </div>
-      <div class="sa-custom-metric" style="--metric-accent:#FFB3B8;">
-        <div class="sa-custom-metric-label">Brouillons Gmail</div>
-        <div class="sa-custom-metric-value">{snapshot["drafts"]}</div>
-        <div class="sa-custom-metric-note">Créés, jamais envoyés</div>
-      </div>
+      {_metric_card("Offres", total_jobs(), "Total en base", "blue")}
+      {_metric_card("A traiter", snapshot["pending"], "Avant scoring", "teal")}
+      {_metric_card("A revoir", snapshot["needs_review"], "Contact ou qualité", "amber")}
+      {_metric_card("Prêtes", snapshot["ready"], "Dépôt ou Gmail", "violet")}
     </div>
     """,
     unsafe_allow_html=True,
 )
 
-_, continue_col = st.columns([3.2, 1])
-with continue_col:
+if st.button(
+    next_title,
+    icon=next_icon,
+    type="primary",
+    width="stretch",
+    key="home_primary_action",
+):
+    st.switch_page(next_page)
+
+secondary, tertiary = st.columns(2)
+with secondary:
     if st.button(
-        "Continuer",
-        icon=":material/arrow_forward:",
-        type="primary",
-        use_container_width=True,
-        key="home_continue",
+        "Offre manuelle",
+        icon=":material/edit_note:",
+        width="stretch",
+        key="home_manual_action",
     ):
-        st.switch_page(next_page)
-
-render_section_header(
-    "Accès rapide",
-    "Les six vues utiles pour piloter sans chercher dans les menus.",
-)
-
-quick_actions = [
-    (
-        "Workflow",
-        "Collecter, scorer, analyser et générer depuis un flux guidé.",
-        "pages/0_Workflow.py",
-        ":material/account_tree:",
-    ),
-    (
-        "Offres",
-        "Inspecter les offres, scores, filtres et rejets.",
-        "pages/1_Offres.py",
-        ":material/view_list:",
-    ),
-    (
+        st.switch_page("pages/6_Candidature_manuelle.py")
+with tertiary:
+    if st.button(
         "Candidatures",
-        "Relire les emails, brouillons et dossiers prêts.",
-        "pages/2_Candidatures.py",
-        ":material/outgoing_mail:",
-    ),
-    (
-        "Autopilot",
-        "Lancer un run haut volume avec garde-fous.",
-        "pages/5_Autopilot.py",
-        ":material/rocket_launch:",
-    ),
-    (
-        "Stats",
-        "Suivre volume, pipeline, statuts et coûts.",
-        "pages/4_Stats.py",
-        ":material/monitoring:",
-    ),
-    (
-        "Profil",
-        "Vérifier les paramètres utilisés pour générer les dossiers.",
-        "pages/3_Profil.py",
-        ":material/manage_accounts:",
-    ),
-]
-quick_cols = st.columns(3)
-nav_accents = [
-    ("01", "#78A9FF", "#28384E"),
-    ("02", "#C6C6C6", "#393939"),
-    ("03", "#D2B36A", "#3A321F"),
-    ("04", "#82CFFF", "#253946"),
-    ("05", "#A8A8A8", "#393939"),
-    ("06", "#FFB3B8", "#3A2425"),
-]
-for idx, (label, copy, page, icon) in enumerate(quick_actions):
-    number, accent, soft = nav_accents[idx]
-    with quick_cols[idx % 3]:
-        st.markdown(
-            f"""
-            <div class="sa-nav-card" style="--nav-accent:{accent};--nav-soft:{soft};">
-              <div class="sa-nav-top">
-                <div>
-                  <h4>{escape(label)}</h4>
-                </div>
-                <div class="sa-nav-icon">{number}</div>
-              </div>
-              <p>{escape(copy)}</p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        if st.button(
-            f"Ouvrir {label}",
-            icon=icon,
-            use_container_width=True,
-            key=f"home_open_{label.lower()}",
-        ):
-            st.switch_page(page)
+        icon=":material/outgoing_mail:",
+        width="stretch",
+        key="home_applications_action",
+    ):
+        st.switch_page("pages/2_Candidatures.py")
 
 st.divider()
 
-col_jobs, col_apps = st.columns(2)
-with col_jobs:
-    render_section_header("Offres récentes", "Dernières entrées collectées.")
-    if snapshot["recent_jobs"]:
-        st.dataframe(
-            pd.DataFrame(snapshot["recent_jobs"]),
-            hide_index=True,
-            width="stretch",
-            height=260,
-        )
-    else:
-        st.info("Aucune offre collectée.")
+render_section_header(
+    "File de travail",
+    "Les dossiers récents avec leur prochaine action.",
+)
+if snapshot["application_queue"]:
+    st.dataframe(
+        pd.DataFrame(snapshot["application_queue"]),
+        hide_index=True,
+        width="stretch",
+        height=300,
+    )
+else:
+    st.info("Aucune candidature générée pour le moment.")
 
-with col_apps:
-    render_section_header("Candidatures à suivre", "Dossiers récents et prochaine action.")
-    if snapshot["recent_apps"]:
-        st.dataframe(
-            pd.DataFrame(snapshot["recent_apps"]),
-            hide_index=True,
-            width="stretch",
-            height=260,
-        )
-    else:
-        st.info("Aucune candidature générée.")
+render_section_header(
+    "Dernières offres",
+    "Les dernières entrées collectées, pour vérifier la fraîcheur du vivier.",
+)
+if snapshot["recent_jobs"]:
+    st.dataframe(
+        pd.DataFrame(snapshot["recent_jobs"]),
+        hide_index=True,
+        width="stretch",
+        height=300,
+    )
+else:
+    st.info("Aucune offre collectée.")

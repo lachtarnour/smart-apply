@@ -63,34 +63,28 @@ def render_stepper() -> None:
     st.markdown(
         """
         <div class="sa-hero">
-          <h2>Workflow guidé</h2>
-          <div class="sa-muted">Recherche, scoring, analyse IA, génération et finalisation depuis un seul écran de contrôle.</div>
-          <div class="sa-pill-row">
-            <span class="sa-pill sa-pill-good">Chaque étape est indépendante</span>
-            <span class="sa-pill sa-pill-blue">Sélections modifiables</span>
-            <span class="sa-pill sa-pill-neutral">Aucun envoi automatique</span>
-          </div>
+          <h2>Workflow</h2>
+          <div class="sa-muted">Traiter un lot d'offres de la collecte jusqu'à la candidature prête.</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
-    m1, m2, m3, m4, m5 = st.columns(5)
+    m1, m2, m3, m4 = st.columns(4)
     m1.metric("À trier", counts["pending"])
     m2.metric("Analysées", counts["analyzed"])
     m3.metric("Prêtes", counts["ready"])
     m4.metric("Brouillons", counts["drafts"])
-    m5.metric("Filtre/Doublons", counts["filter_rejected"])
 
     if st.session_state.get("wf_last_run_summary"):
         st.caption(f"Dernier résultat : {st.session_state['wf_last_run_summary']}")
     _request_stop_button("wf_global_stop")
 
     steps = [
-        ("1", "Fetch", "Chercher et choisir"),
+        ("1", "Collecte", "Chercher et choisir"),
         ("2", "Scoring", "Ranker et shortlister"),
         ("3", "Analyse", "IA sur sélection"),
-        ("4", "Génération", "CV, lettre, email, contact"),
-        ("5", "Finalisation", "Gmail ou formulaire"),
+        ("4", "Dossier", "CV, lettre, email"),
+        ("5", "Action", "Gmail ou formulaire"),
     ]
     cols = st.columns(len(steps))
     current = st.session_state["wf_step"]

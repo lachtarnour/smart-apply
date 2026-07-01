@@ -24,8 +24,8 @@ st.set_page_config(
 apply_app_style()
 
 render_page_header(
-    "Candidature manuelle",
-    "Renseigne une offre une seule fois, puis génère directement le dossier complet.",
+    "Offre manuelle",
+    "Créer un dossier complet depuis une offre copiée-collée ou reçue hors scraper.",
     icon="SA",
     badges=[
         ("Import structuré", "blue"),

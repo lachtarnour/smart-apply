@@ -25,8 +25,8 @@ st.set_page_config(page_title="Offres | SmartApply", page_icon="📋", layout="w
 apply_app_style()
 
 render_page_header(
-    "Offres collectées",
-    "Retrouver, comprendre et qualifier les offres avant de générer une candidature ciblée.",
+    "Offres",
+    "Explorer le vivier, comprendre les rejets et relancer une offre utile.",
     icon="📋",
     badges=[
         ("Filtre local actif", "good"),
@@ -100,7 +100,14 @@ with col_status:
 with col_source:
     source_filter = st.selectbox(
         "Source",
-        options=["(tous)", "serpapi", "francetravail", "welcometothejungle", "manual"],
+        options=[
+            "(tous)",
+            "serpapi",
+            "francetravail",
+            "linkedin",
+            "welcometothejungle",
+            "manual",
+        ],
         format_func=lambda value: "Toutes" if value == "(tous)" else value,
     )
 with col_score:

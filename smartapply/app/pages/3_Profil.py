@@ -18,8 +18,8 @@ apply_app_style()
 profile = get_profile()
 
 render_page_header(
-    "Profil candidat",
-    "Source de vérité utilisée pour adapter les CV, lettres et emails sans inventer d'expérience.",
+    "Profil",
+    "Source de vérité utilisée par la génération de CV, lettres et emails.",
     icon="👤",
     badges=[
         ("Lecture seule", "neutral"),
@@ -90,7 +90,7 @@ with st.expander("Données brutes des préférences"):
 # ---- Skills ----
 st.markdown("### Compétences")
 for category in profile.skills.categories:
-    with st.container(border=True):
+    with st.container():
         st.markdown(f"**{category.name}**")
         render_badge_row([(skill, "blue") for skill in category.skills])
 
@@ -125,7 +125,7 @@ for exp in profile.experiences:
 # ---- Projects ----
 st.markdown("### Projets")
 for proj in profile.projects:
-    with st.container(border=True):
+    with st.container():
         st.markdown(f"**{proj.name}**")
         render_badge_row([(proj.status or "statut non indiqué", "neutral"), (f"source_id: {proj.id}", "neutral")])
         if proj.keywords:
@@ -139,7 +139,7 @@ edu_col, lang_col, cert_col = st.columns(3)
 with edu_col:
     st.markdown("### Formation")
     for deg in profile.education:
-        with st.container(border=True):
+        with st.container():
             st.markdown(f"**{deg.title}**")
             st.caption(f"{deg.field or ''} · {deg.institution}")
             render_badge_row([(f"{deg.start_year}–{deg.end_year}", "neutral"), (f"source_id: {deg.id}", "neutral")])
@@ -147,14 +147,14 @@ with edu_col:
 with lang_col:
     st.markdown("### Langues")
     for lang in profile.languages:
-        with st.container(border=True):
+        with st.container():
             st.markdown(f"**{lang.name}**")
             st.caption(lang.level)
 
 with cert_col:
     st.markdown("### Certifications")
     for cert in profile.certificates:
-        with st.container(border=True):
+        with st.container():
             st.markdown(f"**{cert.name}**")
             st.caption(f"{cert.issuer} · {cert.date or 'date non indiquée'}")
             if cert.description:

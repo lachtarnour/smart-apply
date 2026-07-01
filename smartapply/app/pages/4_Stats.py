@@ -23,8 +23,8 @@ from smartapply.database.models import JobStatus, LLMUsage
 st.set_page_config(page_title="Stats | SmartApply", page_icon="📊", layout="wide")
 apply_app_style()
 render_page_header(
-    "Statistiques du pipeline",
-    "Comprendre le volume, la qualité du tri, les dossiers prêts et le coût des appels IA.",
+    "Stats",
+    "Suivre le volume, la qualité du tri et le coût IA.",
     icon="📊",
     badges=[
         ("Santé pipeline", "blue"),
