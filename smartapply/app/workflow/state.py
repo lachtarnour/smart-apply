@@ -255,7 +255,7 @@ def _workflow_counts() -> dict[str, int]:
                 JobStatus.DRAFT_CREATED,
             }
         ),
-        "drafts": sum(1 for a in apps if a.gmail_draft_id),
+        "sent": sum(1 for a in apps if a.status == JobStatus.SENT),
     }
 
 

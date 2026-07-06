@@ -144,16 +144,26 @@ class Ingestor:
         skipped_processed = 0
         skipped_existing = 0
         with session_scope() as s:
-            known_index = _KnownJobIndex.from_jobs(list_known_jobs(s))
+            known_jobs = list(list_known_jobs(s))
+            known_index = _KnownJobIndex.from_jobs(known_jobs)
             for raw in raws:
                 existing = get_job_by_external_id(s, raw.external_id)
                 existing_status = existing.status if existing is not None else None
-                if existing is None and known_index.matches(raw):
-                    skipped_existing += 1
-                    continue
+                if existing is None:
+                    matching_existing = _matching_known_job(raw, known_jobs)
+                    if matching_existing is not None and source == "manual":
+                        existing = matching_existing
+                        existing_status = existing.status
+                    elif known_index.matches(raw):
+                        skipped_existing += 1
+                        continue
                 job = upsert_job(
                     s,
-                    external_id=raw.external_id,
+                    external_id=(
+                        existing.external_id
+                        if existing and source == "manual"
+                        else raw.external_id
+                    ),
                     title=raw.title,
                     company=raw.company,
                     location=raw.location,
@@ -167,11 +177,20 @@ class Ingestor:
                     source_data=raw.source_data,
                     published_date=raw.published_date,
                 )
+                if source == "manual" and existing_status is not None:
+                    # Manual one-shot submissions are explicit user intent:
+                    # reuse the existing row, but analyze the freshly pasted
+                    # content again before regenerating documents.
+                    job.archived_at = None
+                    job.analyzed_at = None
+                    job.status = JobStatus.SCRAPED
                 if existing_status is None:
                     inserted += 1
                     job_ids.append(job.id)
                 elif existing_status == JobStatus.SCRAPED:
                     updated_pending += 1
+                    job_ids.append(job.id)
+                elif source == "manual":
                     job_ids.append(job.id)
                 else:
                     skipped_processed += 1
@@ -199,3 +218,18 @@ __all__ = [
     "expand_query_for_source",
     "split_or_query",
 ]
+
+
+def _matching_known_job(raw: RawJob, known_jobs) -> object | None:  # noqa: ANN001
+    if raw.external_id:
+        for job in known_jobs:
+            if raw.external_id == job.external_id:
+                return job
+
+    raw_url = _normalize_application_url(raw.application_url)
+    if not raw_url:
+        return None
+    for job in known_jobs:
+        if raw_url == _normalize_application_url(job.application_url):
+            return job
+    return None

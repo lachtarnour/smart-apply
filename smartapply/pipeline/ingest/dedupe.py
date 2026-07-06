@@ -57,11 +57,15 @@ def _normalized_non_tracking_query(query: str) -> str:
     tracking_prefixes = ("utm_",)
     tracking_names = {
         "fbclid",
+        "alternatechannel",
+        "ebp",
         "gclid",
         "mc_cid",
         "mc_eid",
         "ref",
+        "refid",
         "source",
+        "trackingid",
         "utm",
     }
     kept = [
@@ -71,5 +75,4 @@ def _normalized_non_tracking_query(query: str) -> str:
         and not key.lower().startswith(tracking_prefixes)
     ]
     return urlencode(sorted(kept), doseq=True)
-
 

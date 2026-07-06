@@ -66,3 +66,5 @@ docs/*
 !docs/screenshots/
 !docs/screenshots/*.png
 tests/
+tmp/
+output/

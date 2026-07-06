@@ -176,11 +176,17 @@ def render_empty_state(title: str, message: str) -> None:
 
 
 @lru_cache(maxsize=1)
-def pipeline_singleton():
+def _pipeline_singleton_cached(profile_cache_key):
     """Hold one Pipeline instance across reruns (Streamlit reruns the file)."""
     from smartapply.pipeline import Pipeline
 
     return Pipeline()
+
+
+def pipeline_singleton():
+    from smartapply.profile import profile_fingerprint
+
+    return _pipeline_singleton_cached(profile_fingerprint())
 
 
 def html_file_path(path: str | None) -> Path | None:

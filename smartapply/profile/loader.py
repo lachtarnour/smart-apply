@@ -63,14 +63,36 @@ def load_profile(profile_dir: Path | str | None = None) -> Profile:
 
 
 @lru_cache(maxsize=4)
-def _get_profile_cached(profile_dir: str) -> Profile:
+def _get_profile_cached(profile_dir: str, fingerprint: tuple[tuple[str, int, int], ...]) -> Profile:
+    # ``fingerprint`` is intentionally unused here; it is part of the cache key
+    # so Streamlit/CLI processes pick up edits to profile/data without restart.
     return load_profile(Path(profile_dir))
+
+
+def profile_fingerprint(profile_dir: Path | str | None = None) -> tuple[tuple[str, int, int], ...]:
+    """Return a stable cache key for the JSON profile directory contents."""
+    resolved_dir = Path(profile_dir) if profile_dir else get_settings().profile_dir
+    resolved_dir = resolved_dir.expanduser().resolve()
+    files = list(REQUIRED_FILES.values()) + list(OPTIONAL_FILES.values())
+    fingerprint: list[tuple[str, int, int]] = []
+    for name in files:
+        path = resolved_dir / name
+        try:
+            stat = path.stat()
+        except FileNotFoundError:
+            fingerprint.append((name, 0, -1))
+            continue
+        fingerprint.append((name, stat.st_mtime_ns, stat.st_size))
+    return tuple(fingerprint)
 
 
 def get_profile(profile_dir: Path | str | None = None) -> Profile:
     """Cached accessor — use this in pipelines to avoid re-reading."""
     resolved_dir = Path(profile_dir) if profile_dir else get_settings().profile_dir
-    return _get_profile_cached(str(resolved_dir.expanduser().resolve()))
+    return _get_profile_cached(
+        str(resolved_dir.expanduser().resolve()),
+        profile_fingerprint(resolved_dir),
+    )
 
 
 def clear_cache() -> None:

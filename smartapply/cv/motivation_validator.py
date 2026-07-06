@@ -198,7 +198,7 @@ def mentioned_project_ids(text: str, profile: Profile) -> list[str]:
 class MotivationLetterValidator:
     """Check that the letter stays tied to selected profile evidence."""
 
-    def __init__(self, profile: Profile, min_words: int = 180, max_words: int = 280):
+    def __init__(self, profile: Profile, min_words: int = 250, max_words: int = 350):
         self.profile = profile
         self.min_words = min_words
         self.max_words = max_words
@@ -226,12 +226,8 @@ class MotivationLetterValidator:
             warnings.append(f"letter_not_3_paragraphs:{paragraph_count}")
 
         count = _word_count(letter.body)
-        if (analysis.offer_language or "fr").lower().startswith("en"):
-            min_words = min(self.min_words, 160)
-            max_words = min(self.max_words, 230)
-        else:
-            min_words = self.min_words
-            max_words = min(self.max_words, 260)
+        min_words = self.min_words
+        max_words = self.max_words
         if count < min_words:
             warnings.append(f"letter_too_short:{count}")
         if count > max_words:

@@ -73,7 +73,7 @@ def render_stepper() -> None:
     m1.metric("À trier", counts["pending"])
     m2.metric("Analysées", counts["analyzed"])
     m3.metric("Prêtes", counts["ready"])
-    m4.metric("Brouillons", counts["drafts"])
+    m4.metric("Envoyées", counts["sent"])
 
     if st.session_state.get("wf_last_run_summary"):
         st.caption(f"Dernier résultat : {st.session_state['wf_last_run_summary']}")

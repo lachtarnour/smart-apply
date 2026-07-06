@@ -48,7 +48,7 @@ Renseigner les variables utiles dans `.env` après copie de `.env.example`.
 | `FRANCETRAVAIL_CLIENT_ID` / `FRANCETRAVAIL_CLIENT_SECRET` | API France Travail | Si la source est active |
 | `SERPAPI_API_KEY` | Google Jobs via SerpApi | Si la source est active |
 | `APIFY_TOKEN` | LinkedIn Jobs via Apify | Si la source `linkedin` est active |
-| `LINKEDIN_MAX_RESULTS` | Limite globale des appels LinkedIn/Apify, maximum `50` | Optionnel |
+| `LINKEDIN_MAX_RESULTS` | Limite globale des appels LinkedIn/Apify, maximum `300` | Optionnel |
 | `WTTJ_COOKIE` | Welcome to the Jungle | Si la source est active |
 | `GMAIL_CREDENTIALS_PATH` | Création de brouillons Gmail | Optionnel |
 | `ANYMAILFINDER_API_KEY` | Enrichissement de contacts | Optionnel |

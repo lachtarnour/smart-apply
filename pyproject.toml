@@ -56,7 +56,12 @@ where = ["."]
 include = ["smartapply*"]
 
 [tool.setuptools.package-data]
-smartapply = ["cv/templates/*.j2", "llm/prompts/templates/*/*.j2"]
+smartapply = [
+  "cv/templates/*.j2",
+  "cv/*.json",
+  "llm/prompts/templates/*/*.j2",
+  "profile/mock_profile/*.json",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

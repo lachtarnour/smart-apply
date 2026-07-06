@@ -240,6 +240,7 @@ class CvDocxRenderer:
         for segment in split_bullet_with_links(text, links):
             if segment.url:
                 _add_hyperlink_run(paragraph, segment.text, segment.url, font_size)
+                _add_hyperlink_run(paragraph, " ↗", segment.url, font_size)
             else:
                 run = paragraph.add_run(segment.text)
                 run.font.size = font_size

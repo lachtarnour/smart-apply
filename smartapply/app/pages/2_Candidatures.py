@@ -150,6 +150,7 @@ with session_scope() as s:
     apps = list_applications(s)
     rows = []
     for a in apps:
+        job = a.job
         docs = {doc.doc_type: doc for doc in a.documents}
         letter_doc = docs.get("motivation_letter")
         letter_extra = (
@@ -161,8 +162,12 @@ with session_scope() as s:
             {
                 "id": a.id,
                 "job_id": a.job_id,
-                "company": a.job.company if a.job else "",
-                "title": a.job.title if a.job else "",
+                "company": job.company if job else "",
+                "title": job.title if job else "",
+                "application_url": _optional_text(job.application_url if job else None),
+                "job_description": _text(
+                    (job.cleaned_description or job.description) if job else ""
+                ),
                 "status": a.status,
                 "status_label": status_label(a.status),
                 "next_action": next_action_for(
@@ -219,7 +224,15 @@ if status_filter != "(tous)":
     visible_df = visible_df[visible_df["status"] == status_filter]
 if search.strip():
     needle = search.strip().lower()
-    cols = ["company", "title", "status_label", "next_action", "subject", "contact"]
+    cols = [
+        "company",
+        "title",
+        "status_label",
+        "next_action",
+        "subject",
+        "contact",
+        "job_description",
+    ]
     mask = pd.Series(False, index=visible_df.index)
     for col in cols:
         mask = mask | visible_df[col].fillna("").astype(str).str.lower().str.contains(
@@ -273,6 +286,8 @@ st.dataframe(
             "letter_pdf_path",
             "eml_path",
             "form_url",
+            "application_url",
+            "job_description",
         ]
     ),
     hide_index=True,
@@ -383,8 +398,24 @@ with contact_col:
             st.caption(f"Source : {_optional_text(r['contact_source_url'])}")
 
 form_url = _optional_text(r["form_url"])
+application_url = _optional_text(r["application_url"])
 if form_url:
-    st.link_button("Ouvrir le formulaire", form_url)
+    link_cols = st.columns(2)
+    link_cols[0].link_button("Ouvrir le formulaire", form_url)
+    if application_url and application_url != form_url:
+        link_cols[1].link_button("Ouvrir l'offre", application_url)
+elif application_url:
+    st.link_button("Ouvrir l'offre / formulaire", application_url)
+
+with st.expander("Description de l'offre", expanded=False):
+    st.text_area(
+        "Description de l'offre",
+        _text(r["job_description"]).strip() or "(description vide)",
+        height=360,
+        disabled=True,
+        label_visibility="collapsed",
+        key=f"applications_offer_description_{int(app_id)}",
+    )
 
 with st.expander("Modifier le destinataire / CC", expanded=False):
     contact_key = f"applications_contact_{int(app_id)}"

@@ -567,7 +567,13 @@ def _render_send_card(row: dict[str, Any]) -> None:
 def _render_step5_card_summary(row: dict[str, Any]) -> None:
     status_kind = "good" if row["gmail_draft_id"] or row["email_sent_at"] else "warn"
     contact_text = row["contact"] or "Contact à trouver"
-    form_text = "Formulaire disponible" if row["form_url"] else "Pas de formulaire"
+    form_text = (
+        "Formulaire disponible"
+        if row["form_url"]
+        else "Lien offre"
+        if row.get("application_url")
+        else "Pas de formulaire"
+    )
     contact_detail = _contact_detail_line(row)
     cc_html = (
         f"<span class='sa-step5-chip'>CC {escape(str(row['email_cc']))}</span>"
@@ -646,8 +652,14 @@ def _render_step5_actions(
 ) -> None:
     st.markdown("<div class='sa-step5-mini-title'>Actions visibles</div>", unsafe_allow_html=True)
 
-    if row["form_url"]:
-        st.link_button("Ouvrir le formulaire ATS", row["form_url"], width="stretch")
+    form_link = row.get("form_url") or row.get("application_url")
+    if form_link:
+        label = (
+            "Ouvrir le formulaire ATS"
+            if row.get("form_url")
+            else "Ouvrir l'offre / formulaire"
+        )
+        st.link_button(label, str(form_link), width="stretch")
 
     _render_gmail_action(row, app_id, reviewed, final_subject, final_body)
     _render_tracking_actions(row, app_id)
@@ -785,10 +797,12 @@ def _render_step5_secondary_tools(
     final_subject: str,
     final_body: str,
 ) -> None:
-    tools_cols = st.columns(2)
+    tools_cols = st.columns(3)
     with tools_cols[0]:
+        _render_offer_popover(row, app_id)
+    with tools_cols[1]:
         _render_form_questions_assistant(row)
-    with tools_cols[1], st.popover(
+    with tools_cols[2], st.popover(
         "Aperçu Gmail",
         key=f"wf_gmail_preview_{app_id}",
         width="stretch",
@@ -800,6 +814,23 @@ def _render_step5_secondary_tools(
                 "subject": final_subject,
                 "body": final_body,
             }
+        )
+
+
+def _render_offer_popover(row: dict[str, Any], app_id: int) -> None:
+    with st.popover("Offre", key=f"wf_offer_detail_{app_id}", width="stretch"):
+        form_url = row.get("form_url")
+        application_url = row.get("application_url")
+        if form_url:
+            st.link_button("Ouvrir le formulaire ATS", str(form_url), width="stretch")
+        if application_url and application_url != form_url:
+            st.link_button("Ouvrir l'offre", str(application_url), width="stretch")
+        st.text_area(
+            "Description de l'offre",
+            str(row.get("job_description") or "").strip() or "(description vide)",
+            height=260,
+            disabled=True,
+            key=f"wf_offer_description_{app_id}",
         )
 
 

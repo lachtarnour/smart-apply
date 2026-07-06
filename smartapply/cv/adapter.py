@@ -8,6 +8,10 @@ from smartapply.cv.motivation_validator import (
     mentioned_project_ids,
     normalize_french_elisions,
 )
+from smartapply.cv.project_names import (
+    normalize_adapted_cv_project_aliases,
+    normalize_letter_project_aliases,
+)
 from smartapply.cv.role_contracts import apply_contract
 from smartapply.cv.selector import CvBlockSelector, SelectionResult
 from smartapply.llm import (
@@ -83,6 +87,7 @@ class CvAdapter:
             purpose="cv_adaptation",
             job_id=job_id,
         )
+        adapted = normalize_adapted_cv_project_aliases(adapted, self.profile)
         adapted = self._ensure_supported_offer_skills(adapted, analysis)
         adapted = self._ensure_summary_skills_visible(adapted)
         adapted = self._apply_role_family_contract(adapted, analysis, job_title)
@@ -120,14 +125,18 @@ class CvAdapter:
             purpose="application_draft",
             job_id=job_id,
         )
-        adapted = self._ensure_supported_offer_skills(draft.to_cv(), analysis)
+        adapted = normalize_adapted_cv_project_aliases(draft.to_cv(), self.profile)
+        adapted = self._ensure_supported_offer_skills(adapted, analysis)
         adapted = self._ensure_summary_skills_visible(adapted)
         adapted = self._apply_role_family_contract(adapted, analysis, job_title)
         adapted = self._avoid_unsupported_cv_head_terms(adapted, analysis)
         adapted = self._enforce_complete_experiences(adapted)
         adapted = self._enforce_project_count(adapted)
         adapted = self._enforce_summary_length(adapted)
-        letter = draft.to_motivation_letter()
+        letter = normalize_letter_project_aliases(
+            draft.to_motivation_letter(),
+            self.profile,
+        )
         letter = letter.model_copy(
             update={
                 "subject": normalize_french_elisions(letter.subject, language=language),

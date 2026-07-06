@@ -93,7 +93,7 @@ def _dashboard_snapshot() -> dict[str, Any]:
         "pending": len(pending_jobs),
         "applications": len(apps),
         "ready": sum(1 for app in apps if app.status in READY_STATUSES),
-        "drafts": sum(1 for app in apps if app.gmail_draft_id),
+        "sent": sum(1 for app in apps if app.status == JobStatus.SENT),
         "needs_review": len(needs_review),
         "recent_jobs": recent_jobs,
         "application_queue": application_queue,

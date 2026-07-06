@@ -75,7 +75,7 @@ class Settings(BaseSettings):
     linkedin_experience_level: str = Field(default="2,3,4")
     linkedin_remote: str = Field(default="1,2,3")
     linkedin_date_posted: str = Field(default="week")
-    linkedin_max_results: int = Field(default=50, ge=1, le=50)
+    linkedin_max_results: int = Field(default=50, ge=1, le=300)
 
     # Welcome to the Jungle personalized matches
     wttj_cookie: str = Field(default="")

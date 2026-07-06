@@ -68,8 +68,17 @@ Do not include a sign-off, signature, "Cordialement", "Best regards", or the can
 Tone: {{ tone }}
 Voice: {{ voice }}
 CV language: English only. Keep cv_title, professional_summary and CV bullets in English.
-CV title: adapt the professional positioning to the offer, but keep it human and role/domain-oriented. Use domains or specializations when useful, not tools or stack keywords. Skills and tools belong in the summary, experience bullets or Skills section, not in the title.
-Professional summary: adapt it to the job, mention at least one concrete offer anchor, max {{ max_summary_lines }} lines and max {{ max_summary_length }} characters. Use only summary_source, experiences, projects and allowed_skills. Keep the opening role consistent with cv_title; for example, do not write "Data Scientist with..." under an "AI Engineer" title.
+CV title: adapt the professional positioning to the offer, but keep it human and role/domain-oriented. Use domains or specializations when useful, not tools or stack keywords. Technical anchors may appear in the summary only when they clarify concrete work; never use them as a title suffix or raw keyword list.
+Professional summary: write 1-2 dense, recruiter-facing sentences, max {{ max_summary_lines }} lines and max {{ max_summary_length }} characters. Use only summary_source, experiences, projects and allowed_skills.
+Make it concrete rather than generic:
+  - Start with the target positioning, aligned with cv_title.
+  - Mention 2-4 supported evidence areas from the profile when relevant to the offer, such as domain, data type, model family, workflow type, project context or evaluation scope.
+  - Include supported technical anchors when they strengthen recruiter understanding, including languages, libraries, frameworks, backend/API work, evaluation, deployment, or reproducible workflows, but only if grounded in allowed_skills or source evidence.
+  - Do not write a raw tool list. Connect technical anchors to actual work.
+  - When using evidence from an ongoing or self_reported project, qualify it explicitly as ongoing/current work or omit it. Prefer narrow wording such as "ongoing 3D dental scan project" or "current work on 3D dental scan understanding"; avoid broad claims like "3D research settings", "experience across 3D research", or "expertise in 3D medical AI" unless verified by stronger evidence.
+  - Do not claim unsupported offer terms, production ownership, cloud ownership, leadership, mentoring, or senior scope unless directly supported.
+  - Avoid generic phrases like "applied AI", "end-to-end AI workflows", "deeptech contexts", or "cross-functional R&D" unless immediately tied to concrete profile evidence.
+  - Keep the opening role consistent with cv_title; for example, do not write "Data Scientist with..." under an "AI Engineer" title.
 Experience output: include every provided experience and every bullet id exactly once. Rephrase only when faithful; otherwise keep the source bullet.
 Do:
   - {{ do }}
@@ -86,6 +95,7 @@ Project output rule:
 - If fewer than 4 profile projects are provided, select every relevant provided project.
 - Rank projects by direct relevance to the job tasks, required skills and keywords.
 - Do not invent projects or project claims; every selected id must come from the provided profile projects.
+- When naming a project in text, use the display name after "::" exactly; never derive a display name from the internal project id.
 
 Skills output rule:
 - Fill selected_skills as a list of blocks: {"category_id": "...", "skills": ["..."]}.

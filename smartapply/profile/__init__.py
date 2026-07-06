@@ -5,6 +5,7 @@ from smartapply.profile.loader import (
     clear_cache,
     get_profile,
     load_profile,
+    profile_fingerprint,
 )
 from smartapply.profile.schema import (
     Bullet,
@@ -44,4 +45,5 @@ __all__ = [
     "clear_cache",
     "get_profile",
     "load_profile",
+    "profile_fingerprint",
 ]
