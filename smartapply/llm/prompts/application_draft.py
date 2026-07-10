@@ -19,6 +19,11 @@ from smartapply.profile import Experience, Profile, Project
 
 SYSTEM = load_prompt("application_draft/system.j2")
 
+_SUPPORTED_CANDIDATE_EVIDENCE = (
+    "the PROFILE section above: summary_source, allowed_skills, selected "
+    "experiences, selected projects and each bullet's allowed_claims"
+)
+
 
 def _format_offer_interest_anchors(analysis: JobAnalysis) -> str:
     lines: list[str] = []
@@ -94,6 +99,8 @@ def build_user_prompt(
         "application_draft/user.j2",
         job_title=job_title,
         job_company=job_company,
+        role_title=job_title,
+        company_name=job_company,
         role_type=analysis.role_type,
         seniority=analysis.seniority,
         domain=analysis.domain,
@@ -112,9 +119,12 @@ def build_user_prompt(
         skill_profiles=skill_profiles,
         matching_keywords=matching_keywords,
         unsupported_offer_terms=unsupported_offer_terms,
+        unsupported_offer_terms_not_to_claim=unsupported_offer_terms,
+        supported_candidate_evidence=_SUPPORTED_CANDIDATE_EVIDENCE,
         experiences_block=_format_experiences(selected_experiences),
         projects_block=_format_projects(selected_projects),
         letter_language="French" if language == "fr" else "English",
+        target_word_count="220-300",
         project_hint=project_hint,
         langchain_langgraph_letter_instruction=langchain_langgraph_letter_instruction,
         tone=style.tone,

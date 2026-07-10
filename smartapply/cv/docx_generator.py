@@ -168,6 +168,7 @@ class CvDocxRenderer:
         r = p_contact.add_run(contact)
         r.font.size = Pt(self.style.body_font_size)
         r.font.color.rgb = RGBColor.from_string(self.style.muted_color_hex)
+        p_contact.paragraph_format.space_after = Pt(6)
 
     def _write_section(self, doc: DocxDocument, title: str, body: Callable[[], None]) -> None:
         doc.add_paragraph()  # spacer

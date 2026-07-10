@@ -93,7 +93,7 @@ _PROJECT_ALIASES = {
     "proj_bot_traffic_anomaly": ("bot traffic anomaly detection",),
     "proj_aal_stock_forecasting": ("aal stock forecasting", "american airlines group"),
     "proj_gpt2": ("gpt-2-style language model", "gpt-2"),
-    "proj_ner_camembert": ("ner with camembert", "camembert"),
+    "proj_ner_camembert": ("ner with bert", "bert base cased", "conll-2003"),
     "proj_rl_gym": ("reinforcement learning algorithm", "openai gym"),
 }
 
@@ -198,7 +198,7 @@ def mentioned_project_ids(text: str, profile: Profile) -> list[str]:
 class MotivationLetterValidator:
     """Check that the letter stays tied to selected profile evidence."""
 
-    def __init__(self, profile: Profile, min_words: int = 250, max_words: int = 350):
+    def __init__(self, profile: Profile, min_words: int = 220, max_words: int = 300):
         self.profile = profile
         self.min_words = min_words
         self.max_words = max_words

@@ -50,7 +50,7 @@ class CvBlockSelector:
         analysis: JobAnalysis,
         *,
         top_k_experiences: int = 5,
-        top_k_projects: int = 5,
+        top_k_projects: int = 10,
     ) -> SelectionResult:
         analysis_vec = self.embeddings.embed_one(self._analysis_text(analysis))
 

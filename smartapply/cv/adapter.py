@@ -46,7 +46,8 @@ _CV_HEAD_UNSUPPORTED_REPLACEMENTS: tuple[tuple[str, str], ...] = (
     ("GCP", "cloud-adjacent"),
 )
 
-_TARGET_PROJECT_COUNT = 4
+_MIN_PROJECT_COUNT = 2
+_MAX_PROJECT_COUNT = 4
 
 
 class CvAdapter:
@@ -152,7 +153,7 @@ class CvAdapter:
         adapted: AdaptedCV,
         letter: MotivationLetter,
         *,
-        max_projects: int = _TARGET_PROJECT_COUNT,
+        max_projects: int = _MAX_PROJECT_COUNT,
     ) -> AdaptedCV:
         """Keep the CV project list consistent with projects named in the letter."""
         mentioned = mentioned_project_ids(letter.body, self.profile)
@@ -174,11 +175,13 @@ class CvAdapter:
         self,
         adapted: AdaptedCV,
         *,
-        target_count: int = _TARGET_PROJECT_COUNT,
+        min_count: int = _MIN_PROJECT_COUNT,
+        max_count: int = _MAX_PROJECT_COUNT,
     ) -> AdaptedCV:
-        """Keep the rendered Projects section at exactly the configured size."""
+        """Keep the rendered Projects section within the configured range."""
         project_by_id = {project.id: project for project in self.profile.projects}
-        max_count = min(target_count, len(project_by_id))
+        max_count = min(max_count, len(project_by_id))
+        min_count = min(min_count, max_count)
         if max_count <= 0:
             return adapted
 
@@ -189,7 +192,7 @@ class CvAdapter:
                 selected.append(project_id)
                 seen.add(project_id)
 
-        if len(selected) < max_count:
+        if len(selected) < min_count:
             context = self._adapted_project_context(adapted)
             remaining = [
                 project
@@ -203,7 +206,7 @@ class CvAdapter:
             for project in remaining:
                 selected.append(project.id)
                 seen.add(project.id)
-                if len(selected) >= max_count:
+                if len(selected) >= min_count:
                     break
 
         selected = selected[:max_count]

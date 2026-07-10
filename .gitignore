@@ -68,3 +68,4 @@ docs/*
 tests/
 tmp/
 output/
+candidatures_envoyees.csv

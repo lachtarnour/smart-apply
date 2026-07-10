@@ -47,6 +47,7 @@
       --line-height: 1.4;
       --summary-line-height: 1.36;
       --header-gap: 28px;
+      --summary-experience-gap: 8px;
       --header-pad-bottom: 16px;
       --section-gap: 18px;
       --section-title-gap: 8px;
@@ -63,6 +64,7 @@
       --line-height: 1.34;
       --summary-line-height: 1.32;
       --header-gap: 24px;
+      --summary-experience-gap: 7px;
       --header-pad-bottom: 14px;
       --section-gap: 15px;
       --section-title-gap: 7px;
@@ -79,6 +81,7 @@
       --line-height: 1.28;
       --summary-line-height: 1.28;
       --header-gap: 20px;
+      --summary-experience-gap: 6px;
       --header-pad-bottom: 12px;
       --section-gap: 12px;
       --section-title-gap: 6px;
@@ -96,6 +99,7 @@
       --line-height: 1.22;
       --summary-line-height: 1.22;
       --header-gap: 16px;
+      --summary-experience-gap: 5px;
       --header-pad-bottom: 9px;
       --section-gap: 9px;
       --section-title-gap: 5px;
@@ -112,6 +116,7 @@
       --line-height: 1.16;
       --summary-line-height: 1.16;
       --header-gap: 12px;
+      --summary-experience-gap: 4px;
       --header-pad-bottom: 6px;
       --section-gap: 7px;
       --section-title-gap: 4px;
@@ -132,7 +137,7 @@
       padding-top: 2px;
       padding-bottom: var(--header-pad-bottom);
       /* Fixed breathing room between the header and first CV section. */
-      margin-bottom: var(--header-gap);
+      margin-bottom: calc(var(--header-gap) + var(--summary-experience-gap));
       flex-shrink: 0;
     }
 

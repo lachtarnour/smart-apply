@@ -3,16 +3,16 @@ Produce a complete CV and motivation-letter draft for this role.
 === JOB ===
 Title: {{ job_title }}
 Company: {{ job_company }}
-Role type: {{ role_type }}
+Role type (broad role-family signal; not a title to copy): {{ role_type }}
 Seniority: {{ seniority }}
-Domain: {{ domain }}
+Domain (context signal; use in cv_title only if it sounds natural): {{ domain }}
 Offer/company anchors for letter:
 {{ offer_interest_anchors }}
-Main tasks:
+Main tasks (for summary, bullets, skills and letter; do not compress into cv_title):
 {{ main_tasks_block }}
-Required skills: {{ required_skills }}
-Keywords to surface: {{ keywords_to_surface }}
-Match reasons: {{ match_reasons }}
+Required skills (for selected_skills, professional_summary and bullets; not for cv_title): {{ required_skills }}
+Keywords to surface in professional_summary, selected_skills, bullets and letter when supported; never optimize cv_title for keyword coverage: {{ keywords_to_surface }}
+Match reasons (use for adaptation outside cv_title unless they describe the broad role family): {{ match_reasons }}
 Risks to avoid overclaiming: {{ risks_to_avoid }}
 
 === PROFILE (source of truth — do NOT invent) ===
@@ -38,40 +38,79 @@ projects:
 {{ projects_block }}
 
 === MOTIVATION LETTER ===
-Motivation letter language: {{ letter_language }}
-Project hints for the letter: {{ project_hint }}
-Subject: concise, mentions the role and the candidate name. For French, use "Candidature - ..." rather than "Application for ...".
-Body: exactly 3 paragraphs separated by blank lines. French and English: 250-350 words. Natural, professional, no buzzwords, no bullet list.
-{{ langchain_langgraph_letter_instruction }}
-Use only French or English Latin script. No Arabic, Armenian, Cyrillic, Hebrew, CJK or mixed-script words.
-For French, keep normal apostrophes and accents; do not remove apostrophes after j, d, l, m, n, s, t, qu, jusqu, lorsqu or puisqu.
-Paragraph 1: interest in the role/company/context, using 1 or 2 visible offer anchors only.
-Paragraph 2: fit between profile and role, with 2 or 3 selected proofs maximum. Use projects, stacks or experiences as high-level proof only; do not enter into project details.
-Paragraph 3: concrete contribution plus a sober invitation to exchange. Do not add a fourth closing paragraph.
-Together, these three paragraphs must answer: why this company/context, why this role, why this candidate.
-Use one concrete offer/company anchor from "Offer/company anchors for letter" when available, but never invent company facts or use "leader dans son domaine" / "industry leader" unless the offer proves it.
-If no reliable company/about-us anchor is available, do not invent one; ground the opening in the domain, mission, responsibilities or required skills instead.
-Connect the offer anchor to one role mission/responsibility and one selected candidate proof.
-Do not turn the letter into a CV summary; keep candidate evidence selective and directly tied to the role.
-The motivation letter must reuse evidence from selected_experiences or selected_project_ids.
-It must cite one concrete project, stack or experience from the profile, but do not explain project internals, datasets, architecture, metrics, or implementation steps.
-Do not claim unsupported_offer_terms_not_to_claim as candidate skills.
-Do not copy unsupported_offer_terms_not_to_claim into the CV title or summary just because they appear in the job title or missions.
-Do not claim "production", "mise en production", "industrialisation" or "deployment" as candidate experience unless the selected source evidence explicitly supports that wording. Safer alternatives are "pipelines", "API", "structured code" or "usable models" when supported.
-If a required term is unsupported, emphasize adjacent allowed skills and concrete evidence.
-Never mention a gap, missing experience, limited knowledge, learning need, apology, or defensive caveat. Do not use "Bien que", "Je reconnais", "Je suis conscient", "je n'ai pas", "limited", "although", or "ready to learn".
-Only name projects that appear in selected_project_ids. Name at most one project in the motivation letter. If you name a project in the letter, that exact project id MUST be present in selected_project_ids. Do not describe project details or use a real project as generic filler when it is not directly relevant.
-If the offer does not explicitly mention LLM, RAG, retrieval-augmented generation, GenAI, generative AI or IA générative, do not mention SciFact RAG Verifier in the motivation letter; choose the selected project closest to the offer instead.
-Do not include a sign-off, signature, "Cordialement", "Best regards", or the candidate name in the motivation_letter_body; the renderer adds the canonical signature.
+
+Language: {{ letter_language }}
+Role: {{ role_title }}
+Company: {{ company_name }}
+Candidate: {{ candidate_name }}
+
+Goal:
+Write a natural, professional motivation letter adapted to the role and company. The letter must sound like a real candidate, not a generic AI-generated application.
+
+Output format:
+Subject: concise, mentioning the role and the candidate name.
+
+Then exactly 3 paragraphs separated by blank lines.
+No bullet points.
+No section titles.
+No exaggerated enthusiasm.
+No generic sentence that could apply to any company.
+
+Length:
+- French or English: {{ target_word_count | default("220-300") }} words.
+- If the application field is short, prioritize clarity over completeness.
+
+Paragraph 1:
+Explain why the candidate is interested in the company and role.
+Use only 1 or 2 visible anchors from the job offer or company context.
+Focus on the company's real context, mission, product, industry, team, or role scope.
+Avoid generic phrases such as "your company is innovative" unless supported by the offer.
+
+Paragraph 2:
+Explain the fit between the candidate profile and the role.
+Use 2 or 3 strong proofs maximum from the candidate experience.
+Prioritize concrete evidence: projects, tools, data types, models, APIs, pipelines, evaluation, product usage.
+Do not list too many technologies.
+Do not repeat the CV.
+
+Paragraph 3:
+Explain the concrete contribution the candidate could bring.
+Connect the candidate's strengths to the company's needs.
+End with a sober invitation to exchange.
+
+Evidence rules:
+Only claim skills, tools, domains, or experience that are present in {{ supported_candidate_evidence }}.
+Do not claim any term listed in {{ unsupported_offer_terms_not_to_claim }} as a candidate skill.
+If an offer requirement is not directly supported, use adjacent supported skills and concrete evidence instead.
+Never mention gaps, missing experience, limited knowledge, learning needs, apologies, or defensive caveats.
+Do not use phrases such as "je n'ai pas", "limited", "although", "despite", "I am still learning", or "ready to learn".
+
+Tone:
+Natural, precise, sober, and confident.
+Adapted to HR readers: understandable, business-oriented, and not overly technical.
+Show technical credibility through selected examples, not through jargon density.
+
+Personalization:
+The letter must clearly show why this company and this role specifically make sense for the candidate.
+Use company-specific context, but avoid copying the job description.
+Avoid overusing the company name.
+
+Final check before output:
+- Exactly 3 paragraphs.
+- No bullet list.
+- No unsupported claims.
+- No defensive wording.
+- No generic motivation.
+- Clear link between company needs, candidate evidence, and expected contribution.
 
 === STYLE ===
 Tone: {{ tone }}
 Voice: {{ voice }}
 CV language: English only. Keep cv_title, professional_summary and CV bullets in English.
-CV title: adapt the professional positioning to the offer, but keep it human and role/domain-oriented. Use domains or specializations when useful, not tools or stack keywords. Technical anchors may appear in the summary only when they clarify concrete work; never use them as a title suffix or raw keyword list.
+CV title: write a stable, polished professional headline under the candidate's name. Lightly adapt it to the broad role family, but do not optimize it for job keywords. Keep it specific enough to signal the target positioning: avoid a bare generic role title when one broad natural qualifier is supported by both the profile and the role context; use the bare role only when any qualifier would be unsupported or awkward. Use broad role/domain positioning when natural, not tools or stack keywords. Do not copy the job title, describe tasks, or turn required skills, tools, missions or keywords into a title suffix. If the title needs a "for ...", "focused on ...", or "specialized in ..." clause to explain the offer, move that clause to professional_summary instead. Choose the simpler natural headline over a synthetic but more precise phrase. Offer-specific anchors belong in professional_summary, selected_skills and bullets.
 Professional summary: write 1-2 dense, recruiter-facing sentences, max {{ max_summary_lines }} lines and max {{ max_summary_length }} characters. Use only summary_source, experiences, projects and allowed_skills.
 Make it concrete rather than generic:
-  - Start with the target positioning, aligned with cv_title.
+  - Start from the same broad role family as cv_title, then add the offer-specific anchors here; do not force the exact cv_title phrase or job-title wording into the summary.
   - Mention 2-4 supported evidence areas from the profile when relevant to the offer, such as domain, data type, model family, workflow type, project context or evaluation scope.
   - Include supported technical anchors when they strengthen recruiter understanding, including languages, libraries, frameworks, backend/API work, evaluation, deployment, or reproducible workflows, but only if grounded in allowed_skills or source evidence.
   - Do not write a raw tool list. Connect technical anchors to actual work.
@@ -79,6 +118,11 @@ Make it concrete rather than generic:
   - Do not claim unsupported offer terms, production ownership, cloud ownership, leadership, mentoring, or senior scope unless directly supported.
   - Avoid generic phrases like "applied AI", "end-to-end AI workflows", "deeptech contexts", or "cross-functional R&D" unless immediately tied to concrete profile evidence.
   - Keep the opening role consistent with cv_title; for example, do not write "Data Scientist with..." under an "AI Engineer" title.
+CV title self-check before output:
+  - Would this headline look natural under the candidate name on a CV?
+  - Is it specific enough without becoming a task phrase or keyword bundle?
+  - Is it a professional label rather than a sentence, task description or keyword-coverage field?
+  - Did you move offer-specific tasks, tools and keywords to professional_summary, selected_skills or bullets?
 Experience output: include every provided experience and every bullet id exactly once. Rephrase only when faithful; otherwise keep the source bullet.
 Do:
   - {{ do }}
@@ -90,10 +134,11 @@ Return JSON conforming to ApplicationDraft:
 - Motivation letter fields: motivation_letter_subject, motivation_letter_body.
 
 Project output rule:
-- selected_project_ids must contain exactly 4 projects whenever at least 4 profile projects are provided.
-- Do not output 3 or 5 projects when 4 or more profile projects are available.
-- If fewer than 4 profile projects are provided, select every relevant provided project.
+- selected_project_ids should contain 2 to 4 projects when at least 2 relevant profile projects are available.
 - Rank projects by direct relevance to the job tasks, required skills and keywords.
+- Select the strongest direct matches first.
+- Include a third or fourth project when it adds clear adjacent value for the role, even if it is not the main match.
+- Do not add weak filler projects just to reach 4; if fewer than 2 useful projects are available, select every useful provided project.
 - Do not invent projects or project claims; every selected id must come from the provided profile projects.
 - When naming a project in text, use the display name after "::" exactly; never derive a display name from the internal project id.
 
