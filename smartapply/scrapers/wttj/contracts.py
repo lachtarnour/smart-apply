@@ -56,3 +56,7 @@ class WTTJJobLink:
 
 class WTTJScraperError(ScraperError):
     """Raised when WTTJ scraping or parsing fails."""
+
+
+class WTTJAuthenticationError(WTTJScraperError):
+    """Raised when WTTJ rejects or cannot use the configured Cookie header."""

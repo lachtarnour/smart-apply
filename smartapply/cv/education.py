@@ -33,6 +33,8 @@ class EducationDisplay:
     field: str | None
     institution: str
     url: Any | None
+    start_date: str | None
+    end_date: str | None
     start_year: int
     end_year: int
 
@@ -71,6 +73,8 @@ def education_entries_for_english(degrees: Iterable[Degree]) -> list[EducationDi
             field=degree.field,
             institution=english_institution_name(degree.institution),
             url=degree.url,
+            start_date=degree.start_date,
+            end_date=degree.end_date,
             start_year=degree.start_year,
             end_year=degree.end_year,
         )

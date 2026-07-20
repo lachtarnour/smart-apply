@@ -23,6 +23,7 @@ from smartapply.scrapers.wttj.contracts import (
     WTTJ_HEADERS,
     WTTJ_MATCHES_API_URL,
     WTTJ_MATCHES_URL,
+    WTTJAuthenticationError,
     WTTJJobLink,
     WTTJScraperError,
 )
@@ -102,7 +103,9 @@ def fetch_matches_api_page(
     if page < 1:
         raise ValueError("page must be >= 1")
     if not cookie_header.strip():
-        raise WTTJScraperError("A logged-in WTTJ Cookie header is required for jobs-matches.")
+        raise WTTJAuthenticationError(
+            "A logged-in WTTJ Cookie header is required for jobs-matches."
+        )
 
     params: dict[str, Any] = {"page": page}
     if per_page is not None:
@@ -117,7 +120,7 @@ def fetch_matches_api_page(
     )
     response = requests.get(WTTJ_MATCHES_API_URL, headers=headers, params=params, timeout=timeout)
     if response.status_code in {401, 403}:
-        raise WTTJScraperError(
+        raise WTTJAuthenticationError(
             "WTTJ API rejected the Cookie header. Copy the Cookie from a logged-in "
             "jobs-matches browser request and retry."
         )
@@ -162,6 +165,12 @@ def _matches_api_page_count(payload: dict[str, Any]) -> int | None:
     if isinstance(value, int) and value >= 1:
         return value
     return None
+
+
+def _is_missing_matches_page_error(exc: requests.RequestException) -> bool:
+    response = getattr(exc, "response", None)
+    return getattr(response, "status_code", None) in {404, 410}
+
 
 def parse_saved_listing(path: str | Path) -> list[WTTJJobLink]:
     """Parse a saved WTTJ jobs-matches HTML file."""
@@ -210,7 +219,9 @@ def scrape_matches_requests(
     are public, so they are fetched without cookies.
     """
     if not cookie_header.strip():
-        raise WTTJScraperError("A logged-in WTTJ Cookie header is required for jobs-matches.")
+        raise WTTJAuthenticationError(
+            "A logged-in WTTJ Cookie header is required for jobs-matches."
+        )
     if _should_stop(stop_requested):
         _emit_progress(progress_callback, event="cancelled", yielded=0)
         return
@@ -253,13 +264,50 @@ def scrape_matches_requests(
                 timeout=timeout,
                 extra_headers=extra_headers,
             )
-        except (requests.RequestException, WTTJScraperError) as exc:
+        except WTTJAuthenticationError:
+            raise
+        except requests.RequestException as exc:
+            if _is_missing_matches_page_error(exc):
+                logger.info("Stopping WTTJ pagination at missing page %s: %s", page_number, exc)
+                _emit_progress(
+                    progress_callback,
+                    event="page_missing",
+                    page=page_number,
+                    pages_total=pages_total,
+                    page_count=page_count,
+                    max_jobs=max_jobs,
+                    progress_target=progress_target,
+                    yielded=yielded,
+                )
+                break
+            if not skip_failed_jobs:
+                raise
+            logger.warning("Skipping WTTJ matches page %s: %s", page_number, exc)
+            continue
+        except WTTJScraperError as exc:
             if not skip_failed_jobs:
                 raise
             logger.warning("Skipping WTTJ matches page %s: %s", page_number, exc)
             continue
 
         page_count = _matches_api_page_count(payload) or page_count
+        if page_count is not None and page_number > page_count:
+            logger.info(
+                "Stopping WTTJ pagination at page %s beyond page_count=%s",
+                page_number,
+                page_count,
+            )
+            _emit_progress(
+                progress_callback,
+                event="page_missing",
+                page=page_number,
+                pages_total=pages_total,
+                page_count=page_count,
+                max_jobs=max_jobs,
+                progress_target=progress_target,
+                yielded=yielded,
+            )
+            break
         links = parse_matches_api_links(payload)
         _emit_progress(
             progress_callback,

@@ -25,7 +25,7 @@ def _should_stop(stop_requested: Callable[[], bool] | None) -> bool:
     return bool(stop_requested and stop_requested())
 
 APIFY_LINKEDIN_JOBS_URL = (
-    "https://api.apify.com/v2/acts/"
+    "https://api.apify.com/v2/actors/"
     "valig~linkedin-jobs-scraper/run-sync-get-dataset-items"
 )
 
@@ -139,10 +139,12 @@ class LinkedInJobsScraper(Scraper):
     def _fetch(self, payload: dict[str, Any]) -> list[dict[str, Any]]:
         response = requests.post(
             self.url,
-            params={"token": self.token},
+            headers={"Authorization": f"Bearer {self.token}"},
             json=payload,
             timeout=300,
         )
+        if _is_non_retryable_apify_response(response):
+            raise ScraperConfigError(_apify_http_error_message(response))
         response.raise_for_status()
         data = response.json()
         if not isinstance(data, list):
@@ -237,7 +239,7 @@ class LinkedInJobsScraper(Scraper):
             try:
                 items = self._fetch(payload)
             except requests.RequestException as e:
-                logger.error("LinkedIn Apify request failed: %s", e)
+                logger.error("LinkedIn Apify request failed: %s", _request_error_summary(e))
                 return
 
             skipped_experience_mismatch = 0
@@ -407,6 +409,59 @@ def _clean_payload(payload: dict[str, Any]) -> dict[str, Any]:
         for key, value in payload.items()
         if value not in ("", None, [])
     }
+
+
+def _is_non_retryable_apify_response(response: requests.Response) -> bool:
+    status_code = response.status_code
+    if status_code < 400:
+        return False
+    return status_code not in {408, 429} and status_code < 500
+
+
+def _apify_http_error_message(response: requests.Response) -> str:
+    status_code = response.status_code
+    detail = _apify_error_detail(response)
+    message = (
+        f"LinkedIn Apify actor failed with HTTP {status_code}. "
+        "Check APIFY_TOKEN, actor access/subscription, and Apify account credits."
+    )
+    if detail:
+        message = f"{message} Apify says: {detail}"
+    return message
+
+
+def _apify_error_detail(response: requests.Response) -> str:
+    try:
+        data = response.json()
+    except ValueError:
+        return _redact_secrets(_text(response.text))[:500]
+    if isinstance(data, dict):
+        error = data.get("error")
+        if isinstance(error, dict):
+            detail = _text(error.get("message")) or _text(error.get("type"))
+            return _redact_secrets(detail)[:500]
+        if error:
+            return _redact_secrets(_text(error))[:500]
+    return ""
+
+
+def _request_error_summary(exc: requests.RequestException) -> str:
+    response = getattr(exc, "response", None)
+    if isinstance(response, requests.Response):
+        return _apify_http_error_message(response)
+    return _redact_secrets(_text(exc))
+
+
+def _redact_secrets(value: str) -> str:
+    value = re.sub(r"(token=)[^&\s]+", r"\1[redacted]", value, flags=re.IGNORECASE)
+    value = re.sub(r"apify_api_[A-Za-z0-9_-]+", "apify_api_[redacted]", value)
+    value = re.sub(
+        r"(Authorization:\s*Bearer\s+)[^\s,;]+",
+        r"\1[redacted]",
+        value,
+        flags=re.IGNORECASE,
+    )
+    return value
 
 
 def _csv_list(value: str | list[str] | tuple[str, ...] | None) -> list[str]:

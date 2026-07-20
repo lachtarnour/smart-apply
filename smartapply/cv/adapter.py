@@ -553,12 +553,42 @@ class CvAdapter:
         normalized = " ".join((term or "").lower().split())
         if not normalized:
             return []
+
+        normalized_by_skill = {
+            skill_key: " ".join(skill_key.lower().split())
+            for skill_key in canonical_by_skill
+        }
+        exact_matches = [
+            skill_key
+            for skill_key, skill_norm in normalized_by_skill.items()
+            if normalized == skill_norm
+        ]
+        if exact_matches:
+            return sorted(exact_matches, key=len, reverse=True)[:1]
+
         matches: list[str] = []
         for skill_key in sorted(canonical_by_skill, key=len, reverse=True):
-            if len(skill_key) <= 2:
-                if normalized == skill_key:
+            skill_norm = normalized_by_skill[skill_key]
+            if len(skill_norm) <= 2:
+                if normalized == skill_norm:
                     matches.append(skill_key)
                 continue
-            if normalized == skill_key or skill_key in normalized or normalized in skill_key:
+            if (
+                normalized == skill_norm
+                or skill_norm in normalized
+                or normalized in skill_norm
+            ):
                 matches.append(skill_key)
-        return matches
+
+        filtered: list[str] = []
+        for skill_key in matches:
+            skill_norm = normalized_by_skill[skill_key]
+            if any(
+                skill_norm != other_norm and skill_norm in other_norm
+                for other_key, other_norm in normalized_by_skill.items()
+                if other_key in matches
+            ):
+                continue
+            if skill_key not in filtered:
+                filtered.append(skill_key)
+        return filtered

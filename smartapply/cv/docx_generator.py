@@ -248,7 +248,9 @@ class CvDocxRenderer:
 
     def _write_education(self, doc: DocxDocument) -> None:
         for deg in education_entries_for_english(self.profile.education):
-            left = f"{deg.start_year} – {deg.end_year}"
+            start = deg.start_date or str(deg.start_year)
+            end = deg.end_date or str(deg.end_year)
+            left = f"{start} – {end}"
 
             def _writer(cell, deg: EducationDisplay = deg):
                 p = cell.paragraphs[0]

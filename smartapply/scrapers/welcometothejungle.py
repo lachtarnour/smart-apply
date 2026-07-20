@@ -14,6 +14,7 @@ from smartapply.scrapers.base import Scraper, ScraperConfigError
 from smartapply.scrapers.serpapi_query import normalize_date_posted
 from smartapply.scrapers.wttj.contracts import (
     WTTJ_SOURCE,
+    WTTJAuthenticationError,
     WTTJJobLink,
     WTTJScraperError,
 )
@@ -223,6 +224,7 @@ for _module in (_matches_api, _offer_parser, _company_hydration):
 
 __all__ = [
     "WTTJ_SOURCE",
+    "WTTJAuthenticationError",
     "WTTJJobLink",
     "WTTJScraperError",
     "WelcomeToTheJungleScraper",

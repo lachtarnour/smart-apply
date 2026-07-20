@@ -142,7 +142,9 @@ with edu_col:
         with st.container():
             st.markdown(f"**{deg.title}**")
             st.caption(f"{deg.field or ''} · {deg.institution}")
-            render_badge_row([(f"{deg.start_year}–{deg.end_year}", "neutral"), (f"source_id: {deg.id}", "neutral")])
+            start = deg.start_date or str(deg.start_year)
+            end = deg.end_date or str(deg.end_year)
+            render_badge_row([(f"{start}–{end}", "neutral"), (f"source_id: {deg.id}", "neutral")])
 
 with lang_col:
     st.markdown("### Langues")

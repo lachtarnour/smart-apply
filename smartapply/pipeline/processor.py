@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from smartapply.config import get_settings
 from smartapply.database import session_scope
+from smartapply.database.models import JobStatus
 from smartapply.database.repository import list_pending_processing
 from smartapply.dedup import Deduplicator
 from smartapply.filtering import JobFilter
@@ -78,9 +79,18 @@ class Processor(AnalysisMixin, LocalFilterMixin, RankingMixin, DeduplicationMixi
             )
             kept_jobs = already_kept + newly_kept
 
-            ranked = self.scorer.rank(kept_jobs)
+            to_rank = [job for job in kept_jobs if job.ranked_at is None]
+            already_shortlisted = [
+                job
+                for job in kept_jobs
+                if job.ranked_at is not None and job.status == JobStatus.SHORTLISTED
+            ]
+            ranked = self.scorer.rank(to_rank)
             shortlist_n = min(top_k_analyze or self.settings.top_k_ranked, len(ranked))
-            shortlisted_jobs = self._persist_ranking(s, ranked, shortlist_n)
+            shortlisted_jobs = [
+                *already_shortlisted,
+                *self._persist_ranking(s, ranked, shortlist_n),
+            ]
 
         to_analyze = [j for j in shortlisted_jobs if j.analyzed_at is None]
         analyzed = self._analyze_in_parallel(to_analyze)

@@ -103,11 +103,14 @@ def _pending_jobs_df(keep_map: dict[int, bool], recent_ids: list[int]) -> pd.Dat
     """Return jobs still available before LLM analysis, with description preview.
 
     With per-phase timestamps, "pending" includes freshly scraped jobs and
-    jobs already filtered locally but not yet analyzed by the LLM.
+    jobs already filtered locally, but excludes jobs that already have a
+    ranking score. Scored jobs are handled from the shortlist views.
     """
     rows: list[dict[str, Any]] = []
     with session_scope() as s:
         for job in list_pending_processing(s):
+            if job.ranked_at is not None:
+                continue
             desc = (job.cleaned_description or job.description or "").strip()
             preview = desc[:180] + ("..." if len(desc) > 180 else "")
             rows.append(

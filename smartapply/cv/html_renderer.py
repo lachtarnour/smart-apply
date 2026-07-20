@@ -191,16 +191,19 @@ class HtmlApplicationRenderer:
         job_company: str,
         contact_email: str | None = None,
         language: str = "fr",
+        letter_headline: str | None = None,
     ) -> str:
         template = self.env.get_template("motivation_letter.html.j2")
         labels = self._letter_labels(language)
         paragraphs = self._letter_paragraphs(email_draft.body)
+        headline = (letter_headline or "").strip() or self.profile.identity.title
         return template.render(
             profile=self.profile,
             subject=email_draft.subject,
             paragraphs=paragraphs,
             job_title=job_title,
             job_company=job_company,
+            letter_headline=headline,
             contact_email=contact_email,
             contact_line=self._contact_line(),
             contact_items=self._contact_items(),
@@ -222,6 +225,7 @@ class HtmlApplicationRenderer:
         path: str | Path,
         contact_email: str | None = None,
         language: str = "fr",
+        letter_headline: str | None = None,
     ) -> Path:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -231,6 +235,7 @@ class HtmlApplicationRenderer:
             job_company=job_company,
             contact_email=contact_email,
             language=language,
+            letter_headline=letter_headline,
         )
         path.write_text(html, encoding="utf-8")
         return path
@@ -254,6 +259,7 @@ class HtmlApplicationRenderer:
         path: str | Path,
         contact_email: str | None = None,
         language: str = "fr",
+        letter_headline: str | None = None,
     ) -> Path:
         html = self.render_letter_html(
             email_draft=email_draft,
@@ -261,6 +267,7 @@ class HtmlApplicationRenderer:
             job_company=job_company,
             contact_email=contact_email,
             language=language,
+            letter_headline=letter_headline,
         )
         return html_to_pdf(html, path, base_dir=TEMPLATES_DIR)
 

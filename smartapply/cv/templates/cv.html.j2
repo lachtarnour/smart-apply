@@ -507,7 +507,7 @@
     <h2 class="section-title">Education</h2>
     {% for degree in education %}
     <div class="entry">
-      <div class="entry-left">{{ degree.start_year }} &ndash; {{ degree.end_year }}</div>
+      <div class="entry-left">{{ degree.start_date | default(degree.start_year, true) }} &ndash; {{ degree.end_date | default(degree.end_year, true) }}</div>
       <div class="entry-right">
         <div class="entry-title">
           <strong>{{ degree.title }}{% if degree.field %} &ndash; {{ degree.field }}{% endif %}</strong>{% if degree.url %}<a class="inline-link" href="{{ degree.url }}" aria-label="Degree page"></a>{% endif %},

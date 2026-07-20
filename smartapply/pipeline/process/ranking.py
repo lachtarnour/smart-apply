@@ -26,7 +26,8 @@ class RankingMixin:
         """Run dedup, local filter and ranking without calling the LLM."""
         with session_scope() as s:
             active_jobs = list(list_pending_processing(s))
-            pending = list(active_jobs)
+            rankable_jobs = [job for job in active_jobs if job.ranked_at is None]
+            pending = list(rankable_jobs)
             if job_ids is not None:
                 selected_ids = set(job_ids)
                 pending = [job for job in pending if job.id in selected_ids]
@@ -96,6 +97,7 @@ class RankingMixin:
             if i < shortlist_n:
                 update_status(session, job.id, JobStatus.SHORTLISTED)
             else:
-                update_status(session, job.id, JobStatus.FILTERED)
+                # Keep ranked-but-not-shortlisted jobs visible as fresh backlog.
+                # They still carry ranking timestamps/scores, but are not rejected.
+                update_status(session, job.id, JobStatus.SCRAPED)
         return [job for job, _ in ranked[:shortlist_n]]
-

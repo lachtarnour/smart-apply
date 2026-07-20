@@ -64,6 +64,8 @@ def _wttj_progress_text(event: dict[str, Any]) -> str:
         return f"WTTJ: {page_text} · {links} lien(s) trouvé(s) · {count_text}"
     if event_name == "page_empty":
         return f"WTTJ: {page_text} vide · arrêt de la recherche"
+    if event_name == "page_missing":
+        return f"WTTJ: {page_text} introuvable · arrêt de la recherche"
     if event_name == "page_duplicate":
         return f"WTTJ: {page_text} déjà lue · arrêt de la recherche"
     if event_name == "job_detail_start":

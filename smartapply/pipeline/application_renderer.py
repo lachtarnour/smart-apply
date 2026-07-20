@@ -63,6 +63,7 @@ class ApplicationDocumentRenderer:
             contact_email=contact_email,
             path=letter_html_path,
             language=language,
+            letter_headline=adapted.cv_title,
         )
         report.cv_html_path = str(cv_html_path)
         report.letter_html_path = str(letter_html_path)
@@ -79,6 +80,7 @@ class ApplicationDocumentRenderer:
                 contact_email=contact_email,
                 path=letter_pdf_path,
                 language=language,
+                letter_headline=adapted.cv_title,
             )
             report.cv_pdf_path = str(cv_pdf_path)
             report.letter_pdf_path = str(letter_pdf_path)
