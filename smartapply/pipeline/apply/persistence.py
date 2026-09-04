@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from smartapply.database import session_scope
-from smartapply.database.models import Application
+from smartapply.database.models import Application, Job, JobStatus
 from smartapply.database.repository import (
     create_or_get_application,
     update_status,
@@ -131,5 +131,9 @@ class ApplicationPersistenceMixin:
                 content=letter.body,
                 extra={"subject": letter.subject},
             )
-            update_status(session, report.job_id, status)
+            # Keep a selected offer in the first-class ``shortlisted`` state;
+            # the application itself carries the review/sent lifecycle.
+            job = session.get(Job, report.job_id)
+            if job is None or job.status != JobStatus.SHORTLISTED:
+                update_status(session, report.job_id, status)
             report.application_id = application.id

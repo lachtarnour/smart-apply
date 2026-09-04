@@ -466,7 +466,8 @@ ApplicationWindow {
         anchors.right: parent.right
         anchors.rightMargin: 24
         anchors.bottom: parent.bottom
-        anchors.bottomMargin: 24
+        // Keep the toast above the fixed action bar used by the application detail page.
+        anchors.bottomMargin: 92
         width: 390
         implicitHeight: toastRow.implicitHeight + 28
         radius: 18

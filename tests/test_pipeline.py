@@ -185,7 +185,7 @@ def test_manual_offer_reuses_existing_url_for_regeneration() -> None:
 
     second = p.ingest_manual_offer(
         ManualOfferInput(
-            company="Abrial",
+            company="Old Company",
             title="AI Engineering & Research",
             description="Build reinforcement-learning pricing systems.",
             location="Remote Europe",
@@ -201,10 +201,45 @@ def test_manual_offer_reuses_existing_url_for_regeneration() -> None:
     with session_scope() as s:
         job = s.get(Job, job_id)
         assert job is not None
-        assert job.company == "Abrial"
+        assert job.company == "Old Company"
         assert job.location == "Remote Europe"
         assert job.analyzed_at is None
         assert job.status == JobStatus.SCRAPED
+
+
+def test_manual_offers_with_shared_url_keep_separate_job_rows() -> None:
+    """A generic pasted URL must not make a different offer reuse its row."""
+    from smartapply.database import session_scope
+    from smartapply.database.models import Job
+    from smartapply.offers import ManualOfferInput
+    from smartapply.pipeline import Pipeline
+
+    p = Pipeline(embeddings=MockEmbeddingsProvider(), llm=MockLLMProvider())
+    shared_url = "https://jobs.example.com/search?ref=semantic_search_landing_page"
+    first = p.ingest_manual_offer(
+        ManualOfferInput(
+            company="Maytronics",
+            title="Ingénieur Vision par Ordinateur",
+            description="Développer des modèles de vision par ordinateur.",
+            location="Paris",
+            application_url=shared_url,
+        )
+    )
+    second = p.ingest_manual_offer(
+        ManualOfferInput(
+            company="Dassault Systèmes",
+            title="Ingénieur en développement IA",
+            description="Développer et déployer des composants IA.",
+            location="Vélizy-Villacoublay",
+            application_url=shared_url,
+        )
+    )
+
+    assert first.job_ids and second.job_ids
+    assert first.job_ids != second.job_ids
+    with session_scope() as s:
+        assert s.get(Job, first.job_ids[0]).company == "Maytronics"
+        assert s.get(Job, second.job_ids[0]).company == "Dassault Systèmes"
 
 
 def test_ingestor_keeps_paid_serpapi_boolean_query_atomic(monkeypatch: pytest.MonkeyPatch) -> None:

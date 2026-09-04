@@ -98,30 +98,6 @@ Item {
     }
 
     Item {
-        id: marbleVein
-        x: 0
-        y: Math.round(root.height * 0.46)
-        width: root.width
-        height: Math.max(3, Math.round(root.height * 0.09))
-        clip: true
-        opacity: 0.54
-        Text {
-            x: 0
-            y: -marbleVein.y
-            width: root.width
-            height: root.height
-            text: root.text
-            color: "#4B4A52"
-            font.family: Theme.fontFamily
-            font.pixelSize: root.pixelSize
-            font.weight: Font.Bold
-            font.letterSpacing: root.letterSpacing
-            renderType: Text.NativeRendering
-            elide: Text.ElideRight
-        }
-    }
-
-    Item {
         id: pearlEdge
         x: 0
         y: Math.round(root.height * 0.65)

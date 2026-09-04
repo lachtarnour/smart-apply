@@ -58,7 +58,7 @@ def _text_list(value: Any) -> tuple[str, ...]:
 
 def _desktop_next_action(status: str, updated_at: datetime | None) -> str:
     if status == JobStatus.READY_FOR_FORM_SUBMISSION:
-        return "Relire le CV et la lettre"
+        return "Relire les documents de candidature"
     return next_action_for(status, updated_at)
 
 
@@ -140,8 +140,6 @@ class ApplicationDetail(ApplicationRow):
     source: str = ""
     job_url: str = ""
     form_url: str = ""
-    letter_subject: str = ""
-    letter_body: str = ""
     notes: str = ""
     form_submitted_at: str = ""
     cv_docx_path: str = ""
@@ -314,7 +312,7 @@ class DesktopService:
         )
         if status == JobStatus.SHORTLISTED:
             stmt = stmt.where(
-                Job.shortlisted_at.is_not(None),
+                Job.status == JobStatus.SHORTLISTED,
                 Job.archived_at.is_(None),
             )
         elif status:
@@ -512,17 +510,13 @@ class DesktopService:
             docs: dict[str, GeneratedDocument] = {}
             for doc in sorted(app.documents, key=lambda item: item.id):
                 docs[doc.doc_type] = doc
-            letter = docs.get("motivation_letter")
             letter_pdf = docs.get("motivation_letter_pdf")
-            extra = letter.extra if letter and isinstance(letter.extra, dict) else {}
             return ApplicationDetail(
                 **asdict(base),
                 location=app.job.location or "",
                 source=app.job.source,
                 job_url=app.job.application_url or "",
                 form_url=app.form_submission_url or app.job.application_url or "",
-                letter_subject=str(extra.get("subject", "")),
-                letter_body=letter.content or "" if letter else "",
                 notes=app.notes or "",
                 form_submitted_at=_date_text(app.form_submitted_at, with_time=True)
                 if app.form_submitted_at

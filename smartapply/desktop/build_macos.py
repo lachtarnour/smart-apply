@@ -60,10 +60,20 @@ def _render_icon(output_dir: Path = BUILD_DIR) -> Path:
         if not image.save(str(iconset / name)):
             raise RuntimeError(f"Could not write icon size {size}")
     output = output_dir / f"{BUNDLE_NAME}.icns"
-    subprocess.run(
-        ["iconutil", "-c", "icns", str(iconset), "-o", str(output)],
-        check=True,
-    )
+    try:
+        subprocess.run(
+            ["iconutil", "-c", "icns", str(iconset), "-o", str(output)],
+            check=True,
+        )
+    except subprocess.CalledProcessError:
+        # Some macOS SDK/iconutil versions reject Qt-generated iconsets even
+        # when all required sizes are present. Reuse the last valid bundle
+        # icon so an application rebuild is not blocked by presentation-only
+        # metadata.
+        previous = DIST_APP / "Contents" / "Resources" / f"{BUNDLE_NAME}.icns"
+        if not previous.exists():
+            raise
+        shutil.copy2(previous, output)
     return output
 
 

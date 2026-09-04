@@ -181,7 +181,7 @@ class Ingestor:
                     if matching_existing is not None and source == "manual":
                         existing = matching_existing
                         existing_status = existing.status
-                    elif known_index.matches(raw):
+                    elif source != "manual" and known_index.matches(raw):
                         skipped_existing += 1
                         continue
                 job = upsert_job(
@@ -248,6 +248,12 @@ __all__ = [
 
 
 def _matching_known_job(raw: RawJob, known_jobs) -> object | None:  # noqa: ANN001
+    """Find the same manual offer without conflating shared result URLs.
+
+    A career-site search URL can be pasted for several different offers. URL
+    matching therefore also requires the offer's company and title; otherwise
+    a new offer can overwrite the old job row and keep its generated letter.
+    """
     if raw.external_id:
         for job in known_jobs:
             if raw.external_id == job.external_id:
@@ -257,6 +263,16 @@ def _matching_known_job(raw: RawJob, known_jobs) -> object | None:  # noqa: ANN0
     if not raw_url:
         return None
     for job in known_jobs:
-        if raw_url == _normalize_application_url(job.application_url):
+        if (
+            raw_url == _normalize_application_url(job.application_url)
+            and _same_offer_label(raw.company, job.company)
+            and _same_offer_label(raw.title, job.title)
+        ):
             return job
     return None
+
+
+def _same_offer_label(left: str | None, right: str | None) -> bool:
+    return " ".join((left or "").casefold().split()) == " ".join(
+        (right or "").casefold().split()
+    )

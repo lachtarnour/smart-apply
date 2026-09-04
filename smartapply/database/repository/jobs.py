@@ -95,7 +95,7 @@ def set_shortlisted(
     selected: bool,
     origin: str | None = None,
 ) -> Job | None:
-    """Persist or remove a Top-selection marker independently from workflow status."""
+    """Persist a Top selection as the offer's canonical status."""
     job = session.get(Job, job_id)
     if job is None or job.archived_at is not None:
         return None
@@ -107,14 +107,15 @@ def set_shortlisted(
             job.shortlist_origin = origin or ShortlistOrigin.AUTOMATIC
         job.filtered_at = job.filtered_at or now
         job.ranked_at = job.ranked_at or now
-        if job.status in {JobStatus.SCRAPED, JobStatus.FILTERED, JobStatus.SHORTLISTED}:
-            job.status = JobStatus.SHORTLISTED
+        # Shortlisting is a first-class offer state. Application tracking is
+        # stored on Application and must not turn this into two UI labels.
+        job.status = JobStatus.SHORTLISTED
         return job
 
     job.shortlisted_at = None
     job.shortlist_origin = None
     if job.status == JobStatus.SHORTLISTED:
-        job.status = JobStatus.FILTERED
+        job.status = JobStatus.ANALYZED if job.analyzed_at is not None else JobStatus.FILTERED
     return job
 
 

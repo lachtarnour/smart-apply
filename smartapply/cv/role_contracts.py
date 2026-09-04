@@ -149,6 +149,19 @@ def _offer_anchored_skills(analysis: JobAnalysis) -> set[str]:
     }
 
 
+def offer_anchored_categories(
+    adapted: AdaptedCV,
+    analysis: JobAnalysis,
+) -> set[str]:
+    """Return categories containing skills explicitly requested by the offer."""
+    offer_terms = _offer_anchored_skills(analysis)
+    return {
+        block.category_id
+        for block in adapted.selected_skills
+        if any(_is_explicit_offer_skill(skill, offer_terms) for skill in block.skills)
+    }
+
+
 def _selected_skill_count(skills_by_category: dict[str, list[str]]) -> int:
     return sum(len(skills) for skills in skills_by_category.values())
 

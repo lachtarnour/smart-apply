@@ -147,8 +147,21 @@ def backfill_shortlisted_at() -> int:
                     Job.ranked_at,
                     Job.analyzed_at,
                     Job.scraped_at,
-                )
+                ),
+                status=JobStatus.SHORTLISTED,
             )
+        )
+        # Older databases could retain the selection marker while the job
+        # status had already advanced with its application. Normalize those
+        # rows so the offer has one canonical visible status.
+        conn.execute(
+            update(Job)
+            .where(
+                Job.shortlisted_at.is_not(None),
+                Job.archived_at.is_(None),
+                Job.status != JobStatus.SHORTLISTED,
+            )
+            .values(status=JobStatus.SHORTLISTED)
         )
         rows = conn.execute(
             select(Job.id, JobScore.components)

@@ -101,6 +101,11 @@ class Settings(BaseSettings):
     # on top-K analysis (15 jobs go from ~30s serial to ~4s with 5 workers).
     llm_max_concurrent: int = Field(default=5, ge=1, le=20)
 
+    # CV skill-block presentation. Disabling this restores the previous
+    # renderer behaviour without changing the stored CV adaptation.
+    cv_merge_sparse_secondary_skills: bool = Field(default=True)
+    cv_secondary_skill_block_min_size: int = Field(default=4, ge=2, le=12)
+
     # Logging
     log_level: str = Field(default="INFO")
 

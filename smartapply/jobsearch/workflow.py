@@ -34,7 +34,7 @@ def next_action_for(
 ) -> str:
     """Return a short next-action hint for the application tracker."""
     if status == JobStatus.READY_FOR_FORM_SUBMISSION:
-        return "Relire le CV et la lettre"
+        return "Relire les documents de candidature"
     if status == JobStatus.QUALITY_REJECTED:
         return "Corriger les documents"
     if status == JobStatus.SENT:

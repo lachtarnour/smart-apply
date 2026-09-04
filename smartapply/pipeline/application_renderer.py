@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING
 
 from smartapply.config import get_settings
 from smartapply.cv import CvDocxRenderer, HtmlApplicationRenderer
+from smartapply.cv.role_contracts import offer_anchored_categories
+from smartapply.cv.skill_display import compact_sparse_secondary_categories
 from smartapply.database.repository import upsert_document
 from smartapply.llm import MotivationLetter
 from smartapply.logging_setup import get_logger
@@ -42,6 +44,8 @@ class ApplicationDocumentRenderer:
         job_title: str,
         job_company: str,
         language: str,
+        role_family: str | None = None,
+        analysis=None,
         output_dir: Path | None = None,
     ) -> None:
         """Generate every artifact and populate the corresponding report fields."""
@@ -50,23 +54,45 @@ class ApplicationDocumentRenderer:
             report.application_id,
         )
         safe_name = self.profile.identity.full_name.replace(" ", "_")
+        display_adapted, skill_merges = compact_sparse_secondary_categories(
+            adapted,
+            primary_family=role_family or "",
+            enabled=getattr(self.settings, "cv_merge_sparse_secondary_skills", True),
+            min_standalone_skills=getattr(
+                self.settings,
+                "cv_secondary_skill_block_min_size",
+                4,
+            ),
+            protected_categories=(
+                offer_anchored_categories(adapted, analysis) if analysis else None
+            ),
+        )
+        if skill_merges:
+            logger.info(
+                "Compacted sparse secondary skill categories for job %s: %s",
+                report.job_id,
+                [
+                    f"{merge.source_category}->{merge.target_category}"
+                    for merge in skill_merges
+                ],
+            )
 
         # ---- DOCX (always — candidate fallback) ----
         docx_path = out_dir / f"CV_{safe_name}.docx"
-        self.docx.save(adapted, docx_path)
+        self.docx.save(display_adapted, docx_path)
         report.docx_path = str(docx_path)
 
         # ---- HTML sources ----
         cv_html_path = out_dir / f"CV_{safe_name}.html"
         letter_html_path = out_dir / f"Lettre_motivation_{safe_name}.html"
-        self.html.save_cv_html(adapted, cv_html_path)
+        self.html.save_cv_html(display_adapted, cv_html_path)
         self.html.save_letter_html(
             letter=letter,
             job_title=job_title,
             job_company=job_company,
             path=letter_html_path,
             language=language,
-            letter_headline=adapted.cv_title,
+            letter_headline=display_adapted.cv_title,
         )
         report.cv_html_path = str(cv_html_path)
         report.letter_html_path = str(letter_html_path)
@@ -75,14 +101,14 @@ class ApplicationDocumentRenderer:
         cv_pdf_path = out_dir / f"CV_{safe_name}.pdf"
         letter_pdf_path = out_dir / f"Lettre_motivation_{safe_name}.pdf"
         try:
-            self.html.save_cv_pdf(adapted, cv_pdf_path)
+            self.html.save_cv_pdf(display_adapted, cv_pdf_path)
             self.html.save_letter_pdf(
                 letter=letter,
                 job_title=job_title,
                 job_company=job_company,
                 path=letter_pdf_path,
                 language=language,
-                letter_headline=adapted.cv_title,
+                letter_headline=display_adapted.cv_title,
             )
             report.cv_pdf_path = str(cv_pdf_path)
             report.letter_pdf_path = str(letter_pdf_path)

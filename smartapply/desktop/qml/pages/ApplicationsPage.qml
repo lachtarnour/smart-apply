@@ -16,34 +16,58 @@ Item {
 
     ColumnLayout {
         anchors.fill: parent
-        spacing: 18
+        spacing: 14
 
         PageHeader {
             Layout.fillWidth: true
+            eyebrow: "ESPACE DE CANDIDATURE"
             title: "Candidatures"
+            subtitle: "Consultez l’adéquation avec votre profil, vérifiez les points sensibles et suivez chaque envoi."
             AppButton { text: "Ajouter une offre"; iconSource: Theme.icon("plus"); kind: "primary"; onClicked: root.navigateRequested("manual") }
         }
 
-        RowLayout {
+        Surface {
             Layout.fillWidth: true
-            spacing: 12
-            AppField {
-                id: searchField
+            Layout.preferredHeight: 72
+            padding: 11
+            elevated: false
+            surfaceColor: Theme.surfaceMuted
+            surfaceEndColor: Theme.surface
+            RowLayout {
                 Layout.fillWidth: true
-                iconSource: Theme.icon("search")
-                placeholderText: "Rechercher une entreprise ou un poste…"
-                onTextChanged: searchTimer.restart()
+                spacing: 10
+                AppField {
+                    id: searchField
+                    Layout.fillWidth: true
+                    iconSource: Theme.icon("search")
+                    placeholderText: "Rechercher une entreprise ou un poste…"
+                    onTextChanged: searchTimer.restart()
+                }
+                AppSelect {
+                    id: filter
+                    implicitHeight: 48
+                    implicitWidth: 200
+                    textRole: "label"
+                    valueRole: "value"
+                    model: [{label: "Tous les statuts", value: ""}].concat(AppBridge.applicationStatuses)
+                    onActivated: AppBridge.loadApplications(searchField.text, currentValue)
+                }
+                Rectangle {
+                    Layout.preferredWidth: applicationCount.implicitWidth + 22
+                    Layout.preferredHeight: 32
+                    radius: 16
+                    color: Theme.neutralSoft
+                    border.color: Theme.line
+                    Text {
+                        id: applicationCount
+                        anchors.centerIn: parent
+                        text: AppBridge.applications.length + " candidature" + (AppBridge.applications.length === 1 ? "" : "s")
+                        color: Theme.inkMuted
+                        font.pixelSize: 10
+                        font.weight: Font.DemiBold
+                    }
+                }
             }
-            AppSelect {
-                id: filter
-                implicitHeight: 48
-                implicitWidth: 200
-                textRole: "label"
-                valueRole: "value"
-                model: [{label: "Tous les statuts", value: ""}].concat(AppBridge.applicationStatuses)
-                onActivated: AppBridge.loadApplications(searchField.text, currentValue)
-            }
-            Pill { text: AppBridge.applications.length + " candidature" + (AppBridge.applications.length === 1 ? "" : "s"); tone: "accent" }
         }
 
         RowLayout {
@@ -52,7 +76,8 @@ Item {
             spacing: 16
 
             Surface {
-                Layout.preferredWidth: Math.max(400, root.width * 0.39)
+                Layout.preferredWidth: Math.max(360, root.width * 0.31)
+                Layout.maximumWidth: 440
                 Layout.fillHeight: true
                 padding: 10
                 elevated: false
@@ -80,14 +105,14 @@ Item {
                         delegate: Rectangle {
                             required property var modelData
                             width: applicationsList.width
-                            height: 118
+                            height: 108
                             radius: 15
                             color: root.selectedId === modelData.id ? Theme.accentSoft : (hover.hovered ? Theme.surfaceHover : "transparent")
                             border.color: root.selectedId === modelData.id ? Theme.accentLine : "transparent"
                             border.width: 1
                             ColumnLayout {
                                 anchors.fill: parent
-                                anchors.margins: 13
+                                anchors.margins: 12
                                 spacing: 5
                                 RowLayout {
                                     Layout.fillWidth: true
@@ -121,7 +146,7 @@ Item {
             Surface {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                padding: 24
+                padding: 0
                 elevated: false
                 Item {
                     Layout.fillWidth: true
@@ -135,163 +160,165 @@ Item {
                     ColumnLayout {
                         visible: Boolean(AppBridge.currentApplication.id)
                         anchors.fill: parent
-                        spacing: 11
-                        RowLayout {
-                            Layout.fillWidth: true
-                            Pill { text: AppBridge.currentApplication.status_label || ""; tone: AppBridge.currentApplication.tone || "neutral" }
-                            Item { Layout.fillWidth: true }
-                            AppButton { visible: Boolean(AppBridge.currentApplication.job_url); text: "Offre originale"; iconSource: Theme.icon("arrow-up-right"); implicitHeight: 38; onClicked: AppBridge.openUrl(AppBridge.currentApplication.job_url) }
-                        }
-                        Text { Layout.fillWidth: true; text: AppBridge.currentApplication.title || ""; color: Theme.ink; font.pixelSize: 24; font.weight: Font.Bold; wrapMode: Text.WordWrap }
-                        Text { Layout.fillWidth: true; text: (AppBridge.currentApplication.company || "") + "  ·  " + (AppBridge.currentApplication.location || "Lieu non indiqué"); color: Theme.inkMuted; font.pixelSize: 14; wrapMode: Text.WordWrap }
-                        Text {
-                            Layout.fillWidth: true
-                            visible: Boolean(AppBridge.currentApplication.folder_identifier)
-                            text: "Identifiant : " + (AppBridge.currentApplication.folder_identifier || "")
-                            color: Theme.inkFaint
-                            font.pixelSize: 11
-                            elide: Text.ElideRight
-                        }
-                        Rectangle {
-                            Layout.fillWidth: true
-                            implicitHeight: nextAction.implicitHeight + 22
-                            radius: 12
-                            color: Theme.accentSoft
-                            RowLayout {
-                                anchors.fill: parent; anchors.margins: 11; spacing: 9
-                                SvgIcon { source: Theme.icon("chevron-right"); color: Theme.accentDark; Layout.preferredWidth: 16; Layout.preferredHeight: 16 }
-                                Text { id: nextAction; Layout.fillWidth: true; text: AppBridge.currentApplication.next_action || ""; color: Theme.accentDark; font.pixelSize: 12; font.weight: Font.DemiBold; wrapMode: Text.WordWrap }
-                            }
-                        }
-                        RowLayout {
-                            visible: (AppBridge.currentApplication.match_reasons || []).length > 0 || (AppBridge.currentApplication.risks || []).length > 0 || (AppBridge.currentApplication.warnings || []).length > 0
-                            Layout.fillWidth: true
-                            spacing: 9
-                            Rectangle {
-                                visible: (AppBridge.currentApplication.match_reasons || []).length > 0
-                                Layout.fillWidth: true
-                                Layout.preferredWidth: 1
-                                implicitHeight: profileMatches.implicitHeight + 22
-                                radius: 12
-                                color: Theme.accentSoft
-                                border.color: Theme.accentLine
-                                RowLayout {
-                                    anchors.fill: parent; anchors.margins: 11; spacing: 9
-                                    SvgIcon { source: Theme.icon("check"); color: Theme.accentDark; Layout.preferredWidth: 16; Layout.preferredHeight: 16 }
-                                    ColumnLayout {
-                                        Layout.fillWidth: true; spacing: 4
-                                        Text { text: "Correspond à votre profil"; color: Theme.ink; font.pixelSize: 12; font.weight: Font.DemiBold }
-                                        Text { id: profileMatches; Layout.fillWidth: true; text: "• " + (AppBridge.currentApplication.match_reasons || []).join("\n• "); color: Theme.inkSoft; font.pixelSize: 11; wrapMode: Text.WordWrap }
-                                    }
-                                }
-                            }
-                            Rectangle {
-                                visible: (AppBridge.currentApplication.risks || []).length > 0 || (AppBridge.currentApplication.warnings || []).length > 0
-                                Layout.fillWidth: true
-                                Layout.preferredWidth: 1
-                                implicitHeight: applicationWarnings.implicitHeight + 22
-                                radius: 12
-                                color: Theme.warningSoft
-                                border.color: Theme.warning
-                                RowLayout {
-                                    anchors.fill: parent; anchors.margins: 11; spacing: 9
-                                    SvgIcon { source: Theme.icon("alert-circle"); color: Theme.warning; Layout.preferredWidth: 16; Layout.preferredHeight: 16 }
-                                    Text {
-                                        id: applicationWarnings
-                                        Layout.fillWidth: true
-                                        text: "Points à vérifier\n• " + (AppBridge.currentApplication.risks || []).concat(AppBridge.currentApplication.warnings || []).join("\n• ")
-                                        color: Theme.inkSoft
-                                        font.pixelSize: 11
-                                        wrapMode: Text.WordWrap
-                                    }
-                                }
-                            }
-                        }
-                        TabBar {
-                            id: tabs
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: 43
-                            spacing: 3
-                            padding: 4
-                            background: Rectangle { color: Theme.surfaceMuted; radius: 12 }
-                            TabButton {
-                                id: letterTab
-                                text: "Lettre"
-                                contentItem: Text { text: letterTab.text; color: letterTab.checked ? Theme.accentDark : Theme.inkMuted; font.pixelSize: 12; font.weight: letterTab.checked ? Font.DemiBold : Font.Medium; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
-                                background: Rectangle { color: letterTab.checked ? Theme.surfaceHover : "transparent"; radius: 9; border.color: letterTab.checked ? Theme.accentLine : "transparent" }
-                            }
-                            TabButton {
-                                id: trackingTab
-                                text: "Suivi"
-                                contentItem: Text { text: trackingTab.text; color: trackingTab.checked ? Theme.accentDark : Theme.inkMuted; font.pixelSize: 12; font.weight: trackingTab.checked ? Font.DemiBold : Font.Medium; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
-                                background: Rectangle { color: trackingTab.checked ? Theme.surfaceHover : "transparent"; radius: 9; border.color: trackingTab.checked ? Theme.accentLine : "transparent" }
-                            }
-                        }
-                        StackLayout {
+                        spacing: 0
+                        Flickable {
+                            id: applicationDetailViewport
                             Layout.fillWidth: true
                             Layout.fillHeight: true
-                            currentIndex: tabs.currentIndex
+                            contentWidth: width
+                            contentHeight: applicationDetailContent.implicitHeight + 40
+                            boundsBehavior: Flickable.StopAtBounds
+                            clip: true
+                            ScrollBar.vertical: AppScrollBar { }
                             ColumnLayout {
-                                spacing: 8
-                                Text { Layout.fillWidth: true; text: AppBridge.currentApplication.letter_subject || "Lettre de motivation"; color: Theme.inkSoft; font.pixelSize: 13; font.weight: Font.DemiBold; wrapMode: Text.WordWrap }
-                                DocumentPreview { Layout.fillWidth: true; Layout.fillHeight: true; text: AppBridge.currentApplication.letter_body || "" }
-                            }
-                            ColumnLayout {
-                                spacing: 9
+                                id: applicationDetailContent
+                                width: applicationDetailViewport.width - 48
+                                x: 24
+                                y: 22
+                                spacing: 12
                                 RowLayout {
                                     Layout.fillWidth: true
                                     ColumnLayout {
-                                        Layout.fillWidth: true; spacing: 5
-                                        FormLabel { text: "STATUT" }
-                                        AppSelect {
-                                            id: trackingStatus
-                                            Layout.fillWidth: true
-                                            implicitHeight: 44
-                                            textRole: "label"
-                                            valueRole: "value"
-                                            model: AppBridge.applicationStatuses
-                                            currentIndex: Math.max(0, indexOfValue(AppBridge.currentApplication.status || ""))
+                                        Layout.fillWidth: true; spacing: 3
+                                        Text { Layout.fillWidth: true; text: AppBridge.currentApplication.company || "Entreprise non indiquée"; color: Theme.accentBright; font.pixelSize: 11; font.weight: Font.DemiBold; elide: Text.ElideRight }
+                                        Text { Layout.fillWidth: true; text: AppBridge.currentApplication.title || ""; color: Theme.ink; font.pixelSize: 23; font.weight: Font.Bold; wrapMode: Text.WordWrap; lineHeight: 0.95 }
+                                        Text { Layout.fillWidth: true; text: (AppBridge.currentApplication.location || "Lieu non indiqué") + (AppBridge.currentApplication.folder_identifier ? "  ·  Dossier " + AppBridge.currentApplication.folder_identifier : ""); color: Theme.inkMuted; font.pixelSize: 10; elide: Text.ElideRight }
+                                    }
+                                    ColumnLayout {
+                                        spacing: 7
+                                        Pill { Layout.alignment: Qt.AlignRight; text: AppBridge.currentApplication.status_label || ""; tone: AppBridge.currentApplication.tone || "neutral" }
+                                        AppButton { visible: Boolean(AppBridge.currentApplication.job_url); text: "Offre"; iconSource: Theme.icon("arrow-up-right"); implicitHeight: 36; onClicked: AppBridge.openUrl(AppBridge.currentApplication.job_url) }
+                                    }
+                                }
+
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    implicitHeight: nextAction.implicitHeight + 24
+                                    radius: 13
+                                    color: Theme.accentSoft
+                                    border.color: Theme.accentLine
+                                    RowLayout {
+                                        anchors.fill: parent; anchors.margins: 12; spacing: 9
+                                        SvgIcon { source: Theme.icon("chevron-right"); color: Theme.accentBright; Layout.preferredWidth: 15; Layout.preferredHeight: 15 }
+                                        Text { id: nextAction; Layout.fillWidth: true; text: AppBridge.currentApplication.next_action || ""; color: Theme.accentDark; font.pixelSize: 11; font.weight: Font.DemiBold; wrapMode: Text.WordWrap }
+                                    }
+                                }
+
+                                Rectangle {
+                                    visible: (AppBridge.currentApplication.match_reasons || []).length > 0
+                                    Layout.fillWidth: true
+                                    implicitHeight: profileMatchesContent.implicitHeight + 28
+                                    radius: 15
+                                    color: Theme.successSoft
+                                    border.color: "#285B4D"
+                                    ColumnLayout {
+                                        id: profileMatchesContent
+                                        anchors.fill: parent; anchors.margins: 14; spacing: 9
+                                        RowLayout {
+                                            Layout.fillWidth: true; spacing: 8
+                                            SvgIcon { source: Theme.icon("sparkle"); color: Theme.success; Layout.preferredWidth: 15; Layout.preferredHeight: 15 }
+                                            Text { text: "Correspond à votre profil"; color: Theme.success; font.pixelSize: 11; font.weight: Font.DemiBold }
+                                        }
+                                        Repeater {
+                                            model: AppBridge.currentApplication.match_reasons || []
+                                            delegate: RowLayout {
+                                                required property var modelData
+                                                Layout.fillWidth: true; spacing: 8
+                                                Rectangle { Layout.preferredWidth: 5; Layout.preferredHeight: 5; radius: 3; color: Theme.success }
+                                                Text { Layout.fillWidth: true; text: modelData; color: Theme.inkSoft; font.pixelSize: 10; wrapMode: Text.WordWrap; lineHeight: 1.2 }
+                                            }
                                         }
                                     }
                                 }
-                                FormLabel { text: "NOTES DE SUIVI" }
-                                AppTextArea { id: notes; Layout.fillWidth: true; Layout.fillHeight: true; text: AppBridge.currentApplication.notes || ""; placeholderText: "Relance prévue, retour reçu, contexte utile…" }
-                                RowLayout {
+
+                                Rectangle {
+                                    visible: (AppBridge.currentApplication.risks || []).length > 0 || (AppBridge.currentApplication.warnings || []).length > 0
                                     Layout.fillWidth: true
-                                    Item { Layout.fillWidth: true }
-                                    AppButton { text: "Enregistrer"; kind: "primary"; onClicked: AppBridge.updateApplication(AppBridge.currentApplication.id, trackingStatus.currentValue, notes.text, false) }
+                                    implicitHeight: applicationWarningsContent.implicitHeight + 28
+                                    radius: 15
+                                    color: Theme.warningSoft
+                                    border.color: "#594326"
+                                    ColumnLayout {
+                                        id: applicationWarningsContent
+                                        anchors.fill: parent; anchors.margins: 14; spacing: 9
+                                        RowLayout {
+                                            Layout.fillWidth: true; spacing: 8
+                                            SvgIcon { source: Theme.icon("alert-circle"); color: Theme.warning; Layout.preferredWidth: 15; Layout.preferredHeight: 15 }
+                                            Text { text: "Points à vérifier"; color: Theme.warning; font.pixelSize: 11; font.weight: Font.DemiBold }
+                                        }
+                                        Repeater {
+                                            model: (AppBridge.currentApplication.risks || []).concat(AppBridge.currentApplication.warnings || [])
+                                            delegate: RowLayout {
+                                                required property var modelData
+                                                Layout.fillWidth: true; spacing: 8
+                                                Rectangle { Layout.preferredWidth: 5; Layout.preferredHeight: 5; radius: 3; color: Theme.warning }
+                                                Text { Layout.fillWidth: true; text: modelData; color: Theme.inkSoft; font.pixelSize: 10; wrapMode: Text.WordWrap; lineHeight: 1.2 }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    implicitHeight: trackingContent.implicitHeight + 28
+                                    radius: 15
+                                    color: Theme.surfaceMuted
+                                    border.color: Theme.line
+                                    ColumnLayout {
+                                        id: trackingContent
+                                        anchors.fill: parent; anchors.margins: 14; spacing: 10
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            FormLabel { text: "SUIVI DE LA CANDIDATURE" }
+                                            Item { Layout.fillWidth: true }
+                                            AppButton { text: "Enregistrer"; kind: "primary"; implicitHeight: 36; onClicked: AppBridge.updateApplication(AppBridge.currentApplication.id, trackingStatus.currentValue, notes.text, false) }
+                                        }
+                                        RowLayout {
+                                            Layout.fillWidth: true; spacing: 10
+                                            ColumnLayout {
+                                                Layout.preferredWidth: 210; spacing: 5
+                                                FormLabel { text: "STATUT" }
+                                                AppSelect {
+                                                    id: trackingStatus
+                                                    Layout.fillWidth: true
+                                                    implicitHeight: 44
+                                                    textRole: "label"
+                                                    valueRole: "value"
+                                                    model: AppBridge.applicationStatuses
+                                                    currentIndex: Math.max(0, indexOfValue(AppBridge.currentApplication.status || ""))
+                                                }
+                                            }
+                                            ColumnLayout {
+                                                Layout.fillWidth: true; spacing: 5
+                                                FormLabel { text: "NOTES" }
+                                                AppTextArea { id: notes; Layout.fillWidth: true; Layout.preferredHeight: 92; text: AppBridge.currentApplication.notes || ""; placeholderText: "Relance prévue, retour reçu, contexte utile…" }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
+
                         Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.line }
-                        FormLabel { text: "DOCUMENTS" }
-                        Flow {
+                        RowLayout {
                             Layout.fillWidth: true
+                            Layout.leftMargin: 20; Layout.rightMargin: 20
+                            Layout.topMargin: 12; Layout.bottomMargin: 12
                             spacing: 8
                             Repeater {
                                 model: [
                                     {label: "CV PDF", path: AppBridge.currentApplication.cv_pdf_path || ""},
                                     {label: "CV Word", path: AppBridge.currentApplication.cv_docx_path || ""},
-                                    {label: "Lettre", path: AppBridge.currentApplication.letter_pdf_path || ""}
+                                    {label: "Lettre PDF", path: AppBridge.currentApplication.letter_pdf_path || ""}
                                 ].filter(function(v) { return v.path.length > 0 })
-                                delegate: AppButton { required property var modelData; text: modelData.label; implicitHeight: 36; onClicked: AppBridge.openPath(modelData.path) }
+                                delegate: AppButton { required property var modelData; text: modelData.label; implicitHeight: 38; onClicked: AppBridge.openPath(modelData.path) }
                             }
-                            AppButton {
-                                visible: Boolean(AppBridge.currentApplication.id)
-                                text: "Dossier"
-                                iconSource: Theme.icon("folder")
-                                implicitHeight: 36
-                                onClicked: AppBridge.openApplicationFolder(Number(AppBridge.currentApplication.id))
-                            }
-                        }
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 9
-                            AppButton { visible: Boolean(AppBridge.currentApplication.form_url); text: "Formulaire"; iconSource: Theme.icon("arrow-up-right"); onClicked: AppBridge.openUrl(AppBridge.currentApplication.form_url) }
+                            AppButton { text: "Dossier"; iconSource: Theme.icon("folder"); implicitHeight: 38; onClicked: AppBridge.openApplicationFolder(Number(AppBridge.currentApplication.id)) }
                             Item { Layout.fillWidth: true }
+                            AppButton { visible: Boolean(AppBridge.currentApplication.form_url); text: "Formulaire"; iconSource: Theme.icon("arrow-up-right"); implicitHeight: 38; onClicked: AppBridge.openUrl(AppBridge.currentApplication.form_url) }
                             AppButton {
                                 visible: Boolean(AppBridge.currentApplication.form_url) && !AppBridge.currentApplication.form_submitted_at && AppBridge.currentApplication.status !== "sent"
-                                text: "Marquer comme envoyée"; kind: "primary"; iconSource: Theme.icon("check"); onClicked: formSentDialog.open()
+                                text: "Marquer envoyée"; kind: "primary"; iconSource: Theme.icon("check"); implicitHeight: 38; onClicked: formSentDialog.open()
                             }
                         }
                     }

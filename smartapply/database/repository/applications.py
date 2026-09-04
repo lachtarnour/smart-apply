@@ -48,7 +48,7 @@ def update_application_tracking(
         raise ValueError(f"Application {application_id} not found")
     if status is not None:
         app.status = status
-        if app.job is not None:
+        if app.job is not None and app.job.status != JobStatus.SHORTLISTED:
             app.job.status = status
     if notes is not None:
         app.notes = notes
@@ -57,6 +57,6 @@ def update_application_tracking(
         app.form_submitted_at = now
     if form_submitted:
         app.status = JobStatus.SENT
-        if app.job is not None:
+        if app.job is not None and app.job.status != JobStatus.SHORTLISTED:
             app.job.status = JobStatus.SENT
     return app

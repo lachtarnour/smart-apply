@@ -406,7 +406,7 @@ Item {
                                             height: 24
                                             anchors.verticalCenter: parent.verticalCenter
                                             Rectangle { x: 0; width: 7; height: 7; radius: 4; anchors.verticalCenter: parent.verticalCenter; color: root.toneColor(modelData.tone) }
-                                            Text { x: 13; width: parent.width - 13; anchors.verticalCenter: parent.verticalCenter; text: modelData.shortlisted ? "Top sélection" : modelData.status_label; color: modelData.shortlisted ? Theme.accentDark : Theme.inkSoft; font.pixelSize: 9; font.weight: Font.DemiBold; elide: Text.ElideRight }
+                                            Text { x: 13; width: parent.width - 13; anchors.verticalCenter: parent.verticalCenter; text: modelData.status_label; color: modelData.status === "shortlisted" ? Theme.accentDark : Theme.inkSoft; font.pixelSize: 9; font.weight: Font.DemiBold; elide: Text.ElideRight }
                                         }
                                     }
                                     HoverHandler { id: rowHover; cursorShape: Qt.PointingHandCursor }
@@ -480,12 +480,6 @@ Item {
                                 RowLayout {
                                     Layout.fillWidth: true
                                     Pill { text: AppBridge.currentJob.status_label || ""; tone: AppBridge.currentJob.tone || "neutral"; compact: true }
-                                    Pill {
-                                        visible: Boolean(AppBridge.currentJob.shortlisted) && AppBridge.currentJob.status !== "shortlisted"
-                                        text: "Top sélection"
-                                        tone: "accent"
-                                        compact: true
-                                    }
                                     Item { Layout.fillWidth: true }
                                 }
                                 Flow {

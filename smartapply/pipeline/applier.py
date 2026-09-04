@@ -5,6 +5,7 @@ from __future__ import annotations
 from smartapply.config import get_settings
 from smartapply.cv import CvAdapter, CvValidator
 from smartapply.cv.motivation_validator import MotivationLetterValidator
+from smartapply.cv.role_family import classify
 from smartapply.database.models import JobStatus
 from smartapply.llm import LLMProvider
 from smartapply.pipeline.application_renderer import ApplicationDocumentRenderer
@@ -114,6 +115,8 @@ class Applier(ApplicationPersistenceMixin, CvWriterMixin):
                 job_title=job.title,
                 job_company=document_company,
                 language=offer_language,
+                role_family=classify(analysis, title=job.title),
+                analysis=analysis,
                 output_dir=artifacts.staging_dir,
             )
 

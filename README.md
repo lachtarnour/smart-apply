@@ -1,86 +1,199 @@
 # Élan
 
-Élan est une application macOS native pour organiser une recherche d’emploi : collecte
-multi-source, filtrage local, classement, analyse des offres, génération d’un CV et d’une
-lettre adaptés, puis suivi manuel de chaque candidature.
+<p align="center">
+  <strong>A focused workspace for a smarter job search.</strong><br>
+  Discover relevant opportunities, understand your fit, tailor your documents, and track every application from one native macOS app.
+</p>
 
-## Fonctionnalités
+<p align="center">
+  <a href="https://github.com/lachtarnour/smart-apply/stargazers"><img src="https://img.shields.io/github/stars/lachtarnour/smart-apply?style=flat&color=7c5cff" alt="GitHub stars"></a>
+  <a href="https://github.com/lachtarnour/smart-apply/network/members"><img src="https://img.shields.io/github/forks/lachtarnour/smart-apply?style=flat&color=55bd92" alt="GitHub forks"></a>
+  <img src="https://img.shields.io/badge/macOS-13%2B-111017?logo=apple&logoColor=white" alt="macOS 13+"><br>
+  <img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white" alt="Python 3.10+">
+  <img src="https://img.shields.io/badge/License-MIT-55bd92" alt="MIT License">
+</p>
 
-- Recherche sur France Travail, Welcome to the Jungle, LinkedIn via Apify et Google Jobs via SerpApi.
-- Ajout manuel d’une offre à partir de son contenu.
-- Filtrage bilingue, dédoublonnage et classement selon le profil candidat.
-- Analyse structurée des correspondances et des points à vérifier.
-- Table d’offres triable avec sélection et actions groupées.
-- Génération contrôlée du CV et de la lettre de motivation.
-- Suivi des candidatures et accès direct à chaque dossier de documents.
-- Interface Qt Quick pensée exclusivement pour macOS.
+<p align="center">
+  <img src="docs/screenshots/dashboard.png" alt="Élan dashboard showing application progress and recent applications" width="1000">
+</p>
 
-## Installation et lancement
+<p align="center"><em>One place to see what needs attention next.</em></p>
 
-Prérequis : macOS 13 ou version ultérieure et Python 3.11.
+## Overview
+
+Job boards provide volume, but not enough context. Élan turns a scattered job search into a structured workflow:
+
+```text
+Discover → Filter → Rank → Review → Tailor documents → Track applications
+```
+
+It collects opportunities from several sources, removes duplicates, evaluates fit against a candidate profile, generates grounded application documents, and keeps the final decision with the candidate.
+
+## Features
+
+- **Multi-source search** — France Travail, Welcome to the Jungle, LinkedIn through Apify, and Google Jobs through SerpApi.
+- **Local and bilingual filtering** — relevance, location, seniority, contract type, and language rules run locally before ranking.
+- **Explainable matching** — alignment scores and review points help prioritize opportunities without making decisions for you.
+- **Grounded documents** — tailored CVs and motivation letters are checked against the source profile before they are saved.
+- **Application tracking** — statuses, follow-up dates, review points, documents, and next actions stay together.
+- **Local-first storage** — profile data, SQLite database, cache, and generated documents remain on your Mac by default.
+
+## Interface
+
+The screenshots below show the current desktop interface, in the order a user typically moves through the product.
+
+<p align="center">
+  <img src="docs/screenshots/search.png" alt="Élan search screen with job title, location, freshness, and source filters" width="1000">
+</p>
+<p align="center"><em>1. Search across several job sources with one set of criteria.</em></p>
+
+<p align="center">
+  <img src="docs/screenshots/jobs.png" alt="Élan jobs screen with ranked opportunities and fit explanations" width="1000">
+</p>
+<p align="center"><em>2. Review ranked opportunities, scores, statuses, and fit explanations.</em></p>
+
+<p align="center">
+  <img src="docs/screenshots/applications.png" alt="Élan application tracking screen with status and review points" width="1000">
+</p>
+<p align="center"><em>3. Prepare, review, and follow up on each application.</em></p>
+
+## Quick start
+
+### Requirements
+
+- macOS 13 or later
+- Python 3.10 or later
+
+### Install and run
 
 ```bash
+git clone https://github.com/lachtarnour/smart-apply.git
+cd smart-apply
+
 cp .env.example .env
 make install-desktop
 make init-db
 make run-desktop
 ```
 
-Construire et vérifier l’application autonome :
+To build the standalone macOS application:
 
 ```bash
 make build-macos
 open dist/Elan.app
 ```
 
-Le profil, la base SQLite, le cache et les dossiers de candidature restent dans
-`~/Library/Application Support/Elan`. Un build ne remplace jamais un espace déjà initialisé.
+For a first run without external credentials, use the mock providers in `.env`:
+
+```dotenv
+LLM_PROVIDER=mock
+EMBEDDINGS_PROVIDER=mock
+```
+
+Add API credentials only for the sources and providers you want to use.
 
 ## Configuration
 
-Les réglages sont lus depuis `.env`.
+Copy `.env.example` to `.env`. The main settings are:
 
-| Variable | Usage | Obligatoire |
+| Variable | Purpose | Required when… |
 |---|---|---|
-| `OPENAI_API_KEY` | Analyse, adaptation et embeddings | Oui, sauf provider `mock` |
-| `FRANCETRAVAIL_CLIENT_ID` / `FRANCETRAVAIL_CLIENT_SECRET` | API France Travail | Si la source est active |
-| `SERPAPI_API_KEY` | Google Jobs | Si la source est active |
-| `APIFY_TOKEN` | LinkedIn Jobs | Si la source est active |
-| `WTTJ_COOKIE` | Welcome to the Jungle | Si la source est active |
-| `PROFILE_DIR` | Profil privé de référence | Optionnel |
-| `DATABASE_URL` | Base SQLite locale | Optionnel |
-| `OUTPUT_DIR` | Dossiers CV et lettres | Optionnel |
-| `EMBEDDINGS_PROVIDER` | `openai`, `local` ou `mock` | Optionnel |
+| `OPENAI_API_KEY` | Analysis, document adaptation, and embeddings | `LLM_PROVIDER` is not `mock` |
+| `FRANCETRAVAIL_CLIENT_ID` / `FRANCETRAVAIL_CLIENT_SECRET` | France Travail API access | France Travail is enabled |
+| `SERPAPI_API_KEY` | Google Jobs access | Google Jobs is enabled |
+| `APIFY_TOKEN` | LinkedIn job collection through Apify | LinkedIn is enabled |
+| `WTTJ_COOKIE` | Welcome to the Jungle access | WTTJ is enabled |
+| `EMBEDDINGS_PROVIDER` | `openai`, `local`, or `mock` | optional |
+| `PROFILE_DIR` | Location of the private candidate profile | optional |
 
-Le dossier `smartapply/profile/data/` est local et ignoré par Git. Le dossier versionné
-`smartapply/profile/mock_profile/` documente uniquement la structure attendue.
+By default, runtime data is stored under `~/Library/Application Support/Elan`. Keep personal information, API keys, and generated documents out of version control.
+
+## Adapt Élan to another profile or project
+
+Élan is designed to be adapted. The repository publishes a safe example profile, while the deterministic matching rules are tuned for the original use case. When adapting the project to another candidate, country, role family, or hiring policy, update both the profile data and the static filters.
+
+### 1. Replace the profile data
+
+[`smartapply/profile/mock_profile/`](smartapply/profile/mock_profile/) is the published reference profile. It documents the expected JSON structure and contains no private candidate data.
+
+Create a private working profile from it:
+
+```bash
+mkdir -p smartapply/profile/data
+cp smartapply/profile/mock_profile/*.json smartapply/profile/data/
+```
+
+Edit the files in `smartapply/profile/data/`:
+
+| File | Content |
+|---|---|
+| `identity.json` | Name, contact details, title, location, and summary |
+| `preferences.json` | Target roles, accepted contracts, remote policies, languages, domains, and deal-breakers |
+| `skills.json` | Skills, matching keywords, evidence, and allowed claims |
+| `experiences.json` | Work history and verifiable achievements |
+| `projects.json`, `education.json`, `languages.json`, `certificates.json` | Optional supporting information |
+| `style_guide.json`, `template_style.json` | Writing and document presentation preferences |
+
+Set `PROFILE_DIR` in `.env` when the private profile lives outside `smartapply/profile/data/`. Do not commit real personal information; `mock_profile` is the publishable template.
+
+### 2. Update the hard-coded static filters
+
+The profile controls the main user preferences, but several deterministic vocabularies and safety gates are hard-coded for predictable filtering. Review these files when the default behavior does not match your domain:
+
+| File | What to change |
+|---|---|
+| [`smartapply/filtering/rules.py`](smartapply/filtering/rules.py) | Positive and negative title keywords, hard rejects, seniority gates, description penalties, blocked contracts, and score thresholds |
+| [`smartapply/pipeline/ingest/role_families.py`](smartapply/pipeline/ingest/role_families.py) | Search role families and bilingual aliases used to expand search queries |
+| [`smartapply/filtering/relevance.py`](smartapply/filtering/relevance.py) | Bilingual role concepts, title patterns, technical concepts, and off-target role patterns |
+| [`smartapply/filtering/role_signals.py`](smartapply/filtering/role_signals.py) | Domain, analytics, engineering, and off-target signal vocabularies |
+| [`smartapply/filtering/contract_signals.py`](smartapply/filtering/contract_signals.py) | Contract markers and contextual exceptions |
+| [`smartapply/filtering/seniority.py`](smartapply/filtering/seniority.py) | Seniority and people-management patterns |
+| [`smartapply/filtering/location_signals.py`](smartapply/filtering/location_signals.py) | Location markers and foreign-location detection patterns |
+
+Recommended order:
+
+1. Update `preferences.json` first.
+2. Adjust `rules.py` and `role_families.py` for the new target.
+3. Update the deeper signal files only when you need domain-specific vocabulary or different safety gates.
+4. Run the test suite after every filter change.
+
+```bash
+make test-fast
+```
 
 ## Architecture
 
 ```text
-Sources d’offres
-  → normalisation et dédoublonnage
-  → filtrage local bilingue
-  → classement sémantique
-  → analyse structurée
-  → génération CV + lettre
-  → validation déterministe
-  → suivi SQLite dans l’application macOS
+Job sources
+    ↓
+Normalization and deduplication
+    ↓
+Bilingual local filtering
+    ↓
+Semantic ranking
+    ↓
+Structured analysis
+    ↓
+CV and motivation-letter generation
+    ↓
+Deterministic validation
+    ↓
+Application tracking in SQLite
 ```
 
-Principaux modules :
+```text
+smartapply/
+├── scrapers/       Source connectors
+├── filtering/      Local rules and bilingual signals
+├── ranking/        Embeddings and scoring
+├── llm/            Prompts and structured outputs
+├── cv/             Adaptation, validation, and rendering
+├── pipeline/       Workflow orchestration
+├── database/       Local SQLite persistence
+└── desktop/        Qt Quick macOS application
+```
 
-- `smartapply/desktop` : application macOS et services d’interface.
-- `smartapply/scrapers` : connecteurs vers les sources d’offres.
-- `smartapply/offers` : normalisation des offres et métadonnées par source.
-- `smartapply/filtering` : règles locales et signaux bilingues.
-- `smartapply/ranking` : embeddings et scoring.
-- `smartapply/llm` : analyses et génération structurées.
-- `smartapply/cv` : adaptation, validation et rendu des documents.
-- `smartapply/pipeline` : orchestration des différentes phases.
-- `smartapply/database` : persistance SQLite locale.
-
-## Qualité
+## Development
 
 ```bash
 make lint
@@ -88,12 +201,7 @@ make test-fast
 make build-macos
 ```
 
-Les sorties LLM sont validées par des schémas stricts. Le CV et la lettre sont contrôlés
-contre le profil source avant leur enregistrement.
-
-## CLI de maintenance
-
-La CLI n’est pas une seconde interface produit ; elle sert au développement et au diagnostic.
+The maintenance CLI is available for diagnostics:
 
 ```bash
 elan --help
@@ -101,6 +209,27 @@ elan init-db
 elan stats
 ```
 
-## Licence
+## Roadmap
 
-MIT
+- [x] Multi-source search and manual offer entry
+- [x] Filtering, deduplication, and semantic ranking
+- [x] CV and motivation-letter generation with validation
+- [x] Application tracking workspace
+- [ ] Guided import of an existing CV
+- [ ] Additional connectors and optional synchronization
+- [ ] Simpler packaging and distribution
+
+## Contributing
+
+Bug reports, ideas, and pull requests are welcome. Please include context, reproduction steps, and an anonymized screenshot when relevant. Before opening a pull request, run:
+
+```bash
+make lint
+make test-fast
+```
+
+If Élan helps your job search, consider giving the project a ⭐ on GitHub. It helps other people discover it.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
