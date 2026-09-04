@@ -1,13 +1,14 @@
 # Élan
 
 <p align="center">
-  <strong>A focused workspace for a smarter job search.</strong><br>
-  Discover relevant opportunities, understand your fit, tailor your documents, and track every application from one native macOS app.
+  <strong>Open-source macOS job-search assistant for a more focused job search.</strong><br>
+  Find relevant opportunities, understand your fit, tailor your documents, and track every application from one native macOS app.
 </p>
 
 <p align="center">
   <a href="https://github.com/lachtarnour/smart-apply/stargazers"><img src="https://img.shields.io/github/stars/lachtarnour/smart-apply?style=flat&color=7c5cff" alt="GitHub stars"></a>
   <a href="https://github.com/lachtarnour/smart-apply/network/members"><img src="https://img.shields.io/github/forks/lachtarnour/smart-apply?style=flat&color=55bd92" alt="GitHub forks"></a>
+  <a href="https://github.com/lachtarnour/smart-apply/releases"><img src="https://img.shields.io/github/v/release/lachtarnour/smart-apply?display_name=tag&style=flat&color=9b8cff" alt="Latest release"></a>
   <img src="https://img.shields.io/badge/macOS-13%2B-111017?logo=apple&logoColor=white" alt="macOS 13+"><br>
   <img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/License-MIT-55bd92" alt="MIT License">
@@ -19,9 +20,17 @@
 
 <p align="center"><em>One place to see what needs attention next.</em></p>
 
+<p align="center">
+  <a href="#features">Features</a> ·
+  <a href="#interface">Interface</a> ·
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#adapt-élan-to-another-profile-or-project">Customize</a> ·
+  <a href="#contributing">Contribute</a>
+</p>
+
 ## Overview
 
-Job boards provide volume, but not enough context. Élan turns a scattered job search into a structured workflow:
+Élan is an open-source macOS application that turns a scattered job search into a structured, review-first workflow:
 
 ```text
 Discover → Filter → Rank → Review → Tailor documents → Track applications
@@ -36,7 +45,12 @@ It collects opportunities from several sources, removes duplicates, evaluates fi
 - **Explainable matching** — alignment scores and review points help prioritize opportunities without making decisions for you.
 - **Grounded documents** — tailored CVs and motivation letters are checked against the source profile before they are saved.
 - **Application tracking** — statuses, follow-up dates, review points, documents, and next actions stay together.
+- **Review-first email workflow** — Gmail integration prepares drafts for manual review; Élan never sends applications automatically.
 - **Local-first storage** — profile data, SQLite database, cache, and generated documents remain on your Mac by default.
+
+## Product boundaries
+
+Élan helps you find, evaluate, prepare, and organize applications. It does not automatically apply to jobs, make hiring decisions, or send emails without your review. External providers are optional, and the published profile is a mock profile with placeholder data.
 
 ## Interface
 
