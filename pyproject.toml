@@ -3,9 +3,9 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "candipilot"
+name = "elan-career"
 version = "0.1.0"
-description = "AI-assisted job application copilot with semantic ranking, anti-hallucination CV adaptation, contact discovery and Gmail drafts."
+description = "Native macOS job-search workspace with semantic ranking and grounded CV and motivation-letter generation."
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
@@ -13,12 +13,11 @@ authors = [{name = "Lachtar Nour"}]
 dependencies = [
     "pydantic>=2.6",
     "pydantic-settings>=2.2",
+    "email-validator>=2.1",
     "python-dotenv>=1.0",
     "sqlalchemy>=2.0",
     "click>=8.1",
-    "pyyaml>=6.0",
     "openai>=1.40",
-    "tiktoken>=0.7",
     "requests>=2.31",
     "beautifulsoup4>=4.12",
     "lxml>=5.1",
@@ -30,13 +29,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-ui = ["streamlit>=1.32", "pandas>=2.2", "altair>=5.2"]
+desktop = ["PySide6>=6.8,<7", "pyinstaller>=6.11"]
 pdf = ["weasyprint>=61.0"]
-gmail = [
-    "google-api-python-client>=2.125",
-    "google-auth-oauthlib>=1.2",
-    "google-auth-httplib2>=0.2",
-]
 local-embeddings = ["sentence-transformers>=2.7"]
 wttj = ["playwright>=1.44"]
 dev = [
@@ -45,11 +39,12 @@ dev = [
     "pytest-mock>=3.12",
     "ruff>=0.4",
     "mypy>=1.10",
+    "tiktoken>=0.7",
 ]
 
 [project.scripts]
-candipilot = "smartapply.cli:cli"
-smartapply = "smartapply.cli:cli"
+elan = "smartapply.cli:cli"
+elan-desktop = "smartapply.desktop.app:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
@@ -59,6 +54,11 @@ include = ["smartapply*"]
 smartapply = [
   "cv/templates/*.j2",
   "cv/*.json",
+  "desktop/resources/*.svg",
+  "desktop/resources/icons/*.svg",
+  "desktop/qml/*.qml",
+  "desktop/qml/components/*.qml",
+  "desktop/qml/pages/*.qml",
   "llm/prompts/templates/*/*.j2",
   "profile/mock_profile/*.json",
 ]

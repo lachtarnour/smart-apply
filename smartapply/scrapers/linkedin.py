@@ -24,9 +24,9 @@ logger = get_logger(__name__)
 def _should_stop(stop_requested: Callable[[], bool] | None) -> bool:
     return bool(stop_requested and stop_requested())
 
+
 APIFY_LINKEDIN_JOBS_URL = (
-    "https://api.apify.com/v2/actors/"
-    "valig~linkedin-jobs-scraper/run-sync-get-dataset-items"
+    "https://api.apify.com/v2/actors/valig~linkedin-jobs-scraper/run-sync-get-dataset-items"
 )
 
 _DATE_POSTED_TO_APIFY = {
@@ -185,9 +185,7 @@ class LinkedInJobsScraper(Scraper):
             aliases=_EXPERIENCE_LEVEL_ALIASES,
             field_name="experienceLevel",
         )
-        primary_experience, fallback_experience = _split_experience_levels(
-            experience_values
-        )
+        primary_experience, fallback_experience = _split_experience_levels(experience_values)
         remote_values = _normalise_api_list(
             remote,
             default=self.default_remote,
@@ -240,16 +238,14 @@ class LinkedInJobsScraper(Scraper):
                 items = self._fetch(payload)
             except requests.RequestException as e:
                 logger.error("LinkedIn Apify request failed: %s", _request_error_summary(e))
-                return
+                raise
 
             skipped_experience_mismatch = 0
             for raw in items:
                 if _should_stop(stop_requested):
                     return
                 raw_id = _text(raw.get("id"))
-                raw_experience_code = _linkedin_experience_code(
-                    raw.get("experienceLevel")
-                )
+                raw_experience_code = _linkedin_experience_code(raw.get("experienceLevel"))
                 if raw_experience_code and raw_experience_code not in experience_pass:
                     skipped_experience_mismatch += 1
                     continue
@@ -290,8 +286,7 @@ class LinkedInJobsScraper(Scraper):
         limit = self.default_max_results if max_results is None else max_results
         if limit > self.default_max_results:
             raise ScraperConfigError(
-                "LinkedIn max_results exceeds LINKEDIN_MAX_RESULTS "
-                f"({self.default_max_results})."
+                f"LinkedIn max_results exceeds LINKEDIN_MAX_RESULTS ({self.default_max_results})."
             )
         return limit
 
@@ -376,8 +371,7 @@ def _normalise_api_list(
         if not mapped:
             allowed = ", ".join(sorted(set(aliases.values())))
             raise ScraperConfigError(
-                f"Invalid LinkedIn {field_name} selector {item!r}. "
-                f"Allowed API codes: {allowed}."
+                f"Invalid LinkedIn {field_name} selector {item!r}. Allowed API codes: {allowed}."
             )
         if mapped not in normalized:
             normalized.append(mapped)
@@ -404,11 +398,7 @@ def _split_experience_levels(values: list[str]) -> tuple[list[str], list[str]]:
 
 
 def _clean_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    return {
-        key: value
-        for key, value in payload.items()
-        if value not in ("", None, [])
-    }
+    return {key: value for key, value in payload.items() if value not in ("", None, [])}
 
 
 def _is_non_retryable_apify_response(response: requests.Response) -> bool:

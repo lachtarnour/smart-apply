@@ -43,10 +43,7 @@ def _extract_location(facts: FilterFacts, source_data: dict[str, Any]) -> None:
 
 def _extract_remote_policy(facts: FilterFacts, source_data: dict[str, Any]) -> None:
     text = norm(
-        " ".join(
-            str(source_data.get(key) or "")
-            for key in ("remote", "workType", "location")
-        )
+        " ".join(str(source_data.get(key) or "") for key in ("remote", "workType", "location"))
     )
     if any(marker in text for marker in _REMOTE_MARKERS):
         facts.structured_remote_policy = "remote"

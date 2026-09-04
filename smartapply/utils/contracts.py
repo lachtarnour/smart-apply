@@ -64,7 +64,9 @@ _CONTRACT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "part-time",
             "parttime",
             "temps partiel",
+            "a temps partiel",
             "mi temps",
+            "mi-temps",
         ),
     ),
     (
@@ -81,7 +83,12 @@ _CONTRACT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         TAG_TEMPORARY,
         (
             "temporary",
+            "temporary contract",
+            "temporary position",
+            "temporary job",
             "temporaire",
+            "contrat temporaire",
+            "poste temporaire",
             "interim",
         ),
     ),
@@ -92,6 +99,7 @@ _CONTRACT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "independant",
             "independent",
             "self employed",
+            "self-employed",
         ),
     ),
     (
@@ -121,6 +129,11 @@ _CONTRACT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "apprenti",
             "apprentissage",
             "apprenticeship",
+            "work study",
+            "work-study",
+            "co op",
+            "co-op",
+            "traineeship",
         ),
     ),
 )

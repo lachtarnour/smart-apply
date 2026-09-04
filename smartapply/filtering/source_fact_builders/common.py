@@ -49,5 +49,3 @@ def _clean_text(value: Any) -> str | None:
 
 def _format_years(value: float) -> str:
     return str(int(value)) if float(value).is_integer() else str(value)
-
-

@@ -71,8 +71,7 @@ def _format_core_skills(profile: Profile) -> str:
     if not core_skills:
         return "- none"
     return "\n".join(
-        f"- {category_id}: {', '.join(skills)}"
-        for category_id, skills in core_skills.items()
+        f"- {category_id}: {', '.join(skills)}" for category_id, skills in core_skills.items()
     )
 
 

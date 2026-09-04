@@ -40,7 +40,6 @@ def update_application_tracking(
     *,
     status: str | None = None,
     notes: str | None = None,
-    email_sent: bool = False,
     form_submitted: bool = False,
 ) -> Application:
     """Update the human follow-up state for one application."""
@@ -54,24 +53,10 @@ def update_application_tracking(
     if notes is not None:
         app.notes = notes
     now = datetime.now(timezone.utc)
-    if email_sent:
-        app.email_sent_at = now
     if form_submitted:
         app.form_submitted_at = now
-    if (email_sent or form_submitted) and _strategy_complete(app):
+    if form_submitted:
         app.status = JobStatus.SENT
         if app.job is not None:
             app.job.status = JobStatus.SENT
     return app
-
-
-def _strategy_complete(app: Application) -> bool:
-    """Return True when every action required by ``application_strategy`` is done."""
-    strategy = app.application_strategy or "email_only"
-    if strategy == "email_only":
-        return app.email_sent_at is not None
-    if strategy == "form_only":
-        return app.form_submitted_at is not None
-    if strategy == "email_and_form":
-        return app.email_sent_at is not None and app.form_submitted_at is not None
-    return False

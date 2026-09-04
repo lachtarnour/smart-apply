@@ -1,4 +1,4 @@
-"""SQLAlchemy 2.x models for CandiPilot persistence layer."""
+"""SQLAlchemy models for Élan's local persistence layer."""
 
 from __future__ import annotations
 
@@ -11,10 +11,10 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
-    UniqueConstraint,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -24,16 +24,17 @@ class JobStatus:
     FILTERED = "filtered"
     SHORTLISTED = "shortlisted"
     ANALYZED = "analyzed"
-    CV_GENERATED = "cv_generated"
-    EMAIL_GENERATED = "email_generated"
-    DRAFT_CREATED = "draft_created"
     SENT = "sent"
     INTERVIEW = "interview"
     REJECTED = "rejected"
     QUALITY_REJECTED = "quality_rejected"
-    CONTACT_MISSING = "contact_missing"
     READY_FOR_FORM_SUBMISSION = "ready_for_form_submission"
     ARCHIVED = "archived"
+
+
+class ShortlistOrigin:
+    AUTOMATIC = "automatic"
+    MANUAL = "manual"
 
 
 def _utcnow() -> datetime:
@@ -44,8 +45,19 @@ class Base(DeclarativeBase):
     pass
 
 
+class AppSetting(Base):
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(String(100), primary_key=True)
+    value: Mapped[str] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
+    )
+
+
 class Job(Base):
     __tablename__ = "jobs"
+    __table_args__ = (Index("ix_jobs_status_scraped_at", "status", "scraped_at"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     external_id: Mapped[str] = mapped_column(String(255), unique=True, index=True)
@@ -61,14 +73,30 @@ class Job(Base):
     source: Mapped[str] = mapped_column(String(50), index=True)
     source_data: Mapped[Any | None] = mapped_column(JSON, nullable=True)
     published_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    scraped_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    scraped_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, index=True
+    )
     # Per-phase completion timestamps drive idempotent pipeline routing.
     # The ``status`` enum is kept as a denormalized view for UI/lifecycle —
     # it no longer drives "what to process next".
-    filtered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
-    ranked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
-    analyzed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
-    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    filtered_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    ranked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    shortlisted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    shortlist_origin: Mapped[str | None] = mapped_column(
+        String(20), nullable=True, index=True
+    )
+    analyzed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    archived_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
     status: Mapped[str] = mapped_column(String(50), default=JobStatus.SCRAPED, index=True)
 
     score: Mapped[JobScore | None] = relationship(
@@ -122,82 +150,28 @@ class JobAnalysis(Base):
     job: Mapped[Job] = relationship(back_populates="analysis")
 
 
-class Contact(Base):
-    __tablename__ = "contacts"
-    __table_args__ = (UniqueConstraint("company", "email", name="uq_contact_company_email"),)
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    company: Mapped[str] = mapped_column(String(255), index=True)
-    email: Mapped[str] = mapped_column(String(255))
-    full_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    job_title: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    location_hint: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    decision_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    source_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
-    confidence: Mapped[float] = mapped_column(Float, default=0.0)
-    discovered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
-
-
-class ContactLookupCache(Base):
-    __tablename__ = "contact_lookup_cache"
-    __table_args__ = (
-        UniqueConstraint("provider_key", "lookup_key", name="uq_contact_lookup_provider_key"),
-    )
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    provider_key: Mapped[str] = mapped_column(String(255), index=True)
-    lookup_key: Mapped[str] = mapped_column(String(500), index=True)
-    company: Mapped[str] = mapped_column(String(255), index=True)
-    domain: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
-    application_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
-    status: Mapped[str] = mapped_column(String(50), default="miss", index=True)
-    contacts: Mapped[Any | None] = mapped_column(JSON, nullable=True)
-    checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
-    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-
-
 class Application(Base):
     __tablename__ = "applications"
+    __table_args__ = (Index("ix_applications_status_updated_at", "status", "updated_at"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id", ondelete="CASCADE"), unique=True)
-    contact_id: Mapped[int | None] = mapped_column(
-        ForeignKey("contacts.id", ondelete="SET NULL"), nullable=True
-    )
     status: Mapped[str] = mapped_column(String(50), default=JobStatus.ANALYZED, index=True)
     cv_docx_path: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     cv_pdf_path: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     cv_json: Mapped[Any | None] = mapped_column(JSON, nullable=True)
-    email_subject: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    email_body: Mapped[str | None] = mapped_column(Text, nullable=True)
-    eml_path: Mapped[str | None] = mapped_column(String(1000), nullable=True)
-    gmail_draft_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     validation_warnings: Mapped[Any | None] = mapped_column(JSON, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    email_cc: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    # Application strategy: 'email_only', 'email_and_form', 'form_only'.
-    # Derived at apply time from JobAnalysis.company_size and the contact result.
-    application_strategy: Mapped[str] = mapped_column(
-        String(50), default="email_only", index=True
-    )
-    # Optional form URL (the ATS link to submit via). When the strategy
-    # requires a form, this is where the user should go.
     form_submission_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
-    # User-tracked timestamps — populated when the candidate marks the
-    # application as actually sent / submitted via the CLI or dashboard.
-    email_sent_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
     form_submitted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, index=True
     )
 
     job: Mapped[Job] = relationship(back_populates="application")
-    contact: Mapped[Contact | None] = relationship()
     documents: Mapped[list[GeneratedDocument]] = relationship(
         back_populates="application", cascade="all, delete-orphan"
     )
@@ -207,9 +181,7 @@ class GeneratedDocument(Base):
     __tablename__ = "generated_documents"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    application_id: Mapped[int] = mapped_column(
-        ForeignKey("applications.id", ondelete="CASCADE")
-    )
+    application_id: Mapped[int] = mapped_column(ForeignKey("applications.id", ondelete="CASCADE"))
     doc_type: Mapped[str] = mapped_column(String(50), index=True)
     path: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     content: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -239,12 +211,28 @@ class LLMUsage(Base):
     purpose: Mapped[str] = mapped_column(String(100), index=True)
     model: Mapped[str] = mapped_column(String(100))
     prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cached_prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cache_write_prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
     completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
     cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
     cached: Mapped[bool] = mapped_column(Boolean, default=False)
     job_id: Mapped[int | None] = mapped_column(
         ForeignKey("jobs.id", ondelete="SET NULL"), nullable=True
     )
+    # Immutable attribution survives hard deletion of a Job row.
+    job_external_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class EmbeddingCache(Base):
+    """Persistent exact cache shared by ranking and CV block selection."""
+
+    __tablename__ = "embedding_cache"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    cache_key: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    model: Mapped[str] = mapped_column(String(100), index=True)
+    vector: Mapped[Any] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 

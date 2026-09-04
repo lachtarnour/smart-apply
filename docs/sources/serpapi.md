@@ -35,7 +35,7 @@ des champs Google Jobs et des `detected_extensions`.
 
 Paramètres importants :
 
-| Paramètre | Origine CandiPilot |
+| Paramètre | Origine Élan |
 | --- | --- |
 | `q` | Requête rôle. |
 | `location` | Localisation demandée ou défaut. |

@@ -2,13 +2,7 @@
   "target_roles": [
     "data scientist",
     "machine learning engineer",
-    "data analyst",
     "IA engineer"
-  ],
-  "preferred_locations": [
-    "Paris",
-    "France",
-    "Remote France"
   ],
   "accepted_contract_types": [
     "CDI",
@@ -19,17 +13,21 @@
     "hybrid",
     "onsite"
   ],
-  "accepted_job_languages": [
-    "fr",
-    "en"
-  ],
+  "accepted_job_languages": ["fr", "en"],
   "domains_of_interest": [
     "machine learning",
-    "data products"
+    "apprentissage automatique",
+    "AI engineer",
+    "ingénieur IA",
+    "neural network",
+    "réseau de neurones",
+    "réseaux de neurones",
+    "PyTorch",
+    "model training",
+    "training models",
+    "entraînement de modèles"
   ],
   "deal_breakers": [
     "sales"
-  ],
-  "seniority": "junior-mid",
-  "salary_min_eur": 40000
+  ]
 }

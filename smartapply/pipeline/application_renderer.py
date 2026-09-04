@@ -1,12 +1,13 @@
 """Render the CV and motivation letter for one application.
 
 DOCX is generated for the candidate (editable). HTML and PDF are the
-canonical recruiter-facing artifacts. The renderer never raises on PDF
-failure — it logs a warning and lets the .eml fall back to DOCX.
+canonical recruiter-facing artifacts. PDF failures keep the editable DOCX
+available and are surfaced as validation warnings.
 """
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from smartapply.config import get_settings
@@ -37,14 +38,17 @@ class ApplicationDocumentRenderer:
         *,
         report: ApplyReport,
         adapted,
-        letter_draft: MotivationLetter,
+        letter: MotivationLetter,
         job_title: str,
         job_company: str,
-        contact_email: str | None,
         language: str,
+        output_dir: Path | None = None,
     ) -> None:
         """Generate every artifact and populate the corresponding report fields."""
-        out_dir = application_output_dir(self.settings.output_dir, report.application_id)
+        out_dir = output_dir or application_output_dir(
+            self.settings.output_dir,
+            report.application_id,
+        )
         safe_name = self.profile.identity.full_name.replace(" ", "_")
 
         # ---- DOCX (always — candidate fallback) ----
@@ -57,10 +61,9 @@ class ApplicationDocumentRenderer:
         letter_html_path = out_dir / f"Lettre_motivation_{safe_name}.html"
         self.html.save_cv_html(adapted, cv_html_path)
         self.html.save_letter_html(
-            email_draft=letter_draft,
+            letter=letter,
             job_title=job_title,
             job_company=job_company,
-            contact_email=contact_email,
             path=letter_html_path,
             language=language,
             letter_headline=adapted.cv_title,
@@ -69,15 +72,14 @@ class ApplicationDocumentRenderer:
         report.letter_html_path = str(letter_html_path)
 
         # ---- PDF (best effort — DOCX is the fallback) ----
+        cv_pdf_path = out_dir / f"CV_{safe_name}.pdf"
+        letter_pdf_path = out_dir / f"Lettre_motivation_{safe_name}.pdf"
         try:
-            cv_pdf_path = out_dir / f"CV_{safe_name}.pdf"
-            letter_pdf_path = out_dir / f"Lettre_motivation_{safe_name}.pdf"
             self.html.save_cv_pdf(adapted, cv_pdf_path)
             self.html.save_letter_pdf(
-                email_draft=letter_draft,
+                letter=letter,
                 job_title=job_title,
                 job_company=job_company,
-                contact_email=contact_email,
                 path=letter_pdf_path,
                 language=language,
                 letter_headline=adapted.cv_title,
@@ -85,22 +87,12 @@ class ApplicationDocumentRenderer:
             report.cv_pdf_path = str(cv_pdf_path)
             report.letter_pdf_path = str(letter_pdf_path)
         except Exception as exc:
+            cv_pdf_path.unlink(missing_ok=True)
+            letter_pdf_path.unlink(missing_ok=True)
+            report.cv_pdf_path = None
+            report.letter_pdf_path = None
             logger.warning("HTML PDF rendering skipped: %s", exc)
             report.validation_warnings.append(f"pdf_generation_skipped:{exc}")
-
-    @staticmethod
-    def attachment_paths(report: ApplyReport) -> list[str]:
-        """Return email-safe PDF attachments only.
-
-        The DOCX CV remains downloadable in the UI, but it must not be sent as
-        an email/Gmail attachment.
-        """
-        paths: list[str] = []
-        if report.cv_pdf_path:
-            paths.append(report.cv_pdf_path)
-        if report.letter_pdf_path:
-            paths.append(report.letter_pdf_path)
-        return paths
 
     @staticmethod
     def add_document_rows(session, application_id: int, report: ApplyReport) -> None:

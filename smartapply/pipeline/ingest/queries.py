@@ -3,62 +3,27 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
+
+from smartapply.pipeline.ingest.role_families import (
+    expand_role_terms,
+    normalize_role_title,
+)
 
 OR_SPLIT_RE = re.compile(r"\s+\bOR\b\s+", flags=re.IGNORECASE)
-QUERY_AGNOSTIC_SOURCES = {"welcometothejungle"}
-ROLE_QUERY_ALIASES_FR: dict[str, tuple[str, ...]] = {
-    "data scientist": ("Data Science", "Scientifique des données"),
-    "data analyst": ("Analyste Data",),
-    "machine learning engineer": (
-        "Machine Learning",
-        "ML Engineer",
-        "Ingénieur Machine Learning",
-    ),
-    "machine learning ing": (
-        "Machine Learning",
-        "ML Engineer",
-        "Ingénieur Machine Learning",
-    ),
-    "ml engineer": (
-        "Machine Learning",
-        "ML Engineer",
-        "Ingénieur Machine Learning",
-    ),
-    "ml ing": (
-        "Machine Learning",
-        "ML Engineer",
-        "Ingénieur Machine Learning",
-    ),
-    "nlp engineer": ("NLP Engineer", "Ingénieur NLP"),
-    "computer vision engineer": (
-        "Computer Vision",
-        "Ingénieur Vision par ordinateur",
-    ),
-    "ai engineer": (
-        "Ingénieur IA",
-        "Ingénieur Intelligence Artificielle",
-        "AI ML Engineer",
-    ),
-    "ia engineer": (
-        "Ingénieur IA",
-        "Ingénieur Intelligence Artificielle",
-        "AI ML Engineer",
-    ),
-    "ai ing": (
-        "Ingénieur IA",
-        "Ingénieur Intelligence Artificielle",
-        "AI ML Engineer",
-    ),
-    "artificial intelligence engineer": (
-        "Ingénieur IA",
-        "Ingénieur Intelligence Artificielle",
-        "AI ML Engineer",
-    ),
-    "research engineer": ("Ingénieur Recherche IA",),
-    "research engineer ai": ("Ingénieur Recherche IA",),
-    "mlops engineer": ("Ingénieur MLOps",),
-    "analytics engineer": ("Analytics Engineer",),
-}
+
+
+@dataclass(frozen=True)
+class SourceQueryPlan:
+    """Primary user searches followed by family-alias fallbacks."""
+
+    primary: tuple[str, ...]
+    fallbacks: tuple[str, ...] = ()
+
+    @property
+    def all_queries(self) -> tuple[str, ...]:
+        return self.primary + self.fallbacks
+
 
 def split_or_query(query: str) -> list[str]:
     """Split a user query like ``A OR B OR C`` into concrete searches.
@@ -72,27 +37,69 @@ def split_or_query(query: str) -> list[str]:
 
 
 def expand_query_for_source(source: str, query: str) -> list[str]:
-    """Return source-aware search variants while preserving the user query.
-
-    Google Jobs and France Travail can be uneven with English role titles in
-    France. We keep the original wording so fully English offers are still
-    found, then add a French alias when it is known to improve recall.
-    """
+    """Expand one title to all aliases in every family it belongs to."""
     normalized = re.sub(r"\s+", " ", query.strip())
-    if source.lower() not in {"serpapi", "francetravail"}:
+    source_key = source.strip().lower()
+    if source_key == "welcometothejungle":
         return [normalized]
-    key = normalized.lower()
     suffix = ""
-    if key.endswith(" cdi"):
-        key = key[:-4].strip()
-        if source.lower() == "serpapi":
-            normalized = re.sub(r"\s+cdi$", "", normalized, flags=re.IGNORECASE).strip()
-        else:
+    if normalized.lower().endswith(" cdi"):
+        normalized = re.sub(r"\s+cdi$", "", normalized, flags=re.IGNORECASE).strip()
+        if source_key != "serpapi":
             suffix = " CDI"
-    variants = [normalized]
-    for alias in ROLE_QUERY_ALIASES_FR.get(key, ()):
-        alias_query = f"{alias}{suffix}"
-        if alias_query.lower() != normalized.lower():
-            variants.append(alias_query)
-    return variants
+    return [f"{alias}{suffix}" for alias in expand_role_terms([normalized])]
 
+
+def build_source_queries(
+    source: str,
+    query: str,
+    *,
+    split_or: bool = True,
+) -> list[str]:
+    """Build the concrete query lanes required by one source.
+
+    Family detection always examines individual ``OR`` terms. SerpAPI receives
+    their expanded union as one boolean query, France Travail and LinkedIn use
+    one lane per title, and WTTJ keeps its single query-agnostic feed.
+    """
+    return list(build_source_query_plan(source, query, split_or=split_or).all_queries)
+
+
+def build_source_query_plan(
+    source: str,
+    query: str,
+    *,
+    split_or: bool = True,
+) -> SourceQueryPlan:
+    """Separate explicit role searches from interleaved alias fallbacks."""
+    source_key = source.strip().lower()
+    cleaned = query.strip()
+    if source_key == "welcometothejungle" or not split_or:
+        return SourceQueryPlan(primary=(cleaned,))
+
+    parts = split_or_query(cleaned)
+    all_cdi = bool(parts) and all(part.lower().endswith(" cdi") for part in parts)
+    family_terms = [re.sub(r"\s+cdi$", "", part, flags=re.IGNORECASE).strip() for part in parts]
+    primary_terms = _stable_unique_terms(family_terms)
+    expanded = expand_role_terms(family_terms)
+    if all_cdi and source_key != "serpapi":
+        expanded = [f"{candidate} CDI" for candidate in expanded]
+    if source_key == "serpapi":
+        return SourceQueryPlan(primary=(" OR ".join(expanded),))
+    primary_count = min(len(primary_terms), len(expanded))
+    return SourceQueryPlan(
+        primary=tuple(expanded[:primary_count]),
+        fallbacks=tuple(expanded[primary_count:]),
+    )
+
+
+def _stable_unique_terms(terms: list[str]) -> list[str]:
+    unique: list[str] = []
+    seen: set[str] = set()
+    for term in terms:
+        key = normalize_role_title(term)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        unique.append(term)
+    return unique

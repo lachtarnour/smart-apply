@@ -9,26 +9,20 @@ import smartapply.filtering.location_signals as location_signals
 import smartapply.filtering.role_signals as role_signals
 import smartapply.filtering.seniority as seniority_signals
 from smartapply.filtering.source_facts import FilterFacts
-from smartapply.filtering.text import contains_any as _contains_any
-from smartapply.filtering.text import has_word as _has_word
 from smartapply.filtering.text import norm as _norm
 from smartapply.utils.contracts import (
     contract_type_tags,
 )
 
-_has_apprenticeship_contract_context = (
-    contract_signals.has_apprenticeship_contract_context
-)
+_has_apprenticeship_contract_context = contract_signals.has_apprenticeship_contract_context
 _has_cdd_contract_context = contract_signals.has_cdd_contract_context
 _has_freelance_contract_context = contract_signals.has_freelance_contract_context
 _has_independent_contract_context = contract_signals.has_independent_contract_context
+_has_part_time_contract_context = contract_signals.has_part_time_contract_context
 _has_stage_contract_context = contract_signals.has_stage_contract_context
 _visible_blocked_contract_marker = contract_signals.visible_blocked_contract_marker
 
 _visible_foreign_location_marker = location_signals.visible_foreign_location_marker
-_has_france_scope = location_signals.has_france_scope
-_is_remote_france = location_signals.is_remote_france
-_specific_preferred_locations = location_signals.specific_preferred_locations
 
 _ANALYTICAL_OWNERSHIP_TOKENS = role_signals.ANALYTICAL_OWNERSHIP_TOKENS
 _CORE_DATA_TECH_TOKENS = role_signals.CORE_DATA_TECH_TOKENS
@@ -40,13 +34,9 @@ _NEGATED_CORE_DATA_TECH_TOKENS = role_signals.NEGATED_CORE_DATA_TECH_TOKENS
 _REPORTING_BI_TOKENS = role_signals.REPORTING_BI_TOKENS
 _WEB_ANALYTICS_TRACKING_TOKENS = role_signals.WEB_ANALYTICS_TRACKING_TOKENS
 
-_has_candidate_leadership_responsibility = (
-    seniority_signals.has_candidate_leadership_responsibility
-)
+_has_candidate_leadership_responsibility = seniority_signals.has_candidate_leadership_responsibility
 _has_hidden_senior_role = seniority_signals.has_hidden_senior_role
-_title_seniority_or_management_marker = (
-    seniority_signals.title_seniority_or_management_marker
-)
+_title_seniority_or_management_marker = seniority_signals.title_seniority_or_management_marker
 
 _PRESTATAIRE_CONTEXT_PATTERNS = (
     r"\bmission\s+(?:en\s+)?freelance\b",
@@ -73,8 +63,6 @@ _PRESTATAIRE_SOURCE_MARKERS = (
     "lehibou",
     "comet",
 )
-_POWER_BI_DESCRIPTION_TOKENS = ("power bi", "powerbi")
-_BLOCKED_DESCRIPTION_TECH_TOKENS = ("terraform", "snowflake", "databricks")
 
 
 def _fact_source_suffix(facts: FilterFacts) -> str:
@@ -142,13 +130,3 @@ def _search_context_reason(facts: FilterFacts) -> str | None:
     if not parts:
         return None
     return "search_context:" + ",".join(parts)
-
-
-def _description_hard_reject_reason(description: str) -> str | None:
-    if _contains_any(description, _POWER_BI_DESCRIPTION_TOKENS):
-        return "description_hard_reject:power_bi"
-    for token in _BLOCKED_DESCRIPTION_TECH_TOKENS:
-        if _has_word(description, token):
-            return f"description_hard_reject:{token}"
-    return None
-

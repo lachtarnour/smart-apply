@@ -15,6 +15,11 @@ APPRENTICESHIP_CONTRACT_MARKERS = {
     "apprentissage",
     "apprentice",
     "apprenticeship",
+    "work-study",
+    "work study",
+    "co-op",
+    "co op",
+    "traineeship",
 }
 FREELANCE_CONTRACT_MARKERS = {"freelance", "contractor"}
 INDEPENDENT_CONTRACT_MARKERS = {"independant", "independent"}
@@ -47,7 +52,7 @@ _STAGE_CONTRACT_PATTERNS = (
     r"\bstage\s+(?:de\s+)?fin\s+d[' ]?etudes\b",
     r"\bstage\s+pfe\b",
     r"\binternship\b",
-    r"\bintern\s+(?:role|position)\b",
+    r"\bintern\s+(?:role|position|job)\b",
 )
 _STAGE_SAFE_CONTEXT_PATTERNS = (
     r"\bhors\s+stage\b",
@@ -59,6 +64,12 @@ _STAGE_SAFE_CONTEXT_PATTERNS = (
     r"\btutorat\s+d[' ]?un\s+stagiaire\b",
     r"\bencadrement\s+d[' ]?un\s+stagiaire\b",
     r"\baccueill(?:e|ent)\b.{0,120}\bstagiaires?\b",
+    r"\b(?:previous|prior)\s+internship\s+experience\b.{0,90}"
+    r"\b(?:accepted|preferred|appreciated|welcome)\b",
+    r"\binternship\s+experience\b.{0,90}"
+    r"\b(?:accepted|preferred|appreciated|welcome)\b",
+    r"\b(?:mentor|mentoring|supervise|supervising|coach|coaching)\b"
+    r".{0,90}\binterns?\b",
 )
 _APPRENTICESHIP_CONTRACT_PATTERNS = (
     r"\bcontrat\s+d[' ]?apprentissage\b",
@@ -69,6 +80,9 @@ _APPRENTICESHIP_CONTRACT_PATTERNS = (
     r"\brecrut(?:e|ons|ement)\s+(?:un|une)?\s*alternant(?:e)?\b",
     r"\brecrut(?:e|ons|ement)\s+(?:un|une)?\s*apprenti(?:e)?\b",
     r"\bapprenticeship\b",
+    r"\bwork[- ]study\s+(?:role|position|job|program(?:me)?)\b",
+    r"\bco[- ]op\s+(?:role|position|job|program(?:me)?)\b",
+    r"\btraineeship\b",
 )
 _APPRENTICESHIP_SAFE_CONTEXT_PATTERNS = (
     r"\bhors\s+alternance\b",
@@ -80,12 +94,21 @@ _APPRENTICESHIP_SAFE_CONTEXT_PATTERNS = (
     r"\bforme(?:r|nt)?\s+les\s+apprentis\b",
     r"\btutorat\s+d[' ]?un\s+alternant\b",
     r"\bencadrement\s+d[' ]?un\s+alternant\b",
+    r"\b(?:previous|prior)\s+(?:apprenticeship|work[- ]study|co[- ]op)\s+"
+    r"experience\b.{0,90}\b(?:accepted|preferred|appreciated|welcome)\b",
+    r"\b(?:apprenticeship|work[- ]study|co[- ]op)\s+experience\b.{0,90}"
+    r"\b(?:accepted|preferred|appreciated|welcome)\b",
+    r"\b(?:mentor|mentoring|supervise|supervising|coach|coaching)\b"
+    r".{0,90}\b(?:apprentices?|trainees?)\b",
 )
 _FREELANCE_CONTRACT_PATTERNS = (
     r"\bmission\s+(?:en\s+)?freelance\b",
+    r"\bfreelance\s+mission\b",
     r"\bcontrat\s+freelance\b",
     r"\bfreelance\s+uniquement\b",
     r"\bcontractor\s+(?:role|position|job)\b",
+    r"\bcontract\s+(?:role|position|job)\b",
+    r"\b(?:role|position|job)\s+as\s+(?:a\s+)?contractor\b",
 )
 _INDEPENDENT_CONTRACT_PATTERNS = (
     r"\bmission\s+independant(?:e)?\b",
@@ -95,6 +118,9 @@ _INDEPENDENT_CONTRACT_PATTERNS = (
     r"\btravailleuse\s+independante\b",
     r"\bconsultant\s+independant\b",
     r"\bconsultante\s+independante\b",
+    r"\bindependent\s+(?:consultant|contractor)\b",
+    r"\bself[- ]employed\s+(?:role|position|job|status|contract)\b",
+    r"\b(?:role|position|job)\s+(?:for|as)\s+(?:a\s+)?self[- ]employed\b",
     r"\bauto-?entrepreneur\b",
     r"\bmicro-?entrepreneur\b",
     r"\bportage\s+salarial\b",
@@ -124,6 +150,24 @@ _CDD_CONTRACT_PATTERNS = (
     r"\binterim\s+temps\s+plein\b",
     r"\bfixed[- ]term\b",
     r"\btravail\s+temporaire\b",
+    r"\bcontrat\s+temporaire\b",
+    r"\bposte\s+temporaire\b",
+    r"\btemporary\s+(?:contract|role|position|job|employment)\b",
+    r"\binterim\s+(?:contract|role|position|job|employment)\b",
+    r"\b(?:contract|fixed[- ]term)\s+(?:role|position|job)\b"
+    r".{0,60}\b\d{1,2}\s*(?:months?|years?)\b",
+    r"\b\d{1,2}[- ]months?\s+(?:fixed[- ]term\s+)?contract\b",
+    r"\bcontract\s+(?:for|lasting)\s+\d{1,2}\s*(?:months?|years?)\b",
+)
+
+_PART_TIME_CONTEXT_PATTERNS = (
+    r"\b(?:poste|emploi|contrat|role|position|job)\b.{0,70}"
+    r"\b(?:a\s+)?(?:temps\s+partiel|mi-?temps|part[- ]time)\b",
+    r"\b(?:temps\s+de\s+travail|duree\s+du\s+travail|work\s+schedule|"
+    r"working\s+hours|employment\s+type)\s*:\s*.{0,50}"
+    r"\b(?:temps\s+partiel|mi-?temps|part[- ]time)\b",
+    r"\b(?:a\s+temps\s+partiel|en\s+temps\s+partiel|mi-?temps|"
+    r"part[- ]time\s+(?:role|position|job|employment))\b",
 )
 
 
@@ -136,16 +180,12 @@ def has_stage_contract_context(title: str, description: str) -> bool:
 
 
 def has_apprenticeship_contract_context(title: str, description: str) -> bool:
-    title_has_contract_marker = (
-        any(
-            has_word(title, marker)
-            for marker in APPRENTICESHIP_CONTRACT_MARKERS
-            if marker != "apprentissage"
-        )
-        or (
-            has_word(title, "apprentissage")
-            and not contains_any(title, _APPRENTICESHIP_SAFE_PHRASES)
-        )
+    title_has_contract_marker = any(
+        has_word(title, marker)
+        for marker in APPRENTICESHIP_CONTRACT_MARKERS
+        if marker != "apprentissage"
+    ) or (
+        has_word(title, "apprentissage") and not contains_any(title, _APPRENTICESHIP_SAFE_PHRASES)
     )
     if title_has_contract_marker:
         return True
@@ -182,6 +222,13 @@ def has_cdd_contract_context(title: str, description: str) -> bool:
     if matches_any_pattern(description, _CDD_SAFE_CONTEXT_PATTERNS):
         return False
     return matches_any_pattern(description, _CDD_CONTRACT_PATTERNS)
+
+
+def has_part_time_contract_context(title: str, description: str) -> bool:
+    """Detect a part-time work schedule in visible FR/EN offer text."""
+    if re.search(r"\b(?:temps\s+partiel|mi-?temps|part[- ]time)\b", title):
+        return True
+    return matches_any_pattern(description, _PART_TIME_CONTEXT_PATTERNS)
 
 
 def visible_blocked_contract_marker(
@@ -241,9 +288,8 @@ def visible_blocked_contract_marker(
         description,
     ):
         return "stage"
-    if (
-        enabled_markers & APPRENTICESHIP_CONTRACT_MARKERS
-        and has_apprenticeship_contract_context(title, description)
+    if enabled_markers & APPRENTICESHIP_CONTRACT_MARKERS and has_apprenticeship_contract_context(
+        title, description
     ):
         return "alternance"
     if enabled_markers & FREELANCE_CONTRACT_MARKERS and has_freelance_contract_context(

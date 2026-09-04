@@ -414,6 +414,59 @@ def classify(analysis: JobAnalysis, *, title: str = "") -> RoleFamily:
     return OTHER
 
 
+def classify_title(title: str) -> RoleFamily:
+    """Classify a generated CV headline from title words only.
+
+    Unlike :func:`classify`, this deliberately ignores tasks, skills and other
+    offer details. A CV headline is a broad professional position, not a
+    keyword-coverage field.
+    """
+    title_text = (title or "").lower()
+    locked_family = _match_family(_TITLE_PATTERNS, title_text)
+    if locked_family:
+        return locked_family
+    generic_family = _match_family(_GENERIC_PRIMARY_PATTERNS, title_text)
+    return generic_family or OTHER
+
+
+_COMPATIBLE_CV_TITLE_FAMILIES: Final[dict[RoleFamily, set[RoleFamily]]] = {
+    "analytics_engineer": {"analytics_engineer", "data_engineer"},
+    "computer_vision": {"computer_vision", "ml_engineer"},
+    "data_analyst": {"data_analyst"},
+    "data_engineer": {"data_engineer", "analytics_engineer"},
+    "data_scientist": {"data_scientist"},
+    "llm_engineer": {"llm_engineer", "ml_engineer"},
+    "medical_ai": {
+        "medical_ai",
+        "computer_vision",
+        "data_scientist",
+        "llm_engineer",
+        "ml_engineer",
+        "speech_audio",
+    },
+    "ml_engineer": {"ml_engineer"},
+    "mlops": {"mlops", "ml_engineer"},
+    "reinforcement_learning": {"reinforcement_learning", "ml_engineer"},
+    "software_engineer": {"software_engineer"},
+    "speech_audio": {"speech_audio", "ml_engineer"},
+}
+
+
+def cv_title_family_is_compatible(
+    offer_family: RoleFamily,
+    title_family: RoleFamily,
+) -> bool:
+    """Return whether a CV-title family is compatible with an offer family.
+
+    ``other`` means that the local classifier is uncertain. Ambiguous cases
+    are accepted instead of producing a misleading warning.
+    """
+    if OTHER in {offer_family, title_family}:
+        return True
+    allowed = _COMPATIBLE_CV_TITLE_FAMILIES.get(offer_family, {offer_family})
+    return title_family in allowed
+
+
 def has_data_scientist_ia_signal(
     analysis: JobAnalysis,
     title: str = "",

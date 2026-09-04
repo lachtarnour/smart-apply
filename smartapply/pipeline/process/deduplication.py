@@ -42,7 +42,6 @@ class DeduplicationMixin:
         return duplicate_ids
 
     @staticmethod
-
     def _dedup_root(group: list[Job]) -> Job:
         """Keep the most advanced active job when several rows are duplicates."""
 
@@ -70,4 +69,3 @@ class DeduplicationMixin:
             )
 
         return min(group, key=priority)
-

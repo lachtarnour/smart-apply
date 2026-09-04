@@ -24,6 +24,7 @@ _EXPERIENCE_NOT_REQUIRED_CODES = {
     "non exigee",
 }
 
+
 def _clean_text(value: Any) -> str | None:
     if value is None:
         return None
@@ -76,9 +77,7 @@ def _parse_experience_duration(*values: str | None) -> dict[str, Any]:
         raw_unit = match.group("unit")
         unit = "months" if raw_unit.startswith(("mois", "month")) else "years"
         min_months = amount if unit == "months" else amount * 12
-        min_years: int | float = (
-            amount if unit == "years" else round(min_months / 12, 2)
-        )
+        min_years: int | float = amount if unit == "years" else round(min_months / 12, 2)
         return {
             "amount": amount,
             "unit": unit,
@@ -155,5 +154,3 @@ def _format_experience_section(experience: dict[str, Any] | None) -> str | None:
     if not details:
         return None
     return f"{prefix}: {' - '.join(details)}"
-
-

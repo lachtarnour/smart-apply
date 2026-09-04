@@ -34,6 +34,7 @@ _WTTJ_REMOTE_VALUES = {
     "no remote": "onsite",
 }
 
+
 def build_wttj_filter_facts(source_data: dict[str, Any]) -> FilterFacts:
     """Extract conservative Welcome to the Jungle facts for local filtering."""
 
@@ -200,5 +201,3 @@ def _wttj_experience_min_years(value: str | None) -> float | None:
         "MORE_THAN_10_YEARS": 10.0,
     }
     return mapping.get(normalized)
-
-

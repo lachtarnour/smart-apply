@@ -14,37 +14,38 @@ from smartapply.filtering.filter_helpers import (
     _NEGATED_CORE_DATA_TECH_TOKENS,
     _REPORTING_BI_TOKENS,
     _WEB_ANALYTICS_TRACKING_TOKENS,
-    _contains_any,
     _contract_for_matching,
-    _description_hard_reject_reason,
     _fact_source_suffix,
     _format_years,
     _has_apprenticeship_contract_context,
     _has_candidate_leadership_responsibility,
     _has_cdd_contract_context,
-    _has_france_scope,
     _has_freelance_contract_context,
     _has_hidden_senior_role,
     _has_independent_contract_context,
+    _has_part_time_contract_context,
     _has_stage_contract_context,
-    _has_word,
-    _is_remote_france,
     _norm,
     _prestataire_is_corroborated,
     _reason_value,
     _rome_context_reason,
     _search_context_reason,
-    _specific_preferred_locations,
     _structured_contract_tags,
     _title_seniority_or_management_marker,
     _visible_blocked_contract_marker,
-    _visible_foreign_location_marker,
     role_signals,
 )
 from smartapply.filtering.preferences import ruleset_from_preferences
+from smartapply.filtering.relevance import (
+    RoleRelevanceDisposition,
+    assess_role_relevance,
+)
 from smartapply.filtering.rules import RuleSet
 from smartapply.filtering.source_facts import FilterFacts, build_filter_facts
-from smartapply.filtering.types import FilterResult, HasJobFields
+from smartapply.filtering.text import contains_any as _contains_any
+from smartapply.filtering.text import has_word as _has_word
+from smartapply.filtering.types import FilterDisposition, FilterResult, HasJobFields
+from smartapply.language import detect_offer_language_confident
 from smartapply.utils.contracts import (
     CDD_EQUIVALENT_TAGS,
     TAG_CONTRACTOR,
@@ -56,7 +57,6 @@ from smartapply.utils.contracts import (
     contract_types_to_tags,
 )
 from smartapply.utils.experience import required_min_years
-from smartapply.utils.location import is_foreign_location, is_french_location
 
 __all__ = [
     "FilterResult",
@@ -68,6 +68,7 @@ __all__ = [
     "_has_candidate_leadership_responsibility",
     "_has_freelance_contract_context",
     "_has_independent_contract_context",
+    "_has_part_time_contract_context",
     "_has_stage_contract_context",
     "_visible_blocked_contract_marker",
 ]
@@ -85,8 +86,6 @@ class JobFilter:
         title = _norm(job.title)
         company = _norm(job.company)
         description = _norm(job.description)
-        location_value = facts.structured_location or job.location
-        location = _norm(location_value)
         contract = _norm(job.contract_type)
         remote_value = job.remote_policy or facts.structured_remote_policy
         remote = _norm(remote_value)
@@ -99,27 +98,20 @@ class JobFilter:
         if search_context := _search_context_reason(facts):
             reasons.append(search_context)
         if facts.structured_remote_policy:
-            reasons.append(
-                f"remote_structured:{_reason_value(facts.structured_remote_policy)}"
-            )
+            reasons.append(f"remote_structured:{_reason_value(facts.structured_remote_policy)}")
 
-        # --- Hard reject: foreign location ---
-        # The candidate only targets the French market. Foreign offers are
-        # dropped before any LLM analysis to save tokens.
-        if is_foreign_location(location_value):
-            reasons.append(f"location_rejected_foreign:{(location_value or '').lower()}")
-            return FilterResult(kept=False, score=0.0, reasons=reasons)
+        # The location entered in the macOS search is the geographic source of
+        # truth. Do not re-apply a static France/Paris gate to returned offers.
 
-        if foreign_marker := _visible_foreign_location_marker(title, description):
-            reasons.append(f"location_rejected_foreign_text:{foreign_marker}")
-            return FilterResult(kept=False, score=0.0, reasons=reasons)
-
-        # --- Hard reject: blocked description terms ---
-        # User preference: offers mentioning these terms in the description
-        # should be ignored before scoring/analyzing.
-        if hard_reject_reason := _description_hard_reject_reason(description):
-            reasons.append(hard_reject_reason)
-            return FilterResult(kept=False, score=0.0, reasons=reasons)
+        detected_language = detect_offer_language_confident(combined)
+        if detected_language:
+            reasons.append(f"offer_language:{detected_language}")
+            if (
+                self.rules.accepted_job_languages
+                and detected_language not in self.rules.accepted_job_languages
+            ):
+                reasons.append(f"offer_language_not_accepted:{detected_language}")
+                return FilterResult(kept=False, score=0.0, reasons=reasons)
 
         # --- Hard reject: too-many years of experience required ---
         # Bilingual regex extraction (FR + EN). See utils.experience.
@@ -134,17 +126,12 @@ class JobFilter:
         elif facts.experience_required is False and facts.experience_requirement:
             required_years = None
             reasons.append(
-                f"experience_structured_{_fact_source_suffix(facts)}:"
-                f"{facts.experience_requirement}"
+                f"experience_structured_{_fact_source_suffix(facts)}:{facts.experience_requirement}"
             )
         else:
-            required_years = required_min_years(
-                f"{job.title or ''}\n{job.description or ''}"
-            )
+            required_years = required_min_years(f"{job.title or ''}\n{job.description or ''}")
         if required_years is not None and required_years >= self.rules.max_required_years:
-            reasons.append(
-                f"experience_required_too_high:{_format_years(required_years)}+ years"
-            )
+            reasons.append(f"experience_required_too_high:{_format_years(required_years)}+ years")
             return FilterResult(kept=False, score=0.0, reasons=reasons)
 
         # --- Hard reject: blocked contract type (internship, alternance, ...) ---
@@ -159,9 +146,7 @@ class JobFilter:
             blocked_contract_tags(job.contract_type, self.rules.accepted_contract_types)
         )
         if contract and incompatible_tags:
-            reasons.append(
-                f"blocked_contract_type:{contract} (tag '{incompatible_tags[0]}')"
-            )
+            reasons.append(f"blocked_contract_type:{contract} (tag '{incompatible_tags[0]}')")
             return FilterResult(kept=False, score=0.0, reasons=reasons)
 
         structured_contract = facts.structured_contract_type
@@ -197,12 +182,18 @@ class JobFilter:
         )
         if TAG_PART_TIME in work_time_tags and part_time_not_accepted:
             reasons.append(
-                f"blocked_work_time_structured:{_reason_value(work_time)} "
-                "(tag 'part_time')"
+                f"blocked_work_time_structured:{_reason_value(work_time)} (tag 'part_time')"
             )
             return FilterResult(kept=False, score=0.0, reasons=reasons)
         if work_time:
             reasons.append(f"work_time_structured:{_reason_value(work_time)}")
+
+        if part_time_not_accepted and _has_part_time_contract_context(
+            title,
+            description,
+        ):
+            reasons.append("blocked_work_time_visible_text:part_time")
+            return FilterResult(kept=False, score=0.0, reasons=reasons)
 
         if contract and self.rules.blocked_contract_types:
             matched = next(
@@ -275,9 +266,7 @@ class JobFilter:
         for bad in self.rules.deal_breakers:
             title_match = _has_word(title, bad) if bad == "sales" else bad and bad in title
             description_match = (
-                _has_word(description, bad)
-                if bad == "sales"
-                else bad and bad in description
+                _has_word(description, bad) if bad == "sales" else bad and bad in description
             )
             if title_match:
                 reasons.append(f"deal_breaker_in_title:{bad}")
@@ -301,6 +290,21 @@ class JobFilter:
             if token in description:
                 reasons.append(f"negative_desc_token:{token}")
                 score -= 0.15
+
+        relevance = assess_role_relevance(
+            title=title,
+            description=description,
+            positive_title_keywords=self.rules.positive_title_keywords,
+            target_roles=self.rules.target_roles,
+        )
+        reasons.append(f"role_relevance:{relevance.disposition.value}")
+        reasons.append(f"role_relevance_score:{relevance.score}")
+        if relevance.concepts:
+            reasons.append(f"role_concepts:{','.join(relevance.concepts)}")
+        reasons.extend(f"role_evidence:{item}" for item in relevance.evidence)
+        if relevance.disposition is RoleRelevanceDisposition.OFF_TARGET:
+            reasons.append("role_relevance_off_target")
+            return FilterResult(kept=False, score=0.0, reasons=reasons)
 
         web_analytics_tracking_focus = (
             _contains_any(combined, _WEB_ANALYTICS_TRACKING_TOKENS)
@@ -326,9 +330,8 @@ class JobFilter:
             return FilterResult(kept=False, score=0.0, reasons=reasons)
 
         reporting_without_core_data_tech = (
-            ("reporting" in title or "reporting" in description or "dashboard" in description)
-            and _contains_any(description, _NEGATED_CORE_DATA_TECH_TOKENS)
-        )
+            "reporting" in title or "reporting" in description or "dashboard" in description
+        ) and _contains_any(description, _NEGATED_CORE_DATA_TECH_TOKENS)
         if reporting_without_core_data_tech:
             reasons.append("reporting_without_core_data_tech")
             return FilterResult(kept=False, score=0.0, reasons=reasons)
@@ -348,7 +351,14 @@ class JobFilter:
             return FilterResult(kept=False, score=0.0, reasons=reasons)
 
         pure_data_engineering_role = (
-            bool(re.search(r"\bdata engineer(?:ing)?\b", title))
+            bool(
+                re.search(
+                    r"\b(?:data engineer(?:ing)?|data platform engineer|"
+                    r"ingenieur(?:e)? (?:data|donnees|plateforme data)|"
+                    r"ingenierie (?:data|des donnees))\b",
+                    title,
+                )
+            )
             and _contains_any(combined, _DATA_ENGINEERING_PLATFORM_TOKENS)
             and not _contains_any(combined, _ML_ANALYTICS_SCOPE_TOKENS)
         )
@@ -356,29 +366,22 @@ class JobFilter:
             reasons.append("pure_data_engineering_role")
             return FilterResult(kept=False, score=0.0, reasons=reasons)
 
-        mep_data_center_focus = (
-            ("mep" in title or "mep" in description)
-            and ("data center" in title or "data center" in description)
+        mep_data_center_focus = ("mep" in title or "mep" in description) and (
+            "data center" in title or "data center" in description
         )
         if mep_data_center_focus:
             reasons.append("mep_data_center_focus")
             return FilterResult(kept=False, score=0.0, reasons=reasons)
 
         analytics_without_python = (
-            ("data analyst" in title or " bi" in f" {title}" or "analytics" in title)
-            and (
-                "pas de developpement python" in description
-                or "pas de python" in description
-                or "no python" in description
-                or "without python" in description
-            )
-        )
+            "data analyst" in title or " bi" in f" {title}" or "analytics" in title
+        ) and _contains_any(description, _NEGATED_CORE_DATA_TECH_TOKENS)
         if analytics_without_python:
             reasons.append("analytics_without_python")
             score -= 0.45
 
         for kw in self.rules.negative_title_keywords:
-            if (_has_word(title, kw) if kw == "sales" else kw in title):
+            if _has_word(title, kw) if kw == "sales" else kw in title:
                 reasons.append(f"negative_title:{kw}")
                 score -= 0.2
 
@@ -400,28 +403,6 @@ class JobFilter:
         if target_hit:
             score += 0.2
 
-        # --- Location ---
-        if self.rules.preferred_locations:
-            specific_locations = _specific_preferred_locations(
-                self.rules.preferred_locations
-            )
-            accepts_france = _has_france_scope(self.rules.preferred_locations)
-            if any(loc in location for loc in specific_locations):
-                score += 0.1
-                reasons.append("location_preferred")
-            elif _is_remote_france(location_value, remote):
-                score += 0.05
-                reasons.append("location_remote_france")
-            elif accepts_france and is_french_location(location_value):
-                score += 0.05
-                reasons.append("location_accepted_france")
-            elif remote == "remote" and "remote" in self.rules.accepted_remote_policies:
-                score += 0.05
-                reasons.append("location_remote_accepted")
-            else:
-                score -= 0.05
-                reasons.append("location_unknown")
-
         # --- Contract type ---
         contract_for_matching = _contract_for_matching(job.contract_type, facts)
         contract = _norm(contract_for_matching)
@@ -442,22 +423,31 @@ class JobFilter:
             else:
                 score -= 0.05
 
-        if not role_signals.has_role_relevance_signal(
-            title=title,
-            description=description,
-            positive_title_keywords=self.rules.positive_title_keywords,
-            target_roles=self.rules.target_roles,
-        ):
-            reasons.append("missing_role_relevance")
-            return FilterResult(kept=False, score=0.0, reasons=reasons)
-
         # Clamp
         score = max(0.0, min(1.0, score))
+
+        # Unknown vocabulary is not a safe rejection reason. Keep ambiguous
+        # offers for the semantic ranking phase, which is precisely designed
+        # to compare broader meaning rather than exact words.
+        if relevance.disposition is RoleRelevanceDisposition.UNCERTAIN:
+            score = max(score, self.rules.min_score)
+            reasons.append("role_relevance:uncertain_kept_for_semantic_ranking")
+            return FilterResult(
+                kept=True,
+                score=score,
+                reasons=reasons,
+                disposition=FilterDisposition.UNCERTAIN,
+            )
 
         kept = score >= self.rules.min_score
         if not kept:
             reasons.append(f"below_min_score:{self.rules.min_score}")
-        return FilterResult(kept=kept, score=score, reasons=reasons)
+        return FilterResult(
+            kept=kept,
+            score=score,
+            reasons=reasons,
+            disposition=(FilterDisposition.RELEVANT if kept else FilterDisposition.REJECTED),
+        )
 
     def filter_many(
         self, jobs: list[HasJobFields]

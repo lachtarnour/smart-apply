@@ -35,11 +35,13 @@ def _format_api_offices(value: Any) -> str | None:
             formatted.append(text)
     return "; ".join(formatted) or None
 
+
 def _normalize_api_contract_type(value: Any) -> str | None:
     text = _as_text(value)
     if not text:
         return None
     return normalize_source_contract_type(text.replace("_", " ")) or text
+
 
 def _normalize_api_remote_policy(value: Any) -> str | None:
     text = _clean_text(str(value or "").replace("_", " ").lower())
@@ -53,6 +55,7 @@ def _normalize_api_remote_policy(value: Any) -> str | None:
         return "onsite"
     return text
 
+
 def _experience_min_years_from_api_level(value: str | None) -> float | None:
     normalized = (value or "").strip().upper()
     mapping = {
@@ -65,6 +68,7 @@ def _experience_min_years_from_api_level(value: str | None) -> float | None:
     }
     return mapping.get(normalized)
 
+
 def _api_company_summary(payload: dict[str, Any]) -> str | None:
     return (
         _clean_text(_description_to_text(_as_text(payload.get("company_summary"))))
@@ -73,6 +77,7 @@ def _api_company_summary(payload: dict[str, Any]) -> str | None:
             _description_to_text(_as_text(_dict(payload.get("organization")).get("description")))
         )
     )
+
 
 def _format_api_sectors(value: Any) -> str | None:
     if not isinstance(value, list):
@@ -85,6 +90,7 @@ def _format_api_sectors(value: Any) -> str | None:
         if name and name not in names:
             names.append(name)
     return ", ".join(names) or None
+
 
 def _localized_text(value: Any) -> str | None:
     if isinstance(value, dict):
@@ -99,8 +105,10 @@ def _localized_text(value: Any) -> str | None:
         return None
     return _as_text(value)
 
+
 def _dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
+
 
 def _cookie_value(cookie_header: str, name: str) -> str | None:
     for part in cookie_header.split(";"):
@@ -108,6 +116,7 @@ def _cookie_value(cookie_header: str, name: str) -> str | None:
         if key == name and value:
             return value
     return None
+
 
 def _job_url_from_api_item(job: dict[str, Any]) -> str | None:
     for key in ("url", "absolute_url", "web_url"):
@@ -124,6 +133,7 @@ def _job_url_from_api_item(job: dict[str, Any]) -> str | None:
         return None
     return _canonical_job_url(f"{WTTJ_BASE_URL}/fr/companies/{organization_slug}/jobs/{job_slug}")
 
+
 def _first_json_ld(soup: BeautifulSoup, json_type: str) -> dict[str, Any] | None:
     for script in soup.select('script[type="application/ld+json"]'):
         raw = script.string or script.get_text()
@@ -138,6 +148,7 @@ def _first_json_ld(soup: BeautifulSoup, json_type: str) -> dict[str, Any] | None
                 return item
     return None
 
+
 def _json_ld_items(payload: Any) -> Iterable[dict[str, Any]]:
     if isinstance(payload, dict):
         if isinstance(payload.get("@graph"), list):
@@ -146,6 +157,7 @@ def _json_ld_items(payload: Any) -> Iterable[dict[str, Any]]:
             yield payload
     elif isinstance(payload, list):
         yield from (item for item in payload if isinstance(item, dict))
+
 
 def _faq_answers(soup: BeautifulSoup) -> dict[str, str]:
     faq = _first_json_ld(soup, "FAQPage")
@@ -162,13 +174,17 @@ def _faq_answers(soup: BeautifulSoup) -> dict[str, str]:
             answers[question] = answer
     return answers
 
+
 def _video_titles(soup: BeautifulSoup) -> list[str]:
     titles: list[str] = []
-    for block in soup.select('[data-testid="block-videos-item"], [data-testid="organization-content-block-video"]'):
+    for block in soup.select(
+        '[data-testid="block-videos-item"], [data-testid="organization-content-block-video"]'
+    ):
         text = _clean_text(block.get_text(" ", strip=True))
         if text and text not in titles:
             titles.append(text)
     return titles
+
 
 def _normalize_remote_policy(remote_text: str | None) -> str | None:
     if not remote_text:
@@ -182,6 +198,7 @@ def _normalize_remote_policy(remote_text: str | None) -> str | None:
         return "onsite"
     return remote_text
 
+
 def _description_to_text(description_html: str | None) -> str:
     if not description_html:
         return ""
@@ -189,6 +206,7 @@ def _description_to_text(description_html: str | None) -> str:
     for tag in soup(["script", "style", "noscript", "svg"]):
         tag.decompose()
     return _clean_text(soup.get_text("\n", strip=True))
+
 
 def _format_locations(job_location: Any) -> str | None:
     locations = job_location if isinstance(job_location, list) else [job_location]
@@ -212,6 +230,7 @@ def _format_locations(job_location: Any) -> str | None:
             formatted.append(text)
     return "; ".join(formatted) or None
 
+
 def _canonical_job_url(url: str | None) -> str | None:
     if not url:
         return None
@@ -221,6 +240,7 @@ def _canonical_job_url(url: str | None) -> str | None:
     if not JOB_PATH_RE.search(parsed.path):
         return None
     return urlunparse(("https", "www.welcometothejungle.com", parsed.path, "", "", ""))
+
 
 def _canonical_company_url(url: str | None) -> str | None:
     if not url:
@@ -233,6 +253,7 @@ def _canonical_company_url(url: str | None) -> str | None:
         return None
     return urlunparse(("https", "www.welcometothejungle.com", parsed.path, "", "", ""))
 
+
 def _detail_canonical_url(soup: BeautifulSoup) -> str | None:
     canonical = soup.select_one('link[rel="canonical"]')
     if canonical and canonical.get("href"):
@@ -240,6 +261,7 @@ def _detail_canonical_url(soup: BeautifulSoup) -> str | None:
         if url:
             return url
     return _canonical_job_url(_meta_content(soup, "og:url"))
+
 
 def _company_canonical_url(soup: BeautifulSoup) -> str | None:
     canonical = soup.select_one('link[rel="canonical"]')
@@ -249,6 +271,7 @@ def _company_canonical_url(soup: BeautifulSoup) -> str | None:
             return url
     return _canonical_company_url(_meta_content(soup, "og:url"))
 
+
 def _href_for_selector(soup: BeautifulSoup, selector: str) -> str | None:
     element = soup.select_one(selector)
     if not element:
@@ -256,9 +279,11 @@ def _href_for_selector(soup: BeautifulSoup, selector: str) -> str | None:
     href = element.get("href")
     return _as_text(href)
 
+
 def _text_for_selector(soup: BeautifulSoup, selector: str) -> str | None:
     element = soup.select_one(selector)
     return _clean_text(element.get_text(" ", strip=True)) if element else None
+
 
 def _block_after_heading(
     soup: BeautifulSoup,
@@ -275,6 +300,7 @@ def _block_after_heading(
             block = block.parent
     return block
 
+
 def _visible_heading_node(soup: BeautifulSoup, heading: str) -> Any | None:
     for node in soup.find_all(string=lambda value: bool(value and heading in value)):
         parent = node.parent
@@ -286,6 +312,7 @@ def _visible_heading_node(soup: BeautifulSoup, heading: str) -> Any | None:
         if text == heading or heading in text:
             return node
     return None
+
 
 def _leaf_texts(
     block: Any,
@@ -301,14 +328,19 @@ def _leaf_texts(
             texts.append(text)
     return texts
 
+
 def _strip_heading(text: str, heading: str) -> str | None:
     if text.startswith(heading):
-        text = text[len(heading):].strip()
+        text = text[len(heading) :].strip()
     return text or None
+
 
 def _is_external_url(url: str) -> bool:
     parsed = urlparse(url)
-    return parsed.scheme in {"http", "https"} and not parsed.netloc.endswith("welcometothejungle.com")
+    return parsed.scheme in {"http", "https"} and not parsed.netloc.endswith(
+        "welcometothejungle.com"
+    )
+
 
 def _domain_from_url(url: str | None) -> str | None:
     if not url:
@@ -328,9 +360,11 @@ def _parse_datetime(value: str | None) -> datetime | None:
     except ValueError:
         return None
 
+
 def _meta_content(soup: BeautifulSoup, property_name: str) -> str | None:
     tag = soup.select_one(f'meta[property="{property_name}"]')
     return _as_text(tag.get("content")) if tag else None
+
 
 def _company_from_title_tag(soup: BeautifulSoup) -> str | None:
     if not soup.title:
@@ -340,20 +374,24 @@ def _company_from_title_tag(soup: BeautifulSoup) -> str | None:
         return parts[-2]
     return None
 
+
 def _as_text(value: Any) -> str | None:
     if value is None:
         return None
     text = str(value).strip()
     return text or None
 
+
 def _clean_text(text: str) -> str:
     text = re.sub(r"[ \t\r\f\v]+", " ", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
 
+
 def _safe_filename(value: str) -> str:
     filename = re.sub(r"[^a-zA-Z0-9._-]+", "-", value).strip("-")
     return filename[:120] or "wttj-job"
+
 
 def _wait_for_wttj_content(page: Any, timeout_ms: int, timeout_error: type[Exception]) -> None:
     with suppress(timeout_error):
@@ -365,6 +403,7 @@ def _wait_for_wttj_content(page: Any, timeout_ms: int, timeout_error: type[Excep
             '[data-testid="job-section-description"]',
             timeout=timeout_ms,
         )
+
 
 def _external_company_website(value: Any) -> str | None:
     if isinstance(value, dict):

@@ -2,18 +2,21 @@
 
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from pathlib import Path
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-ROOT_DIR = Path(__file__).resolve().parent.parent
+DEFAULT_RUNTIME_DIR = Path.home() / "Library" / "Application Support" / "Elan"
+RUNTIME_DIR = Path(os.environ.get("ELAN_HOME", DEFAULT_RUNTIME_DIR)).expanduser().resolve()
+ENV_FILE = Path(os.environ.get("ELAN_ENV_FILE", RUNTIME_DIR / ".env")).expanduser().resolve()
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=str(ROOT_DIR / ".env"),
+        env_file=str(ENV_FILE),
         env_file_encoding="utf-8",
         extra="ignore",
         case_sensitive=False,
@@ -25,25 +28,19 @@ class Settings(BaseSettings):
     openai_model_cheap: str = Field(default="gpt-5.4-mini")
     openai_model_smart: str = Field(default="gpt-4o")
     openai_model_embed: str = Field(default="text-embedding-3-small")
-    # Job analysis prompt variant. Production currently supports the audited
-    # long prompt; keeping it configurable makes the active setup visible.
-    prompt: str = Field(default="long")
-
+    openai_max_completion_tokens: int = Field(default=6000, ge=256, le=100_000)
+    llm_cache_ttl_days: int = Field(default=15, ge=1, le=365)
     # Embeddings
     embeddings_provider: str = Field(default="openai")
     local_embeddings_model: str = Field(default="paraphrase-multilingual-MiniLM-L12-v2")
 
     # Database
-    database_url: str = Field(default=f"sqlite:///{ROOT_DIR / 'data' / 'smartapply.db'}")
+    database_url: str = Field(default=f"sqlite:///{RUNTIME_DIR / 'data' / 'smartapply.db'}")
 
     # Paths
-    profile_dir: Path = Field(default=ROOT_DIR / "smartapply" / "profile" / "data")
-    output_dir: Path = Field(default=ROOT_DIR / "data" / "output")
-    cache_dir: Path = Field(default=ROOT_DIR / "data" / "cache")
-    samples_dir: Path = Field(default=ROOT_DIR / "data" / "samples")
-
-    # Job sources (comma-separated names)
-    job_sources: str = Field(default="serpapi,francetravail,linkedin,manual")
+    profile_dir: Path = Field(default=RUNTIME_DIR / "profile")
+    output_dir: Path = Field(default=RUNTIME_DIR / "documents")
+    cache_dir: Path = Field(default=RUNTIME_DIR / "cache")
 
     # SerpApi Google Jobs
     serpapi_api_key: str = Field(default="")
@@ -95,33 +92,10 @@ class Settings(BaseSettings):
         )
     )
 
-    # Contact enrichment (Anymail Finder)
-    anymailfinder_api_key: str = Field(default="")
-    anymailfinder_timeout: int = Field(default=180, ge=1, le=300)
-    anymailfinder_max_contacts: int = Field(default=5, ge=1, le=20)
-    anymailfinder_decision_maker_categories: str = Field(default="hr,engineering,it")
-    anymailfinder_company_email_type: str = Field(default="generic")
-    anymailfinder_verify_manual_contacts: bool = Field(default=False)
-    anymailfinder_verify_cached_external_contacts: bool = Field(default=False)
-    contact_cache_enabled: bool = Field(default=True)
-    contact_cache_ttl_days: int = Field(default=45, ge=1)
-    contact_cache_negative_ttl_days: int = Field(default=14, ge=1)
-
-    # Gmail
-    gmail_credentials_path: Path = Field(default=ROOT_DIR / "secrets" / "credentials.json")
-    gmail_token_path: Path = Field(default=ROOT_DIR / "secrets" / "token.json")
-    gmail_user: str = Field(default="me")
-
     # Pipeline tuning
     top_k_ranked: int = Field(default=25, ge=1)
     dedup_title_threshold: int = Field(default=85, ge=0, le=100)
     dedup_desc_threshold: int = Field(default=70, ge=0, le=100)
-    autopilot_target_drafts: int = Field(default=25, ge=1)
-    autopilot_min_score: float = Field(default=0.62, ge=0.0, le=1.0)
-    autopilot_contact_min_confidence: float = Field(default=0.60, ge=0.0, le=1.0)
-    autopilot_require_quality_gate: bool = Field(default=True)
-    autopilot_analyze_multiplier: float = Field(default=2.0, ge=1.0, le=5.0)
-    autopilot_candidate_multiplier: float = Field(default=3.0, ge=1.0, le=6.0)
     # Concurrency for parallel LLM analysis calls in Processor. Capped to
     # respect provider rate limits while still giving a large wall-clock win
     # on top-K analysis (15 jobs go from ~30s serial to ~4s with 5 workers).
@@ -131,7 +105,7 @@ class Settings(BaseSettings):
     log_level: str = Field(default="INFO")
 
     def ensure_dirs(self) -> None:
-        for p in (self.output_dir, self.cache_dir, self.samples_dir):
+        for p in (self.output_dir, self.cache_dir):
             p.mkdir(parents=True, exist_ok=True)
 
 

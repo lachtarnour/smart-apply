@@ -14,7 +14,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from smartapply.config import get_settings
 from smartapply.logging_setup import get_logger
 from smartapply.offers import RawJob, make_external_id
-from smartapply.scrapers.base import Scraper, ScraperConfigError
+from smartapply.scrapers.base import Scraper, ScraperConfigError, ScraperError
 from smartapply.scrapers.serpapi_query import (
     SERPAPI_DATE_POSTED_LABELS,
     SERPAPI_DATE_POSTED_OPTIONS,
@@ -37,6 +37,18 @@ SERPAPI_URL = "https://serpapi.com/search.json"
 
 def _should_stop(stop_requested: Callable[[], bool] | None) -> bool:
     return bool(stop_requested and stop_requested())
+
+
+def _request_error_summary(exc: requests.RequestException) -> str:
+    """Describe a failed request without exposing SerpAPI query credentials."""
+    response = getattr(exc, "response", None)
+    if response is not None:
+        status = getattr(response, "status_code", None)
+        reason = str(getattr(response, "reason", "") or "").strip()
+        return " ".join(
+            part for part in (f"HTTP {status}" if status else "HTTP error", reason) if part
+        )
+    return type(exc).__name__
 
 
 class SerpApiGoogleJobsScraper(Scraper):
@@ -94,6 +106,7 @@ class SerpApiGoogleJobsScraper(Scraper):
         hl: str | None = None,
         gl: str | None = None,
         google_domain: str | None = None,
+        use_configured_country_bias: bool = True,
         stop_requested: Callable[[], bool] | None = None,
         **kwargs: Any,
     ) -> Iterator[RawJob]:
@@ -108,17 +121,17 @@ class SerpApiGoogleJobsScraper(Scraper):
         if max_results is not None and max_results <= 0:
             return
 
-        freshness = (
-            self.date_posted
-            if date_posted is None
-            else normalize_date_posted(date_posted)
-        )
+        freshness = self.date_posted if date_posted is None else normalize_date_posted(date_posted)
         search_query = query.strip()
         date_chip = date_posted_chip(freshness)
         search_chips = combine_chips(chips, date_chip)
         search_uds = (uds if uds is not None else self.uds).strip()
         languages = split_localization_values(hl, fallback=self.hl)
-        countries = split_localization_values(gl, fallback=self.gl)
+        countries: list[str | None] = (
+            split_localization_values(gl, fallback=self.gl)
+            if use_configured_country_bias
+            else [None]
+        )
         domains = split_localization_values(google_domain, fallback=self.google_domain)
         yielded = 0
         seen_external_ids: set[str] = set()
@@ -135,11 +148,7 @@ class SerpApiGoogleJobsScraper(Scraper):
                 ):
                     if _should_stop(stop_requested):
                         return
-                    remaining = (
-                        max_results - yielded
-                        if max_results is not None
-                        else None
-                    )
+                    remaining = max_results - yielded if max_results is not None else None
                     if remaining is not None and remaining <= 0:
                         return
                     params: dict[str, Any] = {
@@ -148,9 +157,10 @@ class SerpApiGoogleJobsScraper(Scraper):
                         "location": location or self.default_location,
                         "google_domain": domain,
                         "hl": language,
-                        "gl": country,
                         "api_key": self.api_key,
                     }
+                    if country:
+                        params["gl"] = country
                     if ltype:
                         params["ltype"] = ltype
                     if search_chips:
@@ -332,8 +342,9 @@ class SerpApiGoogleJobsScraper(Scraper):
             try:
                 payload = self._fetch(page_params)
             except requests.RequestException as e:
-                logger.error("SerpApi request failed: %s", e)
-                return
+                summary = _request_error_summary(e)
+                logger.error("SerpApi request failed: %s", summary)
+                raise ScraperError(f"SerpAPI request failed: {summary}") from e
 
             pages_fetched += 1
             jobs = payload.get("jobs_results") or []

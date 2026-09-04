@@ -26,15 +26,15 @@ def build_serpapi_source_metadata(source_data: dict[str, Any] | None) -> str:
     if not isinstance(source_data, dict):
         return ""
 
-    contact_lines = _serpapi_contact_lines(source_data)
+    url_lines = _serpapi_application_url_lines(source_data)
     fact_lines = _serpapi_fact_lines(source_data)
     motivation_lines = _serpapi_motivation_anchor_lines(source_data)
-    if not contact_lines and not fact_lines and not motivation_lines:
+    if not url_lines and not fact_lines and not motivation_lines:
         return ""
 
     sections: list[str] = []
-    if contact_lines:
-        sections.append("CONTACT_AND_APPLICATION_METADATA:\n" + "\n".join(contact_lines))
+    if url_lines:
+        sections.append("APPLICATION_URL_METADATA:\n" + "\n".join(url_lines))
     if fact_lines:
         sections.append("STRUCTURED_JOB_FACTS:\n" + "\n".join(fact_lines))
     if motivation_lines:
@@ -42,7 +42,7 @@ def build_serpapi_source_metadata(source_data: dict[str, Any] | None) -> str:
     return "\n\n".join(sections)
 
 
-def _serpapi_contact_lines(source_data: dict[str, Any]) -> list[str]:
+def _serpapi_application_url_lines(source_data: dict[str, Any]) -> list[str]:
     lines = ["source: serpapi"]
     _append_scalar(lines, "company_name", source_data.get("company_name"))
     _append_serpapi_apply_options(lines, source_data.get("apply_options"))
@@ -133,5 +133,3 @@ def _serpapi_highlight_sections(value: Any) -> list[dict[str, list[str]]]:
         if title or items:
             sections.append({"title": title or f"section_{index}", "items": items})
     return sections
-
-

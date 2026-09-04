@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import re
 
-from smartapply.filtering.text import contains_any
+from smartapply.filtering.relevance import (
+    RoleRelevanceDisposition,
+    assess_role_relevance,
+)
 
 REPORTING_BI_TOKENS = (
     "business intelligence",
@@ -20,20 +23,38 @@ REPORTING_BI_TOKENS = (
     "qliksense",
     "reporting",
     "tableau",
+    "tableau de bord",
+    "tableaux de bord",
+    "informatique decisionnelle",
+    "data visualization",
+    "visualisation de donnees",
 )
 
 ANALYTICAL_OWNERSHIP_TOKENS = (
     "a/b",
     "ab testing",
+    "aide a la decision",
+    "analyse causale",
+    "analyse exploratoire",
+    "analyses ad hoc",
     "acquisition",
     "arima",
     "bigquery",
+    "causal inference",
+    "cohort",
+    "cohorte",
     "conversion",
     "data warehouse",
     "dbt",
+    "decision science",
+    "econometrie",
     "engagement",
     "etl",
+    "experimentation",
+    "funnel",
     "forecasting",
+    "hypothesis testing",
+    "inference causale",
     "machine learning",
     "ml",
     "modele",
@@ -65,37 +86,58 @@ ANALYTICAL_OWNERSHIP_TOKENS = (
 )
 
 WEB_ANALYTICS_TRACKING_TOKENS = (
+    "analyse web",
+    "analytique web",
     "data layer",
     "ga4",
+    "gestion des tags",
     "google analytics",
     "gtm",
+    "marquage analytics",
+    "mesure d audience",
+    "plan de marquage",
+    "suivi de conversion",
     "tagging plan",
     "tracking plan",
+    "web analytics",
+    "webanalyse",
 )
 
 CORE_DATA_TECH_TOKENS = (
     "dbt",
     "etl",
+    "hugging face",
     "machine learning",
     "ml",
+    "pandas",
     "python",
     "pyspark",
+    "pytorch",
+    "scikit-learn",
+    "sklearn",
     "spark",
     "sql",
+    "tensorflow",
 )
 
 NEGATED_CORE_DATA_TECH_TOKENS = (
     "no python",
     "without python",
+    "sans python",
+    "aucun python",
     "pas de python",
     "pas de developpement python",
     "pas de développement python",
     "no sql",
     "without sql",
+    "sans sql",
+    "aucun sql",
     "pas de sql",
     "no analytics ownership",
     "without analytics ownership",
     "sans ownership analytique",
+    "sans responsabilite analytique",
+    "sans responsabilité analytique",
 )
 
 DATA_ENGINEERING_PLATFORM_TOKENS = (
@@ -103,89 +145,93 @@ DATA_ENGINEERING_PLATFORM_TOKENS = (
     "data platform",
     "data warehouse",
     "databricks",
+    "entrepot de donnees",
     "etl",
     "informatica",
+    "integration de donnees",
+    "orchestration de donnees",
+    "plateforme data",
+    "plateforme de donnees",
     "snowflake",
     "warehouse",
 )
 
 ML_ANALYTICS_SCOPE_TOKENS = (
+    "agentic ai",
+    "agents autonomes",
     "ai",
     "analytics",
+    "apprentissage automatique",
+    "apprentissage profond",
+    "apprentissage statistique",
+    "causal inference",
+    "computer vision",
     "data science",
+    "deep learning",
+    "experimentation",
+    "forecasting",
+    "generative ai",
+    "genai",
+    "ia agentique",
+    "ia generative",
+    "ia générative",
+    "inference causale",
+    "intelligence artificielle",
+    "llm",
     "machine learning",
     "ml",
+    "modelisation statistique",
+    "nlp",
     "python",
+    "rag",
+    "statistical learning",
     "statistical",
     "statistique",
     "statistics",
 )
 
 DATA_AI_ANCHOR_TOKENS = (
+    "agentic ai",
+    "agents autonomes",
     "ai",
     "artificial intelligence",
+    "apprentissage automatique",
+    "apprentissage statistique",
+    "causal inference",
     "computer vision",
     "data pipeline",
     "data science",
     "deep learning",
     "genai",
+    "ia agentique",
     "ia generative",
     "ia générative",
     "intelligence artificielle",
     "llm",
     "machine learning",
     "ml",
+    "modelisation statistique",
     "nlp",
     "python",
     "rag",
-)
-
-DESCRIPTION_ROLE_CONTEXT_TOKENS = (
-    "analyse de donnees",
-    "analyse de données",
-    "analyse statistique",
-    "analyser des donnees",
-    "analyser des données",
-    "analytics engineer",
-    "data analyst",
-    "data science",
-    "data scientist",
-    "data team",
-    "equipe data",
-    "intelligence artificielle",
-    "machine learning",
-    "mission data",
-    "mission machine learning",
-    "modeles predictifs",
-    "modèles prédictifs",
-    "pipelines data",
-    "pole data",
-    "pôle data",
-    "poste data",
-    "product analytics",
-    "projets data",
+    "statistical learning",
 )
 
 FINANCE_REPORTING_CONTEXT_TOKENS = (
+    "budget",
+    "budgeting",
+    "controlling",
     "controle de gestion",
     "contrôle de gestion",
     "direction administrative et financière",
     "finance",
+    "finance department",
     "financier",
+    "financial planning",
+    "management accounting",
     "fp&a",
 )
 
-_ROLE_RELEVANCE_TITLE_RE = re.compile(
-    r"(?<![a-z0-9])("
-    r"ai engineer|ia engineer|analyste data|analytics engineer|applied scientist|"
-    r"business data|computer vision|data analyst|data science|data scientist|"
-    r"deep learning|genai|ia generative|ingenieur ia|intelligence artificielle|"
-    r"llm|machine learning|ml engineer|nlp|product data analyst|"
-    r"research engineer|scientifique des donnees|statisticien data"
-    r")(?![a-z0-9])"
-)
-_ANALYST_TITLE_RE = re.compile(r"(?<![a-z0-9])(?:analyst|analyste|analytics)(?![a-z0-9])")
-_DATA_TITLE_RE = re.compile(r"(?<![a-z0-9])(?:data|donnees|données|ia|ai|ml)(?![a-z0-9])")
 _STRONG_DATA_AI_DEV_TITLE_RE = re.compile(
     r"(?<![a-z0-9])(?:ai|bi\s*/\s*etl|business\s+intelligence|data|"
     r"data\s+bi|donnees|données|etl|genai|ia|llm|machine\s+learning|"
@@ -234,10 +280,15 @@ def title_off_target_marker(title: str) -> str | None:
         if pattern.search(title):
             if marker == "system_network" and _STRONG_DATA_AI_DEV_TITLE_RE.search(title):
                 continue
+            if marker == "business" and re.search(
+                r"\b(?:business data|data analyst|business intelligence|analytics)\b",
+                title,
+            ):
+                continue
             return marker
-    if _SOFTWARE_WITHOUT_DATA_AI_RE.search(
+    if _SOFTWARE_WITHOUT_DATA_AI_RE.search(title) and not _STRONG_DATA_AI_DEV_TITLE_RE.search(
         title
-    ) and not _STRONG_DATA_AI_DEV_TITLE_RE.search(title):
+    ):
         return "software_engineering"
     return None
 
@@ -261,8 +312,9 @@ def should_skip_configured_title_hard_reject(title: str, blocker: str) -> bool:
 def has_analytics_title_scope(title: str) -> bool:
     return bool(
         re.search(
-            r"(?<![a-z0-9])(?:analyste\s+data|analytics\s+engineer|"
-            r"business\s+analyst\s+data|data\s+analyst|product\s+analyst|"
+            r"(?<![a-z0-9])(?:analyste\s+(?:data|de\s+donnees|produit)|"
+            r"analytics\s+engineer|business\s+analyst\s+data|data\s+analyst|"
+            r"decision\s+scientist|ingenieur\s+analytics|product\s+analyst|"
             r"product\s+data\s+analyst)(?![a-z0-9])",
             title,
         )
@@ -276,22 +328,10 @@ def has_role_relevance_signal(
     positive_title_keywords: tuple[str, ...],
     target_roles: list[str],
 ) -> bool:
-    if any(keyword and keyword in title for keyword in positive_title_keywords):
-        return True
-    if any(role and role in title for role in target_roles):
-        return True
-    if _ROLE_RELEVANCE_TITLE_RE.search(title):
-        return True
-    if _STRONG_DATA_AI_DEV_TITLE_RE.search(title):
-        return True
-    if _DATA_TITLE_RE.search(title):
-        return True
-    if _ANALYST_TITLE_RE.search(title) and (
-        contains_any(description, CORE_DATA_TECH_TOKENS)
-        or contains_any(description, ANALYTICAL_OWNERSHIP_TOKENS)
-    ):
-        return True
-    return contains_any(description, DESCRIPTION_ROLE_CONTEXT_TOKENS) and contains_any(
-        description,
-        CORE_DATA_TECH_TOKENS,
+    assessment = assess_role_relevance(
+        title=title,
+        description=description,
+        positive_title_keywords=positive_title_keywords,
+        target_roles=target_roles,
     )
+    return assessment.disposition is RoleRelevanceDisposition.RELEVANT

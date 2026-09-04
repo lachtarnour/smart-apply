@@ -4,25 +4,22 @@ from __future__ import annotations
 
 from smartapply.config import get_settings
 from smartapply.database import session_scope
-from smartapply.database.models import JobStatus
-from smartapply.database.repository import list_pending_processing
+from smartapply.database.models import Job
 from smartapply.dedup import Deduplicator
 from smartapply.filtering import JobFilter
 from smartapply.llm import LLMProvider
-from smartapply.logging_setup import get_logger
 from smartapply.pipeline.process import (
     AnalysisMixin,
     DeduplicationMixin,
     LocalFilterMixin,
     RankingMixin,
     _is_anonymous_company,
+    _should_replace_job_company,
     _should_replace_job_location,
 )
 from smartapply.pipeline.reports import ProcessReport
 from smartapply.profile import Profile
 from smartapply.ranking import JobScorer
-
-logger = get_logger(__name__)
 
 
 class Processor(AnalysisMixin, LocalFilterMixin, RankingMixin, DeduplicationMixin):
@@ -43,6 +40,7 @@ class Processor(AnalysisMixin, LocalFilterMixin, RankingMixin, DeduplicationMixi
         self.scorer = scorer
         self.llm = llm
         self.settings = get_settings()
+
     def process_pending(
         self,
         top_k_analyze: int | None = None,
@@ -50,62 +48,38 @@ class Processor(AnalysisMixin, LocalFilterMixin, RankingMixin, DeduplicationMixi
         job_ids: list[int] | None = None,
         local_filter_override_ids: list[int] | None = None,
     ) -> ProcessReport:
-        """Drive the rest of the pipeline using per-phase timestamps.
-
-        Idempotent against partial runs: jobs that already passed an earlier
-        phase (``filtered_at`` set) skip that phase and continue. This is what
-        lets ``filter_pending`` and ``process_pending`` cooperate cleanly.
-        """
+        """Refresh the persistent Top selection, then analyze its pending offers."""
+        ranking = self.rank_pending(
+            top_k_ranked=top_k_analyze,
+            job_ids=job_ids,
+            local_filter_override_ids=local_filter_override_ids,
+        )
         with session_scope() as s:
-            active_jobs = list(list_pending_processing(s))
-            pending = list(active_jobs)
-            if job_ids is not None:
-                selected_ids = set(job_ids)
-                pending = [job for job in pending if job.id in selected_ids]
-            if not pending:
-                logger.info("No pending jobs to process.")
-                return ProcessReport(0, 0, 0, 0, 0)
-
-            override_ids = set(local_filter_override_ids or [])
-            duplicate_ids = self._mark_duplicates(s, active_jobs)
-            unique_jobs = [j for j in pending if j.id not in duplicate_ids]
-
-            to_filter = [j for j in unique_jobs if j.filtered_at is None]
-            already_kept = [j for j in unique_jobs if j.filtered_at is not None]
-            newly_kept = self._apply_local_filter(
-                s,
-                to_filter,
-                override_ids=override_ids,
+            shortlisted_jobs = list(
+                s.query(Job)
+                .filter(
+                    Job.id.in_(ranking.shortlisted_ids),
+                    Job.archived_at.is_(None),
+                )
+                .all()
             )
-            kept_jobs = already_kept + newly_kept
-
-            to_rank = [job for job in kept_jobs if job.ranked_at is None]
-            already_shortlisted = [
-                job
-                for job in kept_jobs
-                if job.ranked_at is not None and job.status == JobStatus.SHORTLISTED
-            ]
-            ranked = self.scorer.rank(to_rank)
-            shortlist_n = min(top_k_analyze or self.settings.top_k_ranked, len(ranked))
-            shortlisted_jobs = [
-                *already_shortlisted,
-                *self._persist_ranking(s, ranked, shortlist_n),
-            ]
 
         to_analyze = [j for j in shortlisted_jobs if j.analyzed_at is None]
-        analyzed = self._analyze_in_parallel(to_analyze)
+        analyzed, analysis_errors = self._analyze_in_parallel(to_analyze)
 
         return ProcessReport(
-            total=len(pending),
-            kept_after_filter=len(kept_jobs),
-            duplicates_removed=len(duplicate_ids),
+            total=ranking.total,
+            kept_after_filter=ranking.kept_after_filter,
+            duplicates_removed=ranking.duplicates_removed,
             top_ranked=len(shortlisted_jobs),
             analyzed=analyzed,
+            analysis_errors=analysis_errors,
         )
 
 
 __all__ = [
     "Processor",
     "_is_anonymous_company",
+    "_should_replace_job_company",
     "_should_replace_job_location",
 ]

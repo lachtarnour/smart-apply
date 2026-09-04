@@ -368,7 +368,9 @@ def _load_cache_from_disk(path: Path) -> _GeoCache | None:
     return _GeoCache(
         communes_by_name=communes,
         regions_by_name=regions,
-        fetched_at=payload.get("fetched_at") if isinstance(payload.get("fetched_at"), str) else None,
+        fetched_at=payload.get("fetched_at")
+        if isinstance(payload.get("fetched_at"), str)
+        else None,
         schema_version=_CACHE_SCHEMA_VERSION,
     )
 

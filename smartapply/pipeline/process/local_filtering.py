@@ -11,6 +11,7 @@ from smartapply.database.repository import (
     set_score,
     update_status,
 )
+from smartapply.filtering.types import FilterDisposition
 from smartapply.pipeline.process.audit import _rejection_audit_components
 from smartapply.pipeline.reports import LocalFilterReport
 
@@ -32,10 +33,16 @@ class LocalFilterMixin:
             reasons = list(res.reasons)
             force_keep = job.id in override_ids
             if force_keep and not res.kept:
-                reasons.append("Manual override: kept by user in Streamlit workflow")
-            components = {"reasons": reasons}
+                reasons.append("Manual override: kept by user")
+            components = {
+                "reasons": reasons,
+                "filter_disposition": (
+                    res.disposition.value if res.disposition is not None else "rejected"
+                ),
+            }
             if not (res.kept or force_keep):
                 components = _rejection_audit_components("local_filter", reasons)
+                components["filter_disposition"] = "rejected"
             set_score(
                 session,
                 job.id,
@@ -53,9 +60,9 @@ class LocalFilterMixin:
     def filter_pending(self, *, job_ids: list[int] | None = None) -> LocalFilterReport:
         """Apply only deterministic local gates, without ranking or LLM calls.
 
-        Used right after fetch in the Streamlit workflow: internships,
-        alternance, foreign locations and too-senior roles disappear before
-        the user spends attention or LLM budget. Kept jobs get ``filtered_at``
+        Used right after fetch in the workflow: internships, alternance and
+        too-senior roles disappear before the user spends attention or LLM
+        budget. The macOS search location remains authoritative. Kept jobs get ``filtered_at``
         set so a later ``process_pending`` correctly resumes from ranking
         instead of re-filtering or seeing nothing pending.
         """
@@ -74,21 +81,26 @@ class LocalFilterMixin:
             duplicate_ids = self._mark_duplicates(s, list(dedup_scope_by_id.values()))
             unique_jobs = [j for j in pending if j.id not in duplicate_ids]
             kept_ids: list[int] = []
+            uncertain_ids: list[int] = []
             pending_ids = {int(job.id) for job in pending}
             rejected_ids: list[int] = [
-                int(job_id)
-                for job_id in duplicate_ids
-                if int(job_id) in pending_ids
+                int(job_id) for job_id in duplicate_ids if int(job_id) in pending_ids
             ]
 
             for job in unique_jobs:
                 res = self.filter.evaluate(job)
-                components = {"reasons": res.reasons}
+                components = {
+                    "reasons": res.reasons,
+                    "filter_disposition": (
+                        res.disposition.value if res.disposition is not None else "rejected"
+                    ),
+                }
                 if not res.kept:
                     components = _rejection_audit_components(
                         "local_filter",
                         list(res.reasons),
                     )
+                    components["filter_disposition"] = "rejected"
                 set_score(
                     s,
                     job.id,
@@ -97,6 +109,8 @@ class LocalFilterMixin:
                 )
                 if res.kept:
                     kept_ids.append(job.id)
+                    if res.disposition is FilterDisposition.UNCERTAIN:
+                        uncertain_ids.append(job.id)
                     mark_filtered(s, job.id)
                 else:
                     rejected_ids.append(job.id)
@@ -109,5 +123,6 @@ class LocalFilterMixin:
                 duplicates_removed=len(duplicate_ids),
                 kept_ids=kept_ids,
                 rejected_ids=rejected_ids,
+                uncertain=len(uncertain_ids),
+                uncertain_ids=uncertain_ids,
             )
-

@@ -17,11 +17,12 @@ from smartapply.logging_setup import get_logger
 from smartapply.offers import ManualOfferInput, RawJob
 from smartapply.parsing import clean_description
 from smartapply.pipeline.ingest import (
-    QUERY_AGNOSTIC_SOURCES,
+    IngestCollection,
     IngestReport,
     _build_search_audit,
     _KnownJobIndex,
     _normalize_application_url,
+    build_source_query_plan,
     collect_round_robin,
     expand_query_for_source,
     split_or_query,
@@ -45,29 +46,43 @@ class Ingestor:
         stop_requested: Callable[[], bool] | None = None,
         **search_kwargs,
     ) -> IngestReport:
+        collection = self.collect_source(
+            source,
+            query,
+            location,
+            max_results=max_results,
+            split_or=split_or,
+            stop_requested=stop_requested,
+            **search_kwargs,
+        )
+        return self.persist_collection(collection)
+
+    def collect_source(
+        self,
+        source: str,
+        query: str,
+        location: str | None = None,
+        *,
+        max_results: int | None = 20,
+        split_or: bool = True,
+        stop_requested: Callable[[], bool] | None = None,
+        **search_kwargs,
+    ) -> IngestCollection:
+        """Collect one source without writing to the database."""
         scraper = get_scraper(source)
         if not scraper.is_available():
             raise RuntimeError(
                 f"Source {source!r} is not configured. "
                 "Check your .env (SERPAPI_API_KEY, FRANCETRAVAIL_* or APIFY_TOKEN)."
             )
-        source_key = source.lower()
-        should_split_query = split_or and source_key not in QUERY_AGNOSTIC_SOURCES
-        query_parts = split_or_query(query) if should_split_query else [query.strip()]
-        queries: list[str] = []
-        seen_queries: set[str] = set()
-        for part in query_parts:
-            for expanded_part in expand_query_for_source(source, part):
-                query_key = expanded_part.lower()
-                if query_key in seen_queries:
-                    continue
-                seen_queries.add(query_key)
-                queries.append(expanded_part)
+        query_plan = build_source_query_plan(source, query, split_or=split_or)
+        queries = list(query_plan.all_queries)
         logger.info(
-            "Ingesting from %s: q=%r split_queries=%r location=%r",
+            "Ingesting from %s: q=%r primary_queries=%d fallback_queries=%d location=%r",
             source,
             query,
-            queries,
+            len(query_plan.primary),
+            len(query_plan.fallbacks),
             location,
         )
         with session_scope() as s:
@@ -83,16 +98,35 @@ class Ingestor:
             known_external_ids=known_external_ids,
             known_index=known_index,
             stop_requested=stop_requested,
+            primary_query_count=len(query_plan.primary),
         )
-        search_audit = _build_search_audit(collect_result.raw_jobs)
-        return self._persist(
-            source,
-            collect_result.raw_jobs,
-            search_audit=search_audit,
-            collect_skipped_known=collect_result.skipped_known,
-            collect_skipped_existing=collect_result.skipped_existing,
+        source_warnings = [
+            str(warning)
+            for warning in (getattr(scraper, "last_warnings", None) or [])
+            if str(warning).strip()
+        ]
+        return IngestCollection(
+            source=source,
+            raw_jobs=collect_result.raw_jobs,
+            search_audit=_build_search_audit(collect_result.raw_jobs),
+            skipped_known_during_collect=collect_result.skipped_known,
+            skipped_existing_during_collect=collect_result.skipped_existing,
             hit_raw_seen_cap=collect_result.hit_raw_seen_cap,
             cancelled=collect_result.cancelled,
+            warnings=source_warnings,
+        )
+
+    def persist_collection(self, collection: IngestCollection) -> IngestReport:
+        """Persist one completed collection; callers may serialize this step."""
+        return self._persist(
+            collection.source,
+            collection.raw_jobs,
+            search_audit=collection.search_audit,
+            collect_skipped_known=collection.skipped_known_during_collect,
+            collect_skipped_existing=collection.skipped_existing_during_collect,
+            hit_raw_seen_cap=collection.hit_raw_seen_cap,
+            cancelled=collection.cancelled,
+            warnings=collection.warnings,
         )
 
     def from_url(self, url: str) -> IngestReport:
@@ -109,10 +143,6 @@ class Ingestor:
         company: str,
         location: str | None = None,
         application_url: str | None = None,
-        company_description: str | None = None,
-        company_url: str | None = None,
-        recruiter: str | None = None,
-        structured: bool = False,
     ) -> IngestReport:
         raw = ManualScraper().from_text(
             text,
@@ -120,10 +150,6 @@ class Ingestor:
             company=company,
             location=location,
             application_url=application_url,
-            company_description=company_description,
-            company_url=company_url,
-            recruiter=recruiter,
-            structured=structured,
         )
         return self._persist("manual", [raw])
 
@@ -137,6 +163,7 @@ class Ingestor:
         collect_skipped_existing: int = 0,
         hit_raw_seen_cap: bool = False,
         cancelled: bool = False,
+        warnings: list[str] | None = None,
     ) -> IngestReport:
         job_ids: list[int] = []
         inserted = 0
@@ -160,9 +187,7 @@ class Ingestor:
                 job = upsert_job(
                     s,
                     external_id=(
-                        existing.external_id
-                        if existing and source == "manual"
-                        else raw.external_id
+                        existing.external_id if existing and source == "manual" else raw.external_id
                     ),
                     title=raw.title,
                     company=raw.company,
@@ -183,6 +208,7 @@ class Ingestor:
                     # content again before regenerating documents.
                     job.archived_at = None
                     job.analyzed_at = None
+                    job.shortlisted_at = None
                     job.status = JobStatus.SCRAPED
                 if existing_status is None:
                     inserted += 1
@@ -208,6 +234,7 @@ class Ingestor:
             hit_raw_seen_cap=hit_raw_seen_cap,
             cancelled=cancelled,
             search_audit=search_audit or [],
+            warnings=warnings or [],
         )
 
 

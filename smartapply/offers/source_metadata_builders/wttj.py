@@ -27,20 +27,20 @@ def build_wttj_source_metadata(
         return ""
 
     enabled = fields or _wttj_metadata_fields_from_settings()
-    contact_lines = _wttj_contact_lines(source_data, enabled)
+    url_lines = _wttj_application_url_lines(source_data, enabled)
     fact_lines = _wttj_fact_lines(source_data, enabled)
-    if not contact_lines and not fact_lines:
+    if not url_lines and not fact_lines:
         return ""
 
     sections: list[str] = []
-    if contact_lines:
-        sections.append("CONTACT_AND_APPLICATION_METADATA:\n" + "\n".join(contact_lines))
+    if url_lines:
+        sections.append("APPLICATION_URL_METADATA:\n" + "\n".join(url_lines))
     if fact_lines:
         sections.append("STRUCTURED_JOB_FACTS:\n" + "\n".join(fact_lines))
     return "\n\n".join(sections)
 
 
-def _wttj_contact_lines(source_data: dict[str, Any], enabled: set[str]) -> list[str]:
+def _wttj_application_url_lines(source_data: dict[str, Any], enabled: set[str]) -> list[str]:
     lines = ["source: welcometothejungle"]
     detail_api = _dict(source_data.get("detail_api"))
     if "company_domain" in enabled:
@@ -104,7 +104,9 @@ def _wttj_fact_lines(source_data: dict[str, Any], enabled: set[str]) -> list[str
     if "offices" in enabled:
         _append_scalar(lines, "company_profile.offices", company_profile.get("offices"))
     if "company_stats" in enabled:
-        _append_scalar(lines, "company_profile.stats", _compact_mapping(company_profile.get("stats")))
+        _append_scalar(
+            lines, "company_profile.stats", _compact_mapping(company_profile.get("stats"))
+        )
     if "company_summary" in enabled:
         _append_scalar(lines, "company_summary", source_data.get("company_summary"))
     if "company_presentation" in enabled:
@@ -125,9 +127,7 @@ def _wttj_names(*values: Any) -> str:
 
 def _wttj_item_name(item: Any) -> str:
     if isinstance(item, dict):
-        return _wttj_localized_text(
-            item.get("name") or item.get("title") or item.get("label")
-        )
+        return _wttj_localized_text(item.get("name") or item.get("title") or item.get("label"))
     return _wttj_localized_text(item)
 
 
@@ -165,5 +165,3 @@ def _wttj_profession_summary(value: Any) -> str:
 def _wttj_metadata_fields_from_settings() -> set[str]:
     raw = get_settings().wttj_analyzer_metadata_fields
     return {field.strip() for field in raw.split(",") if field.strip()}
-
-

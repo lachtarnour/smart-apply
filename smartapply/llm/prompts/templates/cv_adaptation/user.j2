@@ -1,16 +1,5 @@
 Adapt this candidate's CV for the role below.
 
-=== JOB ===
-Title: {{ job_title }}
-Company: {{ job_company }}
-Role type (broad role-family signal; not a title to copy): {{ role_type }}
-Seniority: {{ seniority }}
-Domain (context signal; use in cv_title only if it sounds natural): {{ domain }}
-Main tasks (from offer; for summary, bullets and skills; do not compress into cv_title):
-{{ main_tasks_block }}
-Required skills (from offer; for selected_skills and source-grounded bullets; for professional_summary, use them to decide which supported domains, workflows and contributions to emphasize, not to build a keyword list; not for cv_title): {{ required_skills }}
-Keywords to interpret the role focus and surface in selected_skills and source-grounded bullets when supported. For professional_summary, use them to shape supported work emphasis; a named model family, method, project or implementation technology may appear only when integral to a specific source-grounded contribution; never optimize cv_title for keyword coverage: {{ keywords_to_surface }}
-
 === PROFILE (source of truth — do NOT invent) ===
 allowed_skills: {{ allowed_skills }}
 allowed_skills_by_category:
@@ -21,8 +10,6 @@ skill_profile_choices:
 {{ skill_profiles }}
 matching_keywords_for_profile_selection_not_display:
 {{ matching_keywords }}
-unsupported_offer_terms_not_to_claim:
-{{ unsupported_offer_terms }}
 candidate_title: {{ candidate_title }}
 summary_source: {{ summary_source }}
 
@@ -69,3 +56,16 @@ Skills output rule:
 - Use matching_keywords_for_profile_selection_not_display only for reasoning about the right skill profile/category; do not copy those keywords into selected_skills unless the exact term is also listed in allowed_skills_by_category.
 - Treat unsupported_offer_terms_not_to_claim as a no-claim list. Do not put those terms in cv_title, professional_summary, selected_skills or rewritten bullets as candidate capabilities.
 - Do not cap selected_skills by number, but do not pad the section. Every displayed skill must add value for this specific application.
+
+=== JOB ===
+Title: {{ job_title }}
+Company: {{ job_company }}
+Role type (broad role-family signal; not a title to copy): {{ role_type }}
+Seniority: {{ seniority }}
+Domain (context signal; use in cv_title only if it sounds natural): {{ domain }}
+Main tasks (from offer; for summary, bullets and skills; do not compress into cv_title):
+{{ main_tasks_block }}
+Required skills (from offer; for selected_skills and source-grounded bullets; for professional_summary, use them to decide which supported domains, workflows and contributions to emphasize, not to build a keyword list; not for cv_title): {{ required_skills }}
+Keywords to interpret the role focus and surface in selected_skills and source-grounded bullets when supported. For professional_summary, use them to shape supported work emphasis; a named model family, method, project or implementation technology may appear only when integral to a specific source-grounded contribution; never optimize cv_title for keyword coverage: {{ keywords_to_surface }}
+unsupported_offer_terms_not_to_claim:
+{{ unsupported_offer_terms }}

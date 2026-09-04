@@ -1,23 +1,23 @@
-.PHONY: help install install-all venv test test-fast lint format clean run-app run-cli init-db sample-pipeline
+.PHONY: help install install-desktop venv test test-fast lint format clean run-desktop build-macos run-cli init-db
 
 PY ?= /opt/homebrew/bin/python3.11
 VENV = .venv
 BIN = $(VENV)/bin
 
 help:
-	@echo "CandiPilot — commandes disponibles"
+	@echo "Élan — commandes disponibles"
 	@echo ""
 	@echo "  make venv             Cree un venv local"
-	@echo "  make install          Installe le coeur (sans UI/PDF/Gmail)"
-	@echo "  make install-all      Installe tout (UI + PDF + Gmail + dev)"
+	@echo "  make install          Installe le coeur et les outils de développement"
+	@echo "  make install-desktop  Installe l'application macOS et les outils de build"
 	@echo "  make init-db          Initialise la base SQLite"
 	@echo "  make test             Lance les tests"
 	@echo "  make test-fast        Tests rapides (skip integration)"
 	@echo "  make lint             Verifie le code"
 	@echo "  make format           Formate le code"
-	@echo "  make run-app          Lance le dashboard Streamlit"
-	@echo "  make run-cli          Lance la CLI (candipilot --help)"
-	@echo "  make sample-pipeline  Lance un pipeline complet sur les samples"
+	@echo "  make run-desktop      Lance l'application macOS en développement"
+	@echo "  make build-macos      Construit dist/Elan.app"
+	@echo "  make run-cli          Lance la CLI de maintenance (elan --help)"
 	@echo "  make clean            Supprime caches et builds"
 
 venv:
@@ -27,11 +27,11 @@ venv:
 install: venv
 	$(BIN)/pip install -e ".[dev]"
 
-install-all: venv
-	$(BIN)/pip install -e ".[ui,pdf,gmail,dev]"
+install-desktop: venv
+	$(BIN)/pip install -e ".[desktop,pdf,dev]"
 
 init-db:
-	$(BIN)/candipilot init-db
+	$(BIN)/elan init-db
 
 test:
 	$(BIN)/pytest
@@ -46,14 +46,14 @@ format:
 	$(BIN)/ruff format smartapply tests
 	$(BIN)/ruff check --fix smartapply tests
 
-run-app:
-	$(BIN)/streamlit run smartapply/app/main.py
+run-desktop:
+	$(BIN)/elan-desktop
+
+build-macos:
+	$(BIN)/python -m smartapply.desktop.build_macos
 
 run-cli:
-	$(BIN)/candipilot --help
-
-sample-pipeline:
-	$(BIN)/candipilot pipeline --source samples
+	$(BIN)/elan --help
 
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} +

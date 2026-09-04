@@ -1,10 +1,9 @@
-"""Command-line interface for CandiPilot."""
+"""Developer command-line interface for Élan."""
 
 from __future__ import annotations
 
 import json
 import sys
-from dataclasses import asdict
 from pathlib import Path
 
 import click
@@ -21,19 +20,13 @@ from smartapply.database.repository import (
 from smartapply.jobsearch import (
     APPLICATION_STATUSES,
     STATUS_LABELS,
-    AutopilotRunner,
     next_action_for,
 )
 from smartapply.logging_setup import setup_logging
 from smartapply.scrapers import SERPAPI_DATE_POSTED_OPTIONS
 
 DATE_POSTED_CHOICE = click.Choice(list(SERPAPI_DATE_POSTED_OPTIONS))
-SCRAPER_SOURCE_CHOICE = click.Choice(
-    ["serpapi", "francetravail", "linkedin", "welcometothejungle"]
-)
-AUTOPILOT_SOURCE_CHOICE = click.Choice(
-    ["serpapi", "francetravail", "linkedin", "welcometothejungle", "manual"]
-)
+SCRAPER_SOURCE_CHOICE = click.Choice(["serpapi", "francetravail", "linkedin", "welcometothejungle"])
 
 
 def _optional_int(value: str | None) -> int | None:
@@ -53,7 +46,7 @@ def _optional_int(value: str | None) -> int | None:
 
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})
 def cli() -> None:
-    """CandiPilot - pipeline d'optimisation de candidatures."""
+    """Élan — outils de développement et de maintenance."""
     setup_logging()
 
 
@@ -148,49 +141,27 @@ def process_command(top_k: int | None) -> None:
 
 @cli.command("apply")
 @click.option("--job-id", type=int, required=True)
-@click.option("--gmail-draft", is_flag=True)
-@click.option("--contact-email", default=None, help="Manual recruiter/contact email.")
-@click.option("--contact-form-url", default=None, help="Manual ATS/form URL if known.")
+@click.option("--form-url", default=None, help="Application form URL if known.")
 def apply_command(
     job_id: int,
-    gmail_draft: bool,
-    contact_email: str | None,
-    contact_form_url: str | None,
+    form_url: str | None,
 ) -> None:
-    """Generate CV + letter + sending email for a single analyzed job."""
+    """Generate the CV and motivation letter for one analyzed job."""
     from smartapply.pipeline import Pipeline
 
     report = Pipeline().apply_to(
         job_id,
-        contact_email=contact_email,
-        contact_form_url=contact_form_url,
-        create_gmail_draft=gmail_draft,
+        form_url=form_url,
     )
     click.echo(json.dumps(report.__dict__, indent=2, default=str))
 
 
-@cli.command("gmail-check")
-def gmail_check_command() -> None:
-    """Check local Gmail OAuth setup without creating a draft."""
-    from smartapply.email_agent import check_gmail_setup
-
-    status = check_gmail_setup()
-    click.echo(json.dumps(asdict(status), indent=2, default=str))
-    if not status.ready_for_auth:
-        raise click.ClickException(
-            "Gmail is not ready yet. Install the gmail extras and configure "
-            "GMAIL_CREDENTIALS_PATH."
-        )
-
-
 @cli.command("pipeline")
-@click.option("--source", "sources", multiple=True, required=True,
-              type=SCRAPER_SOURCE_CHOICE)
+@click.option("--source", "sources", multiple=True, required=True, type=SCRAPER_SOURCE_CHOICE)
 @click.option("--query", "-q", required=True)
 @click.option("--location", "-l", default=None)
 @click.option("--max-per-source", callback=lambda _, __, value: _optional_int(value), default="20")
 @click.option("--top-apply", type=int, default=5)
-@click.option("--gmail-draft", is_flag=True)
 @click.option("--date-posted", type=DATE_POSTED_CHOICE, default=None)
 @click.option("--serpapi-hl", default=None, help="Google Jobs language(s), e.g. en, fr or en,fr.")
 def pipeline_command(
@@ -199,7 +170,6 @@ def pipeline_command(
     location: str | None,
     max_per_source: int | None,
     top_apply: int,
-    gmail_draft: bool,
     date_posted: str | None,
     serpapi_hl: str | None,
 ) -> None:
@@ -218,60 +188,10 @@ def pipeline_command(
         sources=source_tuples,
         max_per_source=max_per_source,
         top_k_apply=top_apply,
-        create_gmail_drafts=gmail_draft,
         date_posted=date_posted,
         serpapi_hl=serpapi_hl,
     )
     click.echo(json.dumps(report, indent=2, default=str))
-
-
-@cli.command("autopilot")
-@click.option(
-    "--query",
-    "-q",
-    default="Data Scientist OR Machine Learning Engineer OR IA Engineer",
-    show_default=True,
-)
-@click.option("--location", "-l", default=None)
-@click.option(
-    "--source",
-    "sources",
-    multiple=True,
-    type=AUTOPILOT_SOURCE_CHOICE,
-    default=("serpapi", "francetravail", "linkedin", "welcometothejungle", "manual"),
-    show_default=True,
-)
-@click.option("--max-per-source", type=int, default=None)
-@click.option("--target-drafts", type=int, default=None)
-@click.option("--gmail-draft", is_flag=True)
-@click.option("--no-quality-gate", is_flag=True)
-@click.option("--date-posted", type=DATE_POSTED_CHOICE, default=None)
-@click.option("--serpapi-hl", default=None, help="Google Jobs language(s), e.g. en, fr or en,fr.")
-def autopilot_command(
-    query: str,
-    location: str | None,
-    sources: tuple[str, ...],
-    max_per_source: int | None,
-    target_drafts: int | None,
-    gmail_draft: bool,
-    no_quality_gate: bool,
-    date_posted: str | None,
-    serpapi_hl: str | None,
-) -> None:
-    """Run the autonomous daily application drafting loop."""
-    _init_db()
-    report = AutopilotRunner().run(
-        query=query,
-        location=location,
-        sources=list(sources),
-        max_per_source=max_per_source,
-        target_drafts=target_drafts,
-        create_gmail_drafts=gmail_draft,
-        require_quality_gate=not no_quality_gate,
-        date_posted=date_posted,
-        serpapi_hl=serpapi_hl,
-    )
-    click.echo(json.dumps(report.to_dict(), indent=2, default=str))
 
 
 @cli.command("list-jobs")
@@ -304,28 +224,15 @@ def list_applications_command() -> None:
                 "id": a.id,
                 "job_id": a.job_id,
                 "status": a.status,
-                "strategy": a.application_strategy,
                 "form_url": a.form_submission_url,
-                "email_sent_at": a.email_sent_at,
                 "form_submitted_at": a.form_submitted_at,
-                "next_action": next_action_for(
-                    a.status,
-                    a.updated_at,
-                    has_contact=a.contact is not None,
-                    has_gmail_draft=bool(a.gmail_draft_id),
-                ),
+                "next_action": next_action_for(a.status, a.updated_at),
                 "cv_docx": a.cv_docx_path,
                 "cv_pdf": a.cv_pdf_path,
                 "motivation_letter_pdf": next(
-                    (
-                        doc.path
-                        for doc in a.documents
-                        if doc.doc_type == "motivation_letter_pdf"
-                    ),
+                    (doc.path for doc in a.documents if doc.doc_type == "motivation_letter_pdf"),
                     None,
                 ),
-                "eml": a.eml_path,
-                "subject": a.email_subject,
                 "notes": a.notes,
             }
             for a in apps
@@ -343,11 +250,6 @@ def list_applications_command() -> None:
 )
 @click.option("--notes", default=None, help="Notes de suivi ou prochaine action.")
 @click.option(
-    "--email-sent",
-    is_flag=True,
-    help="Marque l'email comme envoye (timestamp + auto-promotion vers sent).",
-)
-@click.option(
     "--form-submitted",
     is_flag=True,
     help="Marque le formulaire ATS comme soumis (timestamp + auto-promotion).",
@@ -356,21 +258,17 @@ def update_application_command(
     application_id: int,
     status: str | None,
     notes: str | None,
-    email_sent: bool,
     form_submitted: bool,
 ) -> None:
-    """Update application follow-up status, notes, and sent/submitted flags."""
-    if status is None and notes is None and not email_sent and not form_submitted:
-        raise click.UsageError(
-            "Provide --status, --notes, --email-sent and/or --form-submitted."
-        )
+    """Update application follow-up status, notes, and submission state."""
+    if status is None and notes is None and not form_submitted:
+        raise click.UsageError("Provide --status, --notes and/or --form-submitted.")
     with session_scope() as s:
         app = update_application_tracking(
             s,
             application_id,
             status=status,
             notes=notes,
-            email_sent=email_sent,
             form_submitted=form_submitted,
         )
         row = {
@@ -378,15 +276,8 @@ def update_application_command(
             "job_id": app.job_id,
             "status": app.status,
             "status_label": STATUS_LABELS.get(app.status, app.status),
-            "application_strategy": app.application_strategy,
-            "email_sent_at": app.email_sent_at,
             "form_submitted_at": app.form_submitted_at,
-            "next_action": next_action_for(
-                app.status,
-                app.updated_at,
-                has_contact=app.contact is not None,
-                has_gmail_draft=bool(app.gmail_draft_id),
-            ),
+            "next_action": next_action_for(app.status, app.updated_at),
             "notes": app.notes,
         }
     click.echo(json.dumps(row, indent=2, default=str))

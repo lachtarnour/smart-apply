@@ -30,7 +30,5 @@ def available_scrapers() -> list[str]:
 def get_scraper(name: str) -> Scraper:
     """Return a fresh scraper instance for the given source name."""
     if name not in _BUILDERS:
-        raise KeyError(
-            f"Unknown scraper {name!r}. Available: {', '.join(available_scrapers())}"
-        )
+        raise KeyError(f"Unknown scraper {name!r}. Available: {', '.join(available_scrapers())}")
     return _BUILDERS[name]()

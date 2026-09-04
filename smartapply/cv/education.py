@@ -47,20 +47,20 @@ def english_institution_name(name: str) -> str:
 
     match = _UNIVERSITY_DES_RE.match(text)
     if match:
-        return f"University of the {text[match.end():].strip()}"
+        return f"University of the {text[match.end() :].strip()}"
 
     match = _UNIVERSITY_OF_RE.match(text)
     if match:
-        return f"University of {text[match.end():].strip()}"
+        return f"University of {text[match.end() :].strip()}"
 
     match = _UNIVERSITY_PREFIX_RE.match(text)
     if match:
-        rest = text[match.end():].strip()
+        rest = text[match.end() :].strip()
         return f"{rest} University" if rest else "University"
 
     match = _UNIVERSITY_SUFFIX_RE.search(text)
     if match:
-        return f"{text[:match.start()].rstrip()} University"
+        return f"{text[: match.start()].rstrip()} University"
 
     return text
 
