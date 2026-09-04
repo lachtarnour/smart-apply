@@ -181,7 +181,9 @@ class CvDocxRenderer:
         _add_bottom_border(p, self.style.primary_color_hex)
         body()
 
-    def _two_col_row(self, doc: DocxDocument, left: str, right_writer: Callable[[object], None]) -> None:
+    def _two_col_row(
+        self, doc: DocxDocument, left: str, right_writer: Callable[[object], None]
+    ) -> None:
         table = doc.add_table(rows=1, cols=2)
         _remove_table_borders(table)
         table.autofit = False
@@ -345,11 +347,7 @@ class CvDocxRenderer:
             adapted.cv_title,
             adapted.professional_summary,
             " ".join(adapted.selected_project_ids),
-            " ".join(
-                bullet.text
-                for exp in adapted.selected_experiences
-                for bullet in exp.bullets
-            ),
+            " ".join(bullet.text for exp in adapted.selected_experiences for bullet in exp.bullets),
         ]
         return infer_skill_profile_id(self.profile, " ".join(context_bits))
 

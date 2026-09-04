@@ -2,22 +2,12 @@
 
 from __future__ import annotations
 
+from smartapply.filtering.rules import CANDIDATE_SENIORITY_CONTEXT
 from smartapply.llm.prompts.loader import load_prompt, render_prompt
 from smartapply.offers import AnalyzerInput
 from smartapply.profile import Profile
 
 SYSTEM = load_prompt("job_analysis/system_long.j2")
-
-
-def system_for_variant(variant: str | None) -> str:
-    """Return the production job-analysis system prompt for a named variant."""
-    normalized = (variant or "long").strip().lower()
-    if normalized != "long":
-        raise ValueError(
-            f"Unsupported job analysis prompt variant: {variant!r}. "
-            "Set PROMPT=long."
-        )
-    return SYSTEM
 
 
 def build_user_prompt(
@@ -35,8 +25,8 @@ def build_user_prompt(
         f"Summary: {profile.identity.summary}\n"
         f"Skills: {', '.join(sorted(profile.skills.allowed_skills))}\n"
         f"Target roles: {', '.join(profile.preferences.target_roles)}\n"
-        f"Seniority: {profile.preferences.seniority or 'unspecified'}\n"
-        f"Preferred locations: {', '.join(profile.preferences.preferred_locations)}\n"
+        f"Seniority: {CANDIDATE_SENIORITY_CONTEXT}\n"
+        f"Preferred locations: {job_location or 'unspecified'}\n"
     )
     source_metadata_block = _source_metadata_block(source_metadata)
     return render_prompt(

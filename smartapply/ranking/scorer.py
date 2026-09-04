@@ -24,7 +24,6 @@ from smartapply.ranking.embeddings import (
     cosine_similarity,
     get_embeddings_provider,
 )
-from smartapply.utils.location import is_foreign_location
 
 WEIGHTS = {
     "semantic": 0.30,
@@ -34,16 +33,11 @@ WEIGHTS = {
     # lead postings must be pushed down hard, even when other signals look
     # good (ESN job ads often look attractive on paper).
     "seniority": 0.25,
-    # Location matters far less than it used to. Anything in France is fine;
-    # only foreign offers get penalised.
+    # Search location is chosen per run in the macOS app. Ranking must remain
+    # neutral instead of re-applying the profile's old France/Paris defaults.
     "location": 0.05,
     "domain": 0.05,
 }
-
-
-# Foreign-location detection lives in ``smartapply.utils.location`` so the
-# filter (which hard-rejects them) and this scorer (defense-in-depth soft
-# penalty) share the same source of truth.
 
 
 @dataclass
@@ -110,11 +104,7 @@ def build_job_text(job: ScorableJob) -> str:
 
 
 def _analytics_without_python(title: str, description: str) -> bool:
-    analytics_title = (
-        "data analyst" in title
-        or "analytics" in title
-        or " bi" in f" {title}"
-    )
+    analytics_title = "data analyst" in title or "analytics" in title or " bi" in f" {title}"
     excludes_python = (
         "pas de developpement python" in description
         or "pas de python" in description
@@ -135,9 +125,7 @@ class JobScorer:
         self.profile = profile
         self.embeddings = embeddings or get_embeddings_provider()
         self._profile_vector: list[float] | None = None
-        self._allowed_skills_lower: set[str] = {
-            s.lower() for s in profile.skills.allowed_skills
-        }
+        self._allowed_skills_lower: set[str] = {s.lower() for s in profile.skills.allowed_skills}
 
     # -------------------- score components --------------------
 
@@ -183,9 +171,9 @@ class JobScorer:
             (r"\bchef de projet|tech lead|team lead\b", text, 0.10),
             # ---- Years-of-experience floors that are above target ----
             (r"\b(1[0-9]|[2-9][0-9])\+? ?(years|ans|an)\b", text, 0.10),  # 10+ ans
-            (r"\b[6-9]\+? ?(years|ans|an)\b", text, 0.20),                 # 6-9 ans
-            (r"\b5\+? ?(years|ans|an)\b", text, 0.25),                     # 5+ ans
-            (r"\b4\+? ?(years|ans|an)\b", text, 0.40),                     # 4+ ans
+            (r"\b[6-9]\+? ?(years|ans|an)\b", text, 0.20),  # 6-9 ans
+            (r"\b5\+? ?(years|ans|an)\b", text, 0.25),  # 5+ ans
+            (r"\b4\+? ?(years|ans|an)\b", text, 0.40),  # 4+ ans
             # ---- Internships and apprenticeships: out of scope here ----
             (r"\b(stage|stagiaire|intern(ship)?|alternance|apprenti)\b", text, 0.10),
             # ---- Positive matches for the candidate's target band ----
@@ -199,32 +187,8 @@ class JobScorer:
         return 0.7
 
     def _location_score(self, job: ScorableJob) -> float:
-        """Score the job location for this candidate.
-
-        Tiers:
-        - 1.00 : matches a ``preferred_location`` exactly (Paris, IDF, ...).
-        - 0.85 : France-friendly (no foreign marker detected). The candidate
-                 said anywhere in France is fine, so we don't differentiate
-                 between Paris and Châteaufort here.
-        - 0.80 : explicitly remote AND remote is accepted by the candidate.
-        - 0.20 : a foreign-country marker is present in the location string.
-        - 0.50 : empty / unknown location — stay neutral.
-        """
-        prefs = self.profile.preferences
-        loc = _norm(job.location)
-        if not loc:
-            return 0.5
-        for preferred in prefs.preferred_locations:
-            if _norm(preferred) in loc:
-                return 1.0
-        if "remote" in loc and "remote" in [p.lower() for p in prefs.accepted_remote_policies]:
-            return 0.8
-        if is_foreign_location(job.location):
-            return 0.2
-        # No preferred location matched, no remote, no foreign marker.
-        # France-anywhere case: SerpApi/France Travail FR results that happen
-        # to be outside IDF (Châteaufort, Saint-Herblain, Toulouse, ...).
-        return 0.85
+        """Stay neutral: the selected search location is authoritative."""
+        return 0.5
 
     def _domain_score(self, job: ScorableJob) -> float:
         domains = [_norm(d) for d in self.profile.preferences.domains_of_interest]
@@ -236,9 +200,10 @@ class JobScorer:
 
     # -------------------- public API --------------------
 
-    def score(self, job: ScorableJob, vec_cache: dict[int, list[float]] | None = None) -> ScoreComponents:
+    def score(
+        self, job: ScorableJob, vec_cache: dict[int, list[float]] | None = None
+    ) -> ScoreComponents:
         cache = vec_cache if vec_cache is not None else {}
-        foreign_cap = 0.35 if is_foreign_location(job.location) else None
         return ScoreComponents(
             semantic=self._semantic_score(job, cache),
             skills=self._skills_score(job),
@@ -246,7 +211,7 @@ class JobScorer:
             seniority=self._seniority_score(job),
             location=self._location_score(job),
             domain=self._domain_score(job),
-            cap=foreign_cap,
+            cap=None,
         )
 
     def rank(
@@ -257,10 +222,13 @@ class JobScorer:
         cache: dict[int, list[float]] = {}
         if jobs:
             if self._profile_vector is None:
-                self._profile_vector = self.embeddings.embed_one(
-                    build_profile_text(self.profile)
+                vectors = self.embeddings.embed(
+                    [build_profile_text(self.profile)] + [build_job_text(job) for job in jobs]
                 )
-            job_vectors = self.embeddings.embed([build_job_text(job) for job in jobs])
+                self._profile_vector = vectors[0]
+                job_vectors = vectors[1:]
+            else:
+                job_vectors = self.embeddings.embed([build_job_text(job) for job in jobs])
             cache.update({id(job): vector for job, vector in zip(jobs, job_vectors, strict=True)})
         results = [(j, self.score(j, cache)) for j in jobs]
         results.sort(key=lambda r: r[1].final, reverse=True)

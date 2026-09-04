@@ -8,7 +8,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from smartapply.database.models import Job, JobScore
+from smartapply.database.models import Application, Job, JobScore
 
 
 def set_score(session: Session, job_id: int, **components: Any) -> JobScore:
@@ -22,12 +22,14 @@ def set_score(session: Session, job_id: int, **components: Any) -> JobScore:
     return score
 
 
-def top_jobs_by_score(session: Session, k: int) -> Sequence[Job]:
-    stmt = (
-        select(Job)
-        .join(JobScore)
-        .where(JobScore.final_score.is_not(None))
-        .order_by(JobScore.final_score.desc())
-        .limit(k)
-    )
+def top_jobs_by_score(
+    session: Session,
+    k: int,
+    *,
+    unapplied_only: bool = False,
+) -> Sequence[Job]:
+    stmt = select(Job).join(JobScore).where(JobScore.final_score.is_not(None))
+    if unapplied_only:
+        stmt = stmt.outerjoin(Application).where(Application.id.is_(None))
+    stmt = stmt.order_by(JobScore.final_score.desc()).limit(k)
     return session.execute(stmt).scalars().all()

@@ -23,13 +23,10 @@ SERPAPI_DATE_POSTED_LABELS = {
 }
 LOW_RESULT_FALLBACK_TARGET = 10
 
+
 def split_localization_values(value: str | None, *, fallback: str) -> list[str]:
     raw = value if value is not None else fallback
-    parts = [
-        part.strip()
-        for chunk in (raw or fallback).split("|")
-        for part in chunk.split(",")
-    ]
+    parts = [part.strip() for chunk in (raw or fallback).split("|") for part in chunk.split(",")]
     return [part for part in parts if part] or [fallback]
 
 
@@ -37,8 +34,7 @@ def _is_france_market(country: str | None, location: str | None) -> bool:
     country_norm = (country or "").strip().lower()
     location_norm = (location or "").strip().lower()
     return country_norm == "fr" or any(
-        marker in location_norm
-        for marker in ("france", "paris", "ile-de-france", "île-de-france")
+        marker in location_norm for marker in ("france", "paris", "ile-de-france", "île-de-france")
     )
 
 
@@ -65,7 +61,13 @@ def market_languages(
             continue
         deduped.append(language)
         seen.add(key)
-    return deduped or ["en"]
+    # ``hl`` changes Google's interface language, not the offer language. A
+    # second hl value therefore spends another SerpAPI request without being
+    # a reliable French/English content filter. Prefer one market-appropriate
+    # UI locale and let the local language gate inspect the actual offer.
+    if "en" in {language.lower() for language in deduped}:
+        return ["en"]
+    return deduped[:1] or ["en"]
 
 
 def normalize_date_posted(value: str | None) -> str:
@@ -123,11 +125,7 @@ def _chip_parts(value: str | None) -> list[str]:
 
 
 def _replace_date_chip(chips: str | None, replacement: str | None) -> str:
-    parts = [
-        part
-        for part in _chip_parts(chips)
-        if not part.lower().startswith("date_posted:")
-    ]
+    parts = [part for part in _chip_parts(chips) if not part.lower().startswith("date_posted:")]
     if replacement:
         parts.append(replacement)
     return ",".join(parts)
@@ -135,9 +133,7 @@ def _replace_date_chip(chips: str | None, replacement: str | None) -> str:
 
 def _remove_chip_prefix(chips: str | None, prefix: str) -> str:
     prefix = prefix.lower()
-    return ",".join(
-        part for part in _chip_parts(chips) if not part.lower().startswith(prefix)
-    )
+    return ",".join(part for part in _chip_parts(chips) if not part.lower().startswith(prefix))
 
 
 def zero_result_fallback_params(params: dict[str, Any]) -> list[dict[str, Any]]:
@@ -148,9 +144,7 @@ def zero_result_fallback_params(params: dict[str, Any]) -> list[dict[str, Any]]:
     the default search precise while avoiding false negatives at ingestion time.
     """
     attempts: list[dict[str, Any]] = []
-    seen: set[tuple[str, str | None]] = {
-        (params.get("q", ""), params.get("chips") or "")
-    }
+    seen: set[tuple[str, str | None]] = {(params.get("q", ""), params.get("chips") or "")}
 
     def add(candidate: dict[str, Any]) -> None:
         chips = candidate.get("chips") or ""
@@ -166,9 +160,7 @@ def zero_result_fallback_params(params: dict[str, Any]) -> list[dict[str, Any]]:
 
     chips = params.get("chips") or ""
     has_date = any(part.lower().startswith("date_posted:") for part in _chip_parts(chips))
-    has_employment = any(
-        part.lower().startswith("employment_type:") for part in _chip_parts(chips)
-    )
+    has_employment = any(part.lower().startswith("employment_type:") for part in _chip_parts(chips))
     if has_date:
         add({**params, "chips": _replace_date_chip(chips, "date_posted:month")})
         add({**params, "chips": _replace_date_chip(chips, None)})
@@ -210,8 +202,7 @@ def _should_widen_low_result(
         return False
     chips = params.get("chips") or ""
     return any(
-        part.lower().startswith(("date_posted:", "employment_type:"))
-        for part in _chip_parts(chips)
+        part.lower().startswith(("date_posted:", "employment_type:")) for part in _chip_parts(chips)
     )
 
 
@@ -237,5 +228,3 @@ def _with_search_audit(
         "fallback_query": fallback_params.get("q") if fallback_params else None,
     }
     return job.model_copy(update={"source_data": source_data})
-
-

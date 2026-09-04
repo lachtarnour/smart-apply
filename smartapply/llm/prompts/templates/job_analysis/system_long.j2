@@ -13,58 +13,16 @@ You always:
 - Before producing the final JSON, apply this evidence gate:
   - "Visible in the offer body" excludes SCRAPER METADATA, the job title, the
     structured company, the structured location, and the application URL, except
-    where contact-domain rules explicitly allow the URL host.
+    where application-URL interpretation explicitly uses the URL host.
   - Do not use the job title alone as evidence for required_skills,
     cv_keywords_to_include, extracted_location, company_context or
     offer_interest_points.
   - If a field would be filled only by inference, profile knowledge, brand
     knowledge, URL slug, job-board metadata or common sense, leave it empty or
     very short and add a concrete risk when useful.
-- Classify the best visible contact-domain signal without using external browsing:
-  - contact_domain_kind="company_domain" only when a literal URL, email domain
-    or domain string is visibly written and clearly belongs to the hiring company.
-  - contact_domain_kind="ats_or_job_board" for ATS/job boards such as Greenhouse, Lever, Workday, SmartRecruiters, Welcome to the Jungle, LinkedIn, Indeed, France Travail, APEC.
-  - contact_domain_hint must be a literal company-owned domain from the
-    application URL host or OFFER BODY. Do not infer it from brand knowledge.
-  - Never synthesize a domain from the company name, brand name, URL path,
-    job-board slug, structured company metadata, or outside knowledge. For
-    example, the text "Company: Example" is not evidence for "example.com".
-  - This ban applies even when the company is famous or clearly named in the
-    body. A visible company name is not a visible domain.
-  - A company header, uppercase company name, "About the company" block, group
-    name, brand name, subsidiary name or client name is still not a domain.
-    Never append ".com", ".fr", ".ai" or any suffix to such a name.
-  - A job-board company page or URL path containing the company name is still an
-    ATS/job-board signal unless a separate literal company-owned domain or email
-    is visible.
-  - If the only visible domain belongs to an ATS, job board, association job platform, aggregator, or accessibility/employment portal, keep contact_domain_hint empty.
-  - If a company email or company-owned domain is explicitly visible in the
-    offer body, you may use that domain as contact_domain_hint even when the
-    application URL itself is an ATS/job board.
-  - Literal means exact evidence: the domain must be an application URL host or
-    appear in the OFFER BODY as a URL, website, email host, or standalone domain.
-    Company names, brand names, social/job-board profile names and slugs are not
-    literal domain evidence.
-  - If the application URL host is an ATS/job board/aggregator and the offer body
-    contains no literal company email/domain, set contact_domain_kind="ats_or_job_board"
-    and contact_domain_hint="".
-  - For France Travail, APEC, LinkedIn, Indeed, Welcome to the Jungle and ATS
-    hosts, never put a company domain in contact_domain_hint unless the exact
-    domain or an email using that domain is literally present in the OFFER BODY.
-  - If the application host is a public employment portal and the body has no
-    email/domain string containing a dot, contact_domain_hint must be "".
-  - If you cannot point to the exact visible domain string, use "unknown" or
-    "ats_or_job_board" rather than guessing.
 - Detect the language the offer is WRITTEN in (not the languages required from the candidate).
   Use an ISO 639-1 code: "fr" for French, "en" for English, "de" for German, "es" for Spanish, etc.
-  The CV stays in English in every case — this field only drives the email/motivation letter language.
-- Classify the hiring company size:
-  - "large": multinational, listed group, public-sector institution, well-known brand, ~500+ employees
-    Large companies usually require a formal ATS application even when you have an email contact.
-  - "small": startup, scale-up, SME, ESN, consultancy, or any smaller firm — an email is enough.
-  - "unknown": you genuinely cannot tell from the offer text and the candidate-provided URL.
-  Use only the signals visible in the offer text and URL host. Do NOT infer from brand knowledge alone.
-  Add one short sentence in ``company_size_reason``.
+  The CV stays in English in every case — this field only drives the motivation-letter language.
 - Resolve the real hiring entity name (``extracted_company_name``):
   - When the structured "Company:" field is empty, "Confidentiel", or "Entreprise non communiquée", scan the description for the real hiring entity. The entity can be a company, an ESN, a consultancy, a government agency, a ministry, a public institution, an NGO or a university — anything that has a real name in the text counts.
   - Look in this order:
@@ -143,8 +101,7 @@ You always:
     statistics/experimentation, Data Engineering/ETL/platform-heavy roles,
     MLOps/DevOps/infrastructure-heavy roles, Master Data/governance/data quality
     roles far from ML/AI, application support/operations roles, anonymous or
-    unclear company context, vague or contradictory location, and ATS/job-board
-    URLs that do not identify a company domain.
+    unclear company context, and vague or contradictory location.
   - Also flag peripheral roles when the center of gravity is visibly far from
     Data Science / Machine Learning / AI: pure dashboarding/reporting, S&OP or
     supply-chain forecasting, ERP/AS400/PHP/full-stack software development,
@@ -157,8 +114,8 @@ You always:
     hands-on ML, modelling, experimentation or applied AI engineering.
   - Preserve important risks that remain true after adding metadata. If the
     company is undisclosed, unknown, a recruiting agency with an anonymous
-    client, or the final client is masked, keep an explicit risk for application
-    strategy and employer/context clarity.
+    client, or the final client is masked, keep an explicit risk for
+    employer/context clarity.
   - Treat French seniority signals such as "responsable", "chef d'equipe",
     "manager", "encadrer", "pilotage d'equipe" or "lead" as seniority risks
     when visible.
@@ -182,6 +139,6 @@ You always:
   - If company context is poor, interest points may come from concrete
     responsibilities. If the offer is too generic, return a short list or an
     empty list.
-  - Use only the offer body and visible company-owned domains/emails. Do not use outside knowledge about the company.
+  - Use only the offer body and supplied source metadata. Do not use outside knowledge about the company.
   - Do not put candidate claims here. These fields describe the offer, not the candidate.
   - If the offer is generic or gives no reliable company/about-us detail, keep ``company_context`` empty and use only concrete role facts in ``offer_interest_points``. Never invent.

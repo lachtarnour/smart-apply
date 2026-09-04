@@ -33,6 +33,23 @@ class IngestReport:
     # requested a cooperative stop.
     cancelled: bool = False
     search_audit: list[dict[str, Any]] = field(default_factory=list)
+    # Recoverable source failures (for example one unreadable WTTJ detail)
+    # that did not invalidate the offers successfully collected.
+    warnings: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class IngestCollection:
+    """Network-only collection result, persisted later by one DB writer."""
+
+    source: str
+    raw_jobs: list[RawJob]
+    search_audit: list[dict[str, Any]] = field(default_factory=list)
+    skipped_known_during_collect: int = 0
+    skipped_existing_during_collect: int = 0
+    hit_raw_seen_cap: bool = False
+    cancelled: bool = False
+    warnings: list[str] = field(default_factory=list)
 
 
 # How many raw offers a single non-strict source run is allowed to *examine*

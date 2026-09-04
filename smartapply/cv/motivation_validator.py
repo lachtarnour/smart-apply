@@ -79,24 +79,6 @@ _SUPPORTED_TERM_ALIASES = {
     "etl/elt": ("spark",),
 }
 
-_PROJECT_ALIASES = {
-    "proj_svc": (
-        "singing voice conversion",
-        "svc",
-        "conversion de voix chantée",
-        "conversion de voix chantee",
-        "modélisation acoustique",
-        "modelisation acoustique",
-    ),
-    "proj_scifact_rag": ("scifact", "scifact rag verifier"),
-    "proj_smartapply": ("smartapply", "smart apply"),
-    "proj_bot_traffic_anomaly": ("bot traffic anomaly detection",),
-    "proj_aal_stock_forecasting": ("aal stock forecasting", "american airlines group"),
-    "proj_gpt2": ("gpt-2-style language model", "gpt-2"),
-    "proj_ner_camembert": ("ner with bert", "bert base cased", "conll-2003"),
-    "proj_rl_gym": ("reinforcement learning algorithm", "openai gym"),
-}
-
 _FOREIGN_SCRIPT_RANGES = {
     "arabic": r"\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF",
     "armenian": r"\u0530-\u058F",
@@ -179,18 +161,12 @@ _CANDIDATE_CLAIM_PATTERNS = (
 
 
 def mentioned_project_ids(text: str, profile: Profile) -> list[str]:
-    """Return profile project ids explicitly named or aliased in text."""
+    """Return profile project ids whose canonical name appears in text."""
     body_lower = _normalize(text)
     mentioned: list[str] = []
     for project in profile.projects:
-        aliases = set(_PROJECT_ALIASES.get(project.id, ()))
-        aliases.add(project.name)
-        normalized_aliases = [
-            _normalize(alias)
-            for alias in aliases
-            if len(_normalize(alias)) >= 4
-        ]
-        if any(alias in body_lower for alias in normalized_aliases):
+        name = _normalize(project.name)
+        if len(name) >= 4 and name in body_lower:
             mentioned.append(project.id)
     return mentioned
 
@@ -284,9 +260,7 @@ class MotivationLetterValidator:
     def _term_supported_by_allowed_skill(self, term: str) -> bool:
         normalized = _normalize(term)
         alias_terms = {
-            alias
-            for key in _alias_keys(term)
-            for alias in _SUPPORTED_TERM_ALIASES.get(key, ())
+            alias for key in _alias_keys(term) for alias in _SUPPORTED_TERM_ALIASES.get(key, ())
         }
         for skill in self.allowed_skills:
             skill_norm = _normalize(skill)
@@ -303,9 +277,7 @@ class MotivationLetterValidator:
         if not normalized:
             return False
         alias_terms = {
-            alias
-            for key in _alias_keys(term)
-            for alias in _SUPPORTED_TERM_ALIASES.get(key, ())
+            alias for key in _alias_keys(term) for alias in _SUPPORTED_TERM_ALIASES.get(key, ())
         }
         if any(alias in self.allowed_terms for alias in alias_terms):
             return True
@@ -387,8 +359,6 @@ class MotivationLetterValidator:
                 evidence_terms.add(bullet.source_id)
 
         normalized_terms = [
-            _normalize(term)
-            for term in evidence_terms
-            if len(_normalize(term)) >= 4
+            _normalize(term) for term in evidence_terms if len(_normalize(term)) >= 4
         ]
         return any(term in body_lower for term in normalized_terms)

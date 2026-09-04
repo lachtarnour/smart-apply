@@ -2,9 +2,9 @@
 
 from smartapply.database.models import (
     Application,
+    AppSetting,
     Base,
-    Contact,
-    ContactLookupCache,
+    EmbeddingCache,
     GeneratedDocument,
     Job,
     JobAnalysis,
@@ -13,9 +13,12 @@ from smartapply.database.models import (
     JobStatus,
     LLMCache,
     LLMUsage,
+    ShortlistOrigin,
 )
 from smartapply.database.session import (
     auto_migrate,
+    backfill_shortlisted_at,
+    backfill_usage_job_external_ids,
     drop_db,
     get_engine,
     get_session_factory,
@@ -26,9 +29,9 @@ from smartapply.database.session import (
 
 __all__ = [
     "Application",
+    "AppSetting",
     "Base",
-    "Contact",
-    "ContactLookupCache",
+    "EmbeddingCache",
     "GeneratedDocument",
     "Job",
     "JobAnalysis",
@@ -37,7 +40,10 @@ __all__ = [
     "JobStatus",
     "LLMCache",
     "LLMUsage",
+    "ShortlistOrigin",
     "auto_migrate",
+    "backfill_shortlisted_at",
+    "backfill_usage_job_external_ids",
     "drop_db",
     "get_engine",
     "get_session_factory",

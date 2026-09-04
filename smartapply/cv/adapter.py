@@ -8,10 +8,6 @@ from smartapply.cv.motivation_validator import (
     mentioned_project_ids,
     normalize_french_elisions,
 )
-from smartapply.cv.project_names import (
-    normalize_adapted_cv_project_aliases,
-    normalize_letter_project_aliases,
-)
 from smartapply.cv.role_contracts import apply_contract
 from smartapply.cv.selector import CvBlockSelector, SelectionResult
 from smartapply.llm import (
@@ -76,8 +72,10 @@ class CvAdapter:
             analysis=analysis,
             job_title=job_title,
             job_company=job_company,
-            selected_experiences=selection.experiences,
-            selected_projects=selection.projects,
+            # Keep the profile prefix complete and in canonical order so it is
+            # identical across offers and eligible for OpenAI prompt caching.
+            selected_experiences=list(self.profile.experiences),
+            selected_projects=list(self.profile.projects),
         )
         adapted = self.llm.complete_json(
             system=cv_adaptation.SYSTEM,
@@ -88,7 +86,6 @@ class CvAdapter:
             purpose="cv_adaptation",
             job_id=job_id,
         )
-        adapted = normalize_adapted_cv_project_aliases(adapted, self.profile)
         adapted = self._ensure_supported_offer_skills(adapted, analysis)
         adapted = self._ensure_summary_skills_visible(adapted)
         adapted = self._apply_role_family_contract(adapted, analysis, job_title)
@@ -106,6 +103,7 @@ class CvAdapter:
         job_company: str,
         language: str = "fr",
         job_id: int | None = None,
+        refresh_cache: bool = False,
     ) -> tuple[AdaptedCV, MotivationLetter, SelectionResult]:
         selection = self.selector.select(self.profile, analysis)
         prompt = application_draft.build_user_prompt(
@@ -113,8 +111,10 @@ class CvAdapter:
             analysis=analysis,
             job_title=job_title,
             job_company=job_company,
-            selected_experiences=selection.experiences,
-            selected_projects=selection.projects,
+            # The offer is the dynamic suffix; the complete profile stays an
+            # identical, cacheable prefix for every application.
+            selected_experiences=list(self.profile.experiences),
+            selected_projects=list(self.profile.projects),
             language=language,
         )
         draft = self.llm.complete_json(
@@ -125,8 +125,9 @@ class CvAdapter:
             temperature=0.3,
             purpose="application_draft",
             job_id=job_id,
+            refresh_cache=refresh_cache,
         )
-        adapted = normalize_adapted_cv_project_aliases(draft.to_cv(), self.profile)
+        adapted = draft.to_cv()
         adapted = self._ensure_supported_offer_skills(adapted, analysis)
         adapted = self._ensure_summary_skills_visible(adapted)
         adapted = self._apply_role_family_contract(adapted, analysis, job_title)
@@ -134,10 +135,7 @@ class CvAdapter:
         adapted = self._enforce_complete_experiences(adapted)
         adapted = self._enforce_project_count(adapted)
         adapted = self._enforce_summary_length(adapted)
-        letter = normalize_letter_project_aliases(
-            draft.to_motivation_letter(),
-            self.profile,
-        )
+        letter = draft.to_motivation_letter()
         letter = letter.model_copy(
             update={
                 "subject": normalize_french_elisions(letter.subject, language=language),
@@ -194,11 +192,7 @@ class CvAdapter:
 
         if len(selected) < min_count:
             context = self._adapted_project_context(adapted)
-            remaining = [
-                project
-                for project in self.profile.projects
-                if project.id not in seen
-            ]
+            remaining = [project for project in self.profile.projects if project.id not in seen]
             remaining.sort(
                 key=lambda project: self._project_relevance(project, context),
                 reverse=True,
@@ -231,9 +225,7 @@ class CvAdapter:
                 adapted.professional_summary,
                 " ".join(adapted.selected_project_ids),
                 " ".join(
-                    bullet.text
-                    for exp in adapted.selected_experiences
-                    for bullet in exp.bullets
+                    bullet.text for exp in adapted.selected_experiences for bullet in exp.bullets
                 ),
             ]
         ).lower()
@@ -248,11 +240,7 @@ class CvAdapter:
         )
         score = sum(1 for keyword in keywords if keyword and keyword in context)
         score += sum(1 for token in name_tokens if len(token) > 2 and token in context)
-        score += sum(
-            1
-            for token in description_tokens
-            if len(token) > 4 and token in context
-        )
+        score += sum(1 for token in description_tokens if len(token) > 4 and token in context)
         return (score, len(keywords))
 
     def _enforce_summary_length(self, adapted: AdaptedCV) -> AdaptedCV:
@@ -276,9 +264,7 @@ class CvAdapter:
         if not truncated.endswith((".", "!", "?")):
             truncated = truncated.rstrip(" ,;:") + "."
         warnings = [
-            warning
-            for warning in adapted.warnings
-            if not warning.startswith("summary_too_long")
+            warning for warning in adapted.warnings if not warning.startswith("summary_too_long")
         ]
         warnings.append(f"summary_trimmed:len={len(summary)}")
         return adapted.model_copy(
@@ -320,9 +306,7 @@ class CvAdapter:
                     )
                 bullets.append(bullet)
 
-            complete_experiences.append(
-                AdaptedExperience(source_id=source_exp.id, bullets=bullets)
-            )
+            complete_experiences.append(AdaptedExperience(source_id=source_exp.id, bullets=bullets))
 
         warnings = list(adapted.warnings)
         if restored_experiences:
@@ -356,9 +340,7 @@ class CvAdapter:
         }
         category_order = [block.category_id for block in adapted.selected_skills]
         already_selected = {
-            skill.lower()
-            for skills in selected_by_category.values()
-            for skill in skills
+            skill.lower() for skills in selected_by_category.values() for skill in skills
         }
 
         for skill_key in sorted(canonical_by_skill, key=len, reverse=True):
@@ -491,9 +473,7 @@ class CvAdapter:
             return adapted
 
         warnings = list(adapted.warnings)
-        warnings.append(
-            "unsupported_cv_head_terms_replaced:" + ",".join(sorted(set(changed)))
-        )
+        warnings.append("unsupported_cv_head_terms_replaced:" + ",".join(sorted(set(changed))))
         return adapted.model_copy(
             update={
                 "cv_title": self._tidy_headline_text(title),
@@ -511,8 +491,7 @@ class CvAdapter:
         """Strip off-role skills and anchor a coherent baseline per family."""
         allowed_skills_lower = {s.lower() for s in self.profile.skills.allowed_skills}
         supported_skills_by_category = {
-            category.id: list(category.skills)
-            for category in self.profile.skills.categories
+            category.id: list(category.skills) for category in self.profile.skills.categories
         }
         adapted, _family = apply_contract(
             adapted,
@@ -555,8 +534,7 @@ class CvAdapter:
             return []
 
         normalized_by_skill = {
-            skill_key: " ".join(skill_key.lower().split())
-            for skill_key in canonical_by_skill
+            skill_key: " ".join(skill_key.lower().split()) for skill_key in canonical_by_skill
         }
         exact_matches = [
             skill_key
@@ -573,11 +551,7 @@ class CvAdapter:
                 if normalized == skill_norm:
                     matches.append(skill_key)
                 continue
-            if (
-                normalized == skill_norm
-                or skill_norm in normalized
-                or normalized in skill_norm
-            ):
+            if normalized == skill_norm or skill_norm in normalized or normalized in skill_norm:
                 matches.append(skill_key)
 
         filtered: list[str] = []

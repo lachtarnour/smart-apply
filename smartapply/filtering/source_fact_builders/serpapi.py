@@ -22,6 +22,7 @@ _SERPAPI_REMOTE_LOCATION_MARKERS = (
 )
 _SERPAPI_HYBRID_LOCATION_MARKERS = ("hybrid", "hybride")
 
+
 def build_serpapi_filter_facts(source_data: dict[str, Any]) -> FilterFacts:
     """Extract conservative SerpApi / Google Jobs facts for local filtering."""
 
@@ -47,9 +48,7 @@ def _extract_serpapi_contract(
 
     facts.structured_contract_type = _normalize_serpapi_schedule_type(schedule_type)
     facts.structured_contract_source = "serpapi:detected_extensions.schedule_type"
-    facts.facts_used.append(
-        f"structured_contract_type:{facts.structured_contract_type}"
-    )
+    facts.facts_used.append(f"structured_contract_type:{facts.structured_contract_type}")
 
 
 def _extract_serpapi_location(
@@ -110,5 +109,3 @@ def _normalize_serpapi_schedule_type(value: str) -> str:
     if any(marker in normalized for marker in _SERPAPI_PRESTATAIRE_MARKERS):
         return "Prestataire"
     return normalize_source_contract_type(value) or value
-
-

@@ -11,34 +11,52 @@ import re
 # Map canonical section -> list of regex headings that introduce it.
 SECTION_PATTERNS: dict[str, list[str]] = {
     "responsibilities": [
-        r"missions?", r"vos missions", r"responsabilit[ée]s",
-        r"responsibilit(?:ies|y)", r"what you('?ll| will) do",
-        r"key responsibilities", r"role description",
+        r"missions?",
+        r"vos missions",
+        r"responsabilit[ée]s",
+        r"responsibilit(?:ies|y)",
+        r"what you('?ll| will) do",
+        r"key responsibilities",
+        r"role description",
         r"qu[' ]?attend[s ]?[- ]on de toi",
     ],
     "profile": [
-        r"profil(?: recherch[ée])?", r"votre profil", r"qui (?:vous )?[êe]tes",
-        r"qualifications?", r"requirements?", r"required (?:knowledge|skills)",
-        r"who you are", r"about you", r"we[' ]?re looking for",
+        r"profil(?: recherch[ée])?",
+        r"votre profil",
+        r"qui (?:vous )?[êe]tes",
+        r"qualifications?",
+        r"requirements?",
+        r"required (?:knowledge|skills)",
+        r"who you are",
+        r"about you",
+        r"we[' ]?re looking for",
     ],
     "skills": [
-        r"comp[ée]tences?(?: requises| techniques)?", r"hard skills?",
-        r"stack(?: technique)?", r"tech stack", r"technical skills?",
+        r"comp[ée]tences?(?: requises| techniques)?",
+        r"hard skills?",
+        r"stack(?: technique)?",
+        r"tech stack",
+        r"technical skills?",
         r"environnement technique",
     ],
     "benefits": [
-        r"avantages?", r"benefits?", r"perks?", r"ce que nous offrons",
-        r"why (?:join|work with) us", r"what we offer",
+        r"avantages?",
+        r"benefits?",
+        r"perks?",
+        r"ce que nous offrons",
+        r"why (?:join|work with) us",
+        r"what we offer",
     ],
     "contract": [
-        r"conditions?", r"informations? compl[ée]mentaires?",
-        r"contract", r"contrat", r"r[ée]mun[ée]ration",
+        r"conditions?",
+        r"informations? compl[ée]mentaires?",
+        r"contract",
+        r"contrat",
+        r"r[ée]mun[ée]ration",
     ],
 }
 
-_HEADING_LINE_RE = re.compile(
-    r"^[\s>•\-*]*(?P<text>[^\n]{1,80})\s*:?\s*$"
-)
+_HEADING_LINE_RE = re.compile(r"^[\s>•\-*]*(?P<text>[^\n]{1,80})\s*:?\s*$")
 
 
 def _match_heading(line: str) -> str | None:

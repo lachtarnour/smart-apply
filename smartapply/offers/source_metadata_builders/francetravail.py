@@ -21,20 +21,20 @@ def build_francetravail_source_metadata(source_data: dict[str, Any] | None) -> s
     if not isinstance(source_data, dict):
         return ""
 
-    contact_lines = _contact_and_application_lines(source_data)
+    url_lines = _application_url_lines(source_data)
     fact_lines = _structured_job_fact_lines(source_data)
-    if not contact_lines and not fact_lines:
+    if not url_lines and not fact_lines:
         return ""
 
     sections: list[str] = []
-    if contact_lines:
-        sections.append("CONTACT_AND_APPLICATION_METADATA:\n" + "\n".join(contact_lines))
+    if url_lines:
+        sections.append("APPLICATION_URL_METADATA:\n" + "\n".join(url_lines))
     if fact_lines:
         sections.append("STRUCTURED_JOB_FACTS:\n" + "\n".join(fact_lines))
     return "\n\n".join(sections)
 
 
-def _contact_and_application_lines(source_data: dict[str, Any]) -> list[str]:
+def _application_url_lines(source_data: dict[str, Any]) -> list[str]:
     entreprise = _dict(source_data.get("entreprise"))
     contact = _dict(source_data.get("contact"))
     origine = _dict(source_data.get("origineOffre"))
@@ -90,10 +90,19 @@ def _structured_job_fact_lines(source_data: dict[str, Any]) -> list[str]:
         _append_scalar(lines, key, source_data.get(key))
 
     if source_data.get("_smartapply_experience"):
-        _append_scalar(lines, "_smartapply_experience", _compact_mapping(source_data["_smartapply_experience"]))
-    _append_list_summary(lines, "formations", source_data.get("formations"), ("niveauLibelle", "domaineLibelle", "commentaire"))
+        _append_scalar(
+            lines, "_smartapply_experience", _compact_mapping(source_data["_smartapply_experience"])
+        )
+    _append_list_summary(
+        lines,
+        "formations",
+        source_data.get("formations"),
+        ("niveauLibelle", "domaineLibelle", "commentaire"),
+    )
     _append_list_summary(lines, "langues", source_data.get("langues"), ("libelle", "exigence"))
-    _append_list_summary(lines, "competences", source_data.get("competences"), ("libelle", "exigence"))
+    _append_list_summary(
+        lines, "competences", source_data.get("competences"), ("libelle", "exigence")
+    )
     _append_list_summary(
         lines,
         "qualitesProfessionnelles",
@@ -102,5 +111,3 @@ def _structured_job_fact_lines(source_data: dict[str, Any]) -> list[str]:
     )
     _append_context_summary(lines, source_data.get("contexteTravail"))
     return lines
-
-

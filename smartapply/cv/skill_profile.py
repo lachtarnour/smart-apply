@@ -50,12 +50,26 @@ def infer_skill_profile_id(
                 "face recognition",
             ),
         ),
-        ("llm", ("llm", "rag", "nlp", "language model", "transformer", "embedding model", "retrieval")),
-        ("time_series", ("forecasting", "time series", "time-series", "anomaly detection", "arima", "kalman")),
-        ("data_analyst", ("data analyst", "analytics", "dashboard", "kpi", "reporting", "product analyst")),
-        ("machine_learning", ("ml engineer", "deployment", "production", "mlops", "model serving", "data pipeline")),
+        (
+            "llm",
+            ("llm", "rag", "nlp", "language model", "transformer", "embedding model", "retrieval"),
+        ),
+        (
+            "time_series",
+            ("forecasting", "time series", "time-series", "anomaly detection", "arima", "kalman"),
+        ),
+        (
+            "data_analyst",
+            ("data analyst", "analytics", "dashboard", "kpi", "reporting", "product analyst"),
+        ),
+        (
+            "machine_learning",
+            ("ml engineer", "deployment", "production", "mlops", "model serving", "data pipeline"),
+        ),
     )
     for profile_id, tokens in fallback_rules:
-        if profile_id in profile.skills.profile_ids and any(token in normalized for token in tokens):
+        if profile_id in profile.skills.profile_ids and any(
+            token in normalized for token in tokens
+        ):
             return profile_id
     return default

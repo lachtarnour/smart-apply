@@ -91,8 +91,8 @@ def build_user_prompt(
     matching_keywords = _format_matching_keywords(profile)
     unsupported_offer_terms = _format_unsupported_offer_terms(profile, analysis)
     offer_interest_anchors = _format_offer_interest_anchors(analysis)
-    langchain_langgraph_letter_instruction = (
-        _format_langchain_langgraph_letter_instruction(analysis)
+    langchain_langgraph_letter_instruction = _format_langchain_langgraph_letter_instruction(
+        analysis
     )
 
     return render_prompt(

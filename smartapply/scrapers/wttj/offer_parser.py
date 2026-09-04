@@ -72,7 +72,9 @@ def parse_detail_html(html: str, *, url: str | None = None) -> RawJob:
     company_profile_url = _company_profile_url(soup)
 
     title = _as_text(job_posting.get("title")) or _meta_content(soup, "og:title") or "Untitled job"
-    company = _as_text(organization.get("name")) or _company_from_title_tag(soup) or "Unknown company"
+    company = (
+        _as_text(organization.get("name")) or _company_from_title_tag(soup) or "Unknown company"
+    )
     description = _description_to_text(_as_text(job_posting.get("description")))
     location = _format_locations(job_posting.get("jobLocation"))
     contract_type = _contract_type(metadata, faq, job_posting)
@@ -126,6 +128,7 @@ def parse_detail_html(html: str, *, url: str | None = None) -> RawJob:
         source_data=source_data,
     )
 
+
 def fetch_detail_api_job(
     url: str,
     *,
@@ -148,6 +151,7 @@ def fetch_detail_api_job(
     if not isinstance(job, dict):
         raise WTTJScraperError("Unexpected WTTJ detail API payload.")
     return job
+
 
 def parse_detail_api_job(payload: dict[str, Any], *, url: str | None = None) -> RawJob:
     """Parse one WTTJ detail API job payload into ``RawJob``."""
@@ -219,9 +223,11 @@ def parse_detail_api_job(payload: dict[str, Any], *, url: str | None = None) -> 
         source_data=source_data,
     )
 
+
 def parse_saved_detail(path: str | Path, *, url: str | None = None) -> RawJob:
     """Parse a saved WTTJ job detail HTML file."""
     return parse_detail_html(Path(path).read_text(encoding="utf-8", errors="replace"), url=url)
+
 
 def _detail_api_url_from_job_url(url: str | None) -> str | None:
     parsed = urlparse(url or "")
@@ -230,6 +236,7 @@ def _detail_api_url_from_job_url(url: str | None) -> str | None:
         return None
     company_slug, job_slug = match.groups()
     return f"{WTTJ_ORGANIZATIONS_API_URL}/{company_slug}/jobs/{job_slug}"
+
 
 def _api_job_description(payload: dict[str, Any]) -> str:
     sections = [
@@ -245,6 +252,7 @@ def _api_job_description(payload: dict[str, Any]) -> str:
             parts.append(f"{heading}\n{text}")
     return _clean_text("\n\n".join(parts)) or _api_company_summary(payload) or ""
 
+
 def _api_rich_text(value: Any) -> str:
     if isinstance(value, list):
         texts = [_api_rich_text(item) for item in value]
@@ -256,6 +264,7 @@ def _api_rich_text(value: Any) -> str:
                 return text
         return ""
     return _description_to_text(_as_text(value))
+
 
 def _api_skills(payload: dict[str, Any]) -> list[str]:
     values: list[str] = []
@@ -273,6 +282,7 @@ def _api_skills(payload: dict[str, Any]) -> list[str]:
                 values.append(text)
     return values
 
+
 def _api_salary(payload: dict[str, Any]) -> dict[str, Any]:
     salary = {
         "min": payload.get("salary_min"),
@@ -281,6 +291,7 @@ def _api_salary(payload: dict[str, Any]) -> dict[str, Any]:
         "period": payload.get("salary_period"),
     }
     return {key: value for key, value in salary.items() if value is not None}
+
 
 def _api_experience(payload: dict[str, Any]) -> dict[str, Any] | None:
     level = _as_text(payload.get("experience_level"))
@@ -293,11 +304,13 @@ def _api_experience(payload: dict[str, Any]) -> dict[str, Any] | None:
         result["required"] = min_years > 0
     return result
 
+
 def _metadata_text(soup: BeautifulSoup) -> str:
     metadata = soup.select_one('[data-testid="job-metadata-block"]')
     if metadata:
         return _clean_text(metadata.get_text(" ", strip=True))
     return ""
+
 
 def _skills(soup: BeautifulSoup) -> list[str]:
     block = _block_after_heading(soup, "Compétences & expertises", parent_steps=3)
@@ -316,6 +329,7 @@ def _skills(soup: BeautifulSoup) -> list[str]:
         skills.append(text)
     return skills
 
+
 def _skills_more_count(soup: BeautifulSoup) -> int | None:
     block = _block_after_heading(soup, "Compétences & expertises", parent_steps=3)
     if not block:
@@ -325,6 +339,7 @@ def _skills_more_count(soup: BeautifulSoup) -> int | None:
         if match:
             return int(match.group(1))
     return None
+
 
 def _contract_type(
     metadata: str,
@@ -339,6 +354,7 @@ def _contract_type(
     if employment_type == "FULL_TIME":
         return "FULL_TIME"
     return employment_type
+
 
 def _remote_text(metadata: str, faq: dict[str, str]) -> str | None:
     match = re.search(

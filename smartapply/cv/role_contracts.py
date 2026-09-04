@@ -57,7 +57,7 @@ _PROJECT_SIGNAL_TERMS: dict[str, tuple[str, ...]] = {
     "proj_svc": ("speech", "vocoder", "hubert", "rmvpe", "hifi-gan"),
     "proj_scifact_rag": ("rag", "faiss", "vector search", "bm25"),
     "proj_aal_stock_forecasting": ("arima/sarima", "forecasting", "time-series analysis"),
-    "proj_rl_gym": ("openai gym", "reinforcement learning","game-based tasks"),
+    "proj_rl_gym": ("openai gym", "reinforcement learning", "game-based tasks"),
 }
 
 
@@ -69,8 +69,7 @@ def load_contracts() -> dict[str, dict[str, Any]]:
     missing = sorted(family for family in KNOWN_ROLE_FAMILIES if family not in contracts)
     if missing:
         raise ValueError(
-            "role_contracts.json is missing contracts for role families: "
-            + ", ".join(missing)
+            "role_contracts.json is missing contracts for role families: " + ", ".join(missing)
         )
     return contracts
 
@@ -116,9 +115,7 @@ def _augmented_must_show(
     base: dict[str, list[str]] = {
         cid: list(skills) for cid, skills in contract.get("must_show", {}).items()
     }
-    if family == "data_scientist" and has_data_scientist_ia_signal(
-        analysis, job_title
-    ):
+    if family == "data_scientist" and has_data_scientist_ia_signal(analysis, job_title):
         ml_ai = base.setdefault("ml_ai", [])
         existing_lower = {s.lower() for s in ml_ai}
         for skill in _DS_IA_EXTRA_SKILLS:
@@ -141,11 +138,7 @@ def _active_forbidden(
         for term in list(analysis.required_skills) + list(analysis.cv_keywords_to_include)
         if term
     }
-    return {
-        skill
-        for skill in forbidden
-        if not _is_explicit_offer_skill(skill, offer_terms)
-    }
+    return {skill for skill in forbidden if not _is_explicit_offer_skill(skill, offer_terms)}
 
 
 def _offer_anchored_skills(analysis: JobAnalysis) -> set[str]:
@@ -153,6 +146,19 @@ def _offer_anchored_skills(analysis: JobAnalysis) -> set[str]:
         _normalize(term)
         for term in list(analysis.required_skills) + list(analysis.cv_keywords_to_include)
         if term
+    }
+
+
+def offer_anchored_categories(
+    adapted: AdaptedCV,
+    analysis: JobAnalysis,
+) -> set[str]:
+    """Return categories containing skills explicitly requested by the offer."""
+    offer_terms = _offer_anchored_skills(analysis)
+    return {
+        block.category_id
+        for block in adapted.selected_skills
+        if any(_is_explicit_offer_skill(skill, offer_terms) for skill in block.skills)
     }
 
 
@@ -298,12 +304,8 @@ def _dedupe_cross_category(
         "data_infra",
         "ml_ai",
     )
-    ordered_categories = [
-        cid for cid in specific_priority if cid in skills_by_category
-    ] + [
-        cid
-        for cid in category_order
-        if cid in skills_by_category and cid not in specific_priority
+    ordered_categories = [cid for cid in specific_priority if cid in skills_by_category] + [
+        cid for cid in category_order if cid in skills_by_category and cid not in specific_priority
     ]
 
     seen: set[str] = set()
@@ -517,9 +519,7 @@ def apply_contract(
         if allowed_categories and cid not in allowed_categories:
             # Keep only the skills explicitly required by the offer — the
             # category survives only if at least one such skill remains.
-            offer_kept = [
-                skill for skill in kept if _is_explicit_offer_skill(skill, offer_terms)
-            ]
+            offer_kept = [skill for skill in kept if _is_explicit_offer_skill(skill, offer_terms)]
             if not offer_kept:
                 continue
             kept = offer_kept
@@ -578,8 +578,7 @@ def apply_contract(
     )
 
     new_selected = [
-        SkillSelectionBlock(category_id=cid, skills=filtered[cid])
-        for cid in final_order
+        SkillSelectionBlock(category_id=cid, skills=filtered[cid]) for cid in final_order
     ]
     return (
         adapted.model_copy(

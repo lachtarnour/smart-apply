@@ -26,7 +26,7 @@ from smartapply.scrapers.francetravail_experience import (
     _format_experience_section,
 )
 from smartapply.utils.contracts import normalize_source_contract_type
-from smartapply.utils.french_geo import resolve_french_location
+from smartapply.utils.geo.resolver import resolve_french_location
 
 logger = get_logger(__name__)
 
@@ -39,9 +39,7 @@ class FranceTravailSearchCancelled(RuntimeError):
     """Raised internally when a cooperative stop abandons an in-flight FT request."""
 
 
-TOKEN_URL = (
-    "https://entreprise.francetravail.fr/connexion/oauth2/access_token?realm=%2Fpartenaire"
-)
+TOKEN_URL = "https://entreprise.francetravail.fr/connexion/oauth2/access_token?realm=%2Fpartenaire"
 SEARCH_URL = "https://api.francetravail.io/partenaire/offresdemploi/v2/offres/search"
 
 # Map the shared SerpApi-style freshness tokens (``today``/``3days``/``week``/``month``)
@@ -53,6 +51,7 @@ _DATE_POSTED_TO_DAYS = {
     "week": 7,
     "month": 30,
 }
+
 
 def _date_posted_to_creation_window(
     date_posted: str | None, *, now: datetime | None = None
@@ -84,7 +83,7 @@ def _date_posted_to_creation_window(
 
 # ---- Location resolution -----------------------------------------------------
 # Free-text locations ("Paris", "Île-de-France", "La Défense", …) are mapped
-# to FT's structured filters via :mod:`smartapply.utils.french_geo`, which is
+# to FT's structured filters via :mod:`smartapply.utils.geo.resolver`, which is
 # backed by the open ``geo.api.gouv.fr`` referential. Without this layer the
 # old code path silently appended the location to ``motsCles``, which made
 # "Paris, France" return only offers whose text literally contained the word
@@ -347,7 +346,7 @@ class FranceTravailScraper(Scraper):
                         results_yielded,
                     )
                     return
-                break
+                raise
             if _should_stop(stop_requested):
                 logger.warning(
                     "France Travail search cancelled after request before parsing jobs: "
@@ -401,9 +400,7 @@ class FranceTravailScraper(Scraper):
         # entity name (or a "Name - tagline" header) in ``entreprise.description``.
         # Prepend that text so the LLM extractor — and human reviewers — see it.
         entreprise_desc = (entreprise.get("description") or "").strip()
-        company_header = (
-            f"À propos de l'entreprise :\n{entreprise_desc}" if entreprise_desc else ""
-        )
+        company_header = f"À propos de l'entreprise :\n{entreprise_desc}" if entreprise_desc else ""
         experience = _extract_experience(raw)
         experience_section = _format_experience_section(experience)
 
@@ -411,11 +408,15 @@ class FranceTravailScraper(Scraper):
             company_header,
             experience_section,
             raw.get("description") or "",
-            raw.get("competences") and "Compétences:\n- " + "\n- ".join(
-                f"{c.get('libelle','')} ({c.get('exigence','')})"
+            raw.get("competences")
+            and "Compétences:\n- "
+            + "\n- ".join(
+                f"{c.get('libelle', '')} ({c.get('exigence', '')})"
                 for c in (raw.get("competences") or [])
             ),
-            raw.get("qualitesProfessionnelles") and "Qualités:\n- " + "\n- ".join(
+            raw.get("qualitesProfessionnelles")
+            and "Qualités:\n- "
+            + "\n- ".join(
                 q.get("libelle", "") for q in (raw.get("qualitesProfessionnelles") or [])
             ),
         ]
@@ -425,9 +426,10 @@ class FranceTravailScraper(Scraper):
             raw.get("typeContratLibelle") or raw.get("natureContrat")
         )
         remote_policy: str | None = None
-        if isinstance(raw.get("trancheSalaire"), str) and "télétravail" in raw.get(
-            "trancheSalaire", ""
-        ).lower():
+        if (
+            isinstance(raw.get("trancheSalaire"), str)
+            and "télétravail" in raw.get("trancheSalaire", "").lower()
+        ):
             remote_policy = "remote"
 
         published: datetime | None = None

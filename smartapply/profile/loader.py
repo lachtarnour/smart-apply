@@ -65,7 +65,7 @@ def load_profile(profile_dir: Path | str | None = None) -> Profile:
 @lru_cache(maxsize=4)
 def _get_profile_cached(profile_dir: str, fingerprint: tuple[tuple[str, int, int], ...]) -> Profile:
     # ``fingerprint`` is intentionally unused here; it is part of the cache key
-    # so Streamlit/CLI processes pick up edits to profile/data without restart.
+    # so long-running desktop sessions pick up profile edits without restart.
     return load_profile(Path(profile_dir))
 
 

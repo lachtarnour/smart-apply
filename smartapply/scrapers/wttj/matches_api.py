@@ -71,6 +71,7 @@ def matches_page_url(page: int, *, published_since: str | None = None) -> str:
     query = urlencode(params)
     return f"{WTTJ_MATCHES_URL}?{query}" if query else WTTJ_MATCHES_URL
 
+
 def parse_listing_links(html: str, *, base_url: str = WTTJ_BASE_URL) -> list[WTTJJobLink]:
     """Extract unique WTTJ job links from a jobs-matches HTML page."""
     soup = BeautifulSoup(html, "lxml")
@@ -84,6 +85,7 @@ def parse_listing_links(html: str, *, base_url: str = WTTJ_BASE_URL) -> list[WTT
         title_hint = _clean_text(anchor.get_text(" ", strip=True)) or None
         links.append(WTTJJobLink(url=url, title_hint=title_hint))
     return links
+
 
 def fetch_matches_api_page(
     *,
@@ -133,6 +135,7 @@ def fetch_matches_api_page(
         raise WTTJScraperError("Unexpected WTTJ jobs-matches API payload.")
     return payload
 
+
 def parse_matches_api_links(payload: dict[str, Any]) -> list[WTTJJobLink]:
     """Build public job detail URLs from a WTTJ ``/api/v3/search/jobs`` payload."""
     jobs = payload.get("data")
@@ -157,6 +160,7 @@ def parse_matches_api_links(payload: dict[str, Any]) -> list[WTTJJobLink]:
         )
     return links
 
+
 def _matches_api_page_count(payload: dict[str, Any]) -> int | None:
     metadata = payload.get("metadata")
     if not isinstance(metadata, dict):
@@ -172,9 +176,23 @@ def _is_missing_matches_page_error(exc: requests.RequestException) -> bool:
     return getattr(response, "status_code", None) in {404, 410}
 
 
+def _public_scrape_error(exc: Exception) -> str:
+    """Return a short reason safe for UI display (never headers or cookies)."""
+    response = getattr(exc, "response", None)
+    status = getattr(response, "status_code", None)
+    if status:
+        return f"HTTP {status}"
+    if isinstance(exc, requests.Timeout):
+        return "délai dépassé"
+    if isinstance(exc, requests.ConnectionError):
+        return "connexion impossible"
+    return type(exc).__name__
+
+
 def parse_saved_listing(path: str | Path) -> list[WTTJJobLink]:
     """Parse a saved WTTJ jobs-matches HTML file."""
     return parse_listing_links(Path(path).read_text(encoding="utf-8", errors="replace"))
+
 
 def fetch_html_with_requests(
     url: str,
@@ -194,6 +212,7 @@ def fetch_html_with_requests(
     response = requests.get(url, headers=headers, timeout=timeout)
     response.raise_for_status()
     return response.text
+
 
 def scrape_matches_requests(
     *,
@@ -229,6 +248,7 @@ def scrape_matches_requests(
     seen: set[str] = set()
     company_cache: dict[str, dict[str, Any]] = {}
     yielded = 0
+    first_detail_error: WTTJScraperError | None = None
     page_count: int | None = None
     pages_total = len(pages)
     for page_number in pages:
@@ -280,14 +300,30 @@ def scrape_matches_requests(
                     yielded=yielded,
                 )
                 break
-            if not skip_failed_jobs:
+            if not skip_failed_jobs or yielded == 0:
                 raise
             logger.warning("Skipping WTTJ matches page %s: %s", page_number, exc)
+            _emit_progress(
+                progress_callback,
+                event="warning",
+                code="page_fetch_failed",
+                message=(f"WTTJ : page {page_number} ignorée ({_public_scrape_error(exc)})."),
+                page=page_number,
+                yielded=yielded,
+            )
             continue
         except WTTJScraperError as exc:
-            if not skip_failed_jobs:
+            if not skip_failed_jobs or yielded == 0:
                 raise
             logger.warning("Skipping WTTJ matches page %s: %s", page_number, exc)
+            _emit_progress(
+                progress_callback,
+                event="warning",
+                code="page_parse_failed",
+                message=(f"WTTJ : page {page_number} illisible ({_public_scrape_error(exc)})."),
+                page=page_number,
+                yielded=yielded,
+            )
             continue
 
         page_count = _matches_api_page_count(payload) or page_count
@@ -370,25 +406,55 @@ def scrape_matches_requests(
                 job = parse_detail_html(detail_response.text, url=link.url)
             except (requests.RequestException, WTTJScraperError) as html_exc:
                 try:
-                    api_job = (fetch_detail_api_job_fn or fetch_detail_api_job)(link.url, timeout=timeout)
+                    api_job = (fetch_detail_api_job_fn or fetch_detail_api_job)(
+                        link.url, timeout=timeout
+                    )
                     job = parse_detail_api_job(api_job, url=link.url)
                 except (requests.RequestException, WTTJScraperError) as api_exc:
+                    detail_error = WTTJScraperError(
+                        f"Failed to parse WTTJ job from HTML ({html_exc}) and API ({api_exc})"
+                    )
                     if not skip_failed_jobs:
-                        raise WTTJScraperError(
-                            f"Failed to parse WTTJ job from HTML ({html_exc}) "
-                            f"and API ({api_exc})"
-                        ) from api_exc
+                        raise detail_error from api_exc
+                    first_detail_error = first_detail_error or detail_error
                     logger.warning(
                         "Skipping WTTJ job %s: HTML failed (%s); API failed (%s)",
                         link.url,
                         html_exc,
                         api_exc,
                     )
+                    _emit_progress(
+                        progress_callback,
+                        event="warning",
+                        code="job_detail_failed",
+                        message=(
+                            f"WTTJ : offre {page_job_index} de la page {page_number} "
+                            "ignorée car sa fiche était "
+                            f"illisible ({_public_scrape_error(api_exc)})."
+                        ),
+                        page=page_number,
+                        yielded=yielded,
+                        title_hint=link.title_hint,
+                    )
                     continue
             except Exception as exc:
                 if not skip_failed_jobs:
                     raise
+                first_detail_error = first_detail_error or WTTJScraperError(str(exc))
                 logger.warning("Skipping WTTJ job %s: %s", link.url, exc)
+                _emit_progress(
+                    progress_callback,
+                    event="warning",
+                    code="job_detail_failed",
+                    message=(
+                        f"WTTJ : offre {page_job_index} de la page {page_number} "
+                        "ignorée car sa fiche était "
+                        f"illisible ({_public_scrape_error(exc)})."
+                    ),
+                    page=page_number,
+                    yielded=yielded,
+                    title_hint=link.title_hint,
+                )
                 continue
             source_data = dict(job.source_data or {})
             if link.api_data:
@@ -473,6 +539,8 @@ def scrape_matches_requests(
                 yielded=yielded,
             )
             break
+    if yielded == 0 and first_detail_error is not None:
+        raise first_detail_error
     _emit_progress(
         progress_callback,
         event="done",
@@ -482,6 +550,7 @@ def scrape_matches_requests(
         progress_target=progress_target,
         yielded=yielded,
     )
+
 
 def scrape_matches_live(
     *,
@@ -525,7 +594,9 @@ def scrape_matches_live(
             browser = playwright.chromium.connect_over_cdp(cdp_url, timeout=timeout_ms)
             context = browser.contexts[0] if browser.contexts else browser.new_context()
         else:
-            profile_dir = Path(user_data_dir or "~/.smartapply/wttj-chrome-profile").expanduser()
+            profile_dir = Path(
+                user_data_dir or "~/Library/Application Support/Elan/cache/wttj-chrome-profile"
+            ).expanduser()
             profile_dir.mkdir(parents=True, exist_ok=True)
             context = playwright.chromium.launch_persistent_context(
                 str(profile_dir),
@@ -580,6 +651,7 @@ def scrape_matches_live(
                     browser.close()
             else:
                 context.close()
+
 
 def _api_headers(
     cookie_header: str,

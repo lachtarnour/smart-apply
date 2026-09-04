@@ -71,8 +71,6 @@ def _normalized_non_tracking_query(query: str) -> str:
     kept = [
         (key, value)
         for key, value in parse_qsl(query, keep_blank_values=True)
-        if key.lower() not in tracking_names
-        and not key.lower().startswith(tracking_prefixes)
+        if key.lower() not in tracking_names and not key.lower().startswith(tracking_prefixes)
     ]
     return urlencode(sorted(kept), doseq=True)
-

@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from smartapply.contacts.domain_classifier import (
+from smartapply.offers.domain_classifier import (
     classify_application_domain,
     domain_from_url,
     is_reliable_company_domain,
@@ -16,6 +16,7 @@ _URL_RE = re.compile(r"https?://[^\s\"'<>),;]+|www\.[^\s\"'<>),;]+", re.IGNORECA
 _MAX_LINE = 220
 _MAX_URLS = 14
 _MAX_LIST_ITEMS = 8
+
 
 def _dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
@@ -38,7 +39,9 @@ def _append_list_summary(
     parts: list[str] = []
     for item in value[:_MAX_LIST_ITEMS]:
         if isinstance(item, dict):
-            text = " / ".join(_short(item.get(field)) for field in fields if _short(item.get(field)))
+            text = " / ".join(
+                _short(item.get(field)) for field in fields if _short(item.get(field))
+            )
         else:
             text = _short(item)
         if text:
@@ -138,5 +141,3 @@ def _append_url_metadata_lines(lines: list[str], urls: list[dict[str, str]]) -> 
         if item.get("company_domain_candidate"):
             line += f" | company_domain_candidate={item['company_domain_candidate']}"
         lines.append(line)
-
-

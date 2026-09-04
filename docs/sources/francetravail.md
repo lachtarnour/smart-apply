@@ -32,7 +32,7 @@ contexte ROME.
 
 Paramètres importants :
 
-| Paramètre | Origine CandiPilot |
+| Paramètre | Origine Élan |
 | --- | --- |
 | `motsCles` | `query`, avec fallback location en texte si non résolue. |
 | `commune`, `departement`, `region` | Résolution de `location` via référentiel geo France. |

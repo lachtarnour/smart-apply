@@ -7,12 +7,7 @@ validate after the call. Keep them small, flat, and JSON-Schema friendly
 
 from __future__ import annotations
 
-from typing import Literal
-
 from pydantic import BaseModel, ConfigDict, Field
-
-CompanySize = Literal["large", "small", "unknown"]
-
 
 _strict = ConfigDict(extra="forbid")
 
@@ -38,7 +33,7 @@ class JobAnalysis(BaseModel):
             "Concrete gaps or risks for this candidate, including visible seniority, "
             "vague/short offer text, missing skills, peripheral BI/reporting, "
             "Data Engineering/platform, MLOps/DevOps, support/operations, Master Data, "
-            "location/company/contact ambiguity."
+            "location or company ambiguity."
         )
     )
     cv_keywords_to_include: list[str] = Field(
@@ -48,56 +43,23 @@ class JobAnalysis(BaseModel):
             "skills, generic filler, or title-only inferences."
         )
     )
-    contact_domain_kind: str = Field(
-        default="unknown",
-        description=(
-            "One of: company_domain, ats_or_job_board, unknown. Use company_domain "
-            "only when a literal company-owned domain/email is visible; never infer "
-            "from the company name, URL path, job-board slug or outside knowledge."
-        ),
-    )
-    contact_domain_hint: str = Field(
-        default="",
-        description=(
-            "Literal company-owned domain visible exactly in the application URL host or "
-            "offer body, without scheme. Empty when only an ATS/job board domain, URL path, "
-            "company name, slug, or inferred brand domain is visible. For France Travail, "
-            "APEC, LinkedIn, Indeed, Welcome to the Jungle or ATS URLs, keep this empty "
-            "unless an exact company domain or company email domain appears in the offer body."
-        ),
-    )
-    contact_domain_reason: str = Field(
-        default="",
-        description="Short reason for contact_domain_kind/contact_domain_hint",
-    )
     offer_language: str = Field(
         default="fr",
         description=(
             "ISO 639-1 code of the language the offer is written in "
-            "('fr', 'en', 'de', 'es', ...). Drives the email/letter language."
+            "('fr', 'en', 'de', 'es', ...). Drives the motivation-letter language."
         ),
-    )
-    company_size: CompanySize = Field(
-        default="unknown",
-        description=(
-            "Rough size of the hiring company. 'large' = multinational, "
-            "listed group or >500 employees (Safran, BNP, L'Oréal, Doctolib, ...). "
-            "'small' = startup, scale-up, SME, ESN, or unknown smaller firm. "
-            "Drives the application strategy (email only vs email + ATS form)."
-        ),
-    )
-    company_size_reason: str = Field(
-        default="",
-        description="One short sentence justifying the company_size choice.",
     )
     extracted_company_name: str = Field(
         default="",
         description=(
-            "If the structured company field is missing or generic (e.g. "
-            "'Entreprise non communiquée', 'Confidentiel', empty), extract the "
-            "real hiring company name from the description text. Look for "
-            "patterns like \"L'entreprise X recherche\", \"Notre client X\", "
-            "\"Rejoignez X\", \"Nous sommes X\", or a 'company-name - tagline' "
+            "If the structured company field is missing, generic, or names a "
+            "job board / recruitment intermediary instead of the real employer "
+            "(e.g. 'Entreprise non communiquée', 'Confidentiel', 'Forums "
+            "Talents Handicap', empty), extract the real hiring company name "
+            "from the description text. Look for "
+            'patterns like "L\'entreprise X recherche", "Notre client X", '
+            '"Rejoignez X", "Nous sommes X", or a \'company-name - tagline\' '
             "header. Return only the company's name, no description. "
             "Return an empty string when no real name can be confidently "
             "extracted — never invent."
@@ -203,23 +165,27 @@ class AdaptedCV(BaseModel):
     )
 
 
-class EmailDraft(BaseModel):
-    model_config = _strict
-
-    subject: str = Field(description="Email subject line, concise and specific")
-    body: str = Field(
-        description="Short deterministic sending email, friendly-professional, no fluff."
-    )
-
-
 class MotivationLetter(BaseModel):
     model_config = _strict
 
     subject: str = Field(description="Motivation letter subject line")
     body: str = Field(
         description=(
-            "180-280 words, natural and professional. Must be grounded in the "
+            "220-300 words, natural and professional. Must be grounded in the "
             "selected CV/project evidence."
+        )
+    )
+
+
+class MotivationLetterRepair(BaseModel):
+    """Targeted replacement for a motivation-letter body."""
+
+    model_config = _strict
+
+    body: str = Field(
+        description=(
+            "Repaired motivation-letter body only. Preserve the original language "
+            "and facts while correcting the single requested defect."
         )
     )
 
@@ -315,19 +281,3 @@ class ApplicationDraft(BaseModel):
             subject=self.motivation_letter_subject,
             body=self.motivation_letter_body,
         )
-
-
-class ApplicationQualityReview(BaseModel):
-    model_config = _strict
-
-    approved: bool = Field(description="True only if the application is safe to draft/send")
-    match_score: float = Field(ge=0.0, le=1.0, description="Offer/profile fit")
-    cv_score: float = Field(ge=0.0, le=1.0, description="CV relevance and specificity")
-    email_score: float = Field(
-        ge=0.0,
-        le=1.0,
-        description="Motivation letter relevance plus short email suitability",
-    )
-    risks: list[str] = Field(description="Concrete risks or blockers")
-    fixes_required: list[str] = Field(description="Changes needed before sending")
-    decision_reason: str = Field(description="Short explanation of the decision")

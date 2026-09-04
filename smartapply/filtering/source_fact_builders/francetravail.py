@@ -51,6 +51,7 @@ _FT_PART_TIME_MARKERS = ("temps partiel", "mi temps", "mi-temps", "part time", "
 _FT_FULL_TIME_MARKERS = ("temps plein", "plein temps", "full time", "full-time")
 _FT_WEEKLY_HOURS_RE = re.compile(r"\b(?P<hours>\d{1,2})(?:[,.]\d+)?\s*h\b")
 
+
 def build_francetravail_filter_facts(source_data: dict[str, Any]) -> FilterFacts:
     """Extract reliable France Travail structured fields for local filtering."""
 
@@ -197,16 +198,10 @@ def _extract_francetravail_rome_context(
     facts.structured_appellation_label = _clean_text(source_data.get("appellationlibelle"))
 
     if facts.structured_rome_code or facts.structured_rome_label:
-        parts = [
-            part
-            for part in (facts.structured_rome_code, facts.structured_rome_label)
-            if part
-        ]
+        parts = [part for part in (facts.structured_rome_code, facts.structured_rome_label) if part]
         facts.facts_used.append(f"structured_rome:{':'.join(parts)}")
     if facts.structured_appellation_label:
-        facts.facts_used.append(
-            f"structured_appellation:{facts.structured_appellation_label}"
-        )
+        facts.facts_used.append(f"structured_appellation:{facts.structured_appellation_label}")
 
 
 def _normalized_work_time_label(value: str | None) -> str | None:
@@ -284,5 +279,3 @@ def _parse_ft_experience_years(*values: str | None) -> float | None:
             return round(amount / 12, 2)
         return float(amount)
     return None
-
-

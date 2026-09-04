@@ -32,8 +32,6 @@ data/secrets/
 *.pem
 credentials.json
 token.json
-gmail_credentials.json
-gmail_token.json
 
 # ---- Data ----
 data/smartapply.db
@@ -41,11 +39,6 @@ data/cache/
 data/output/
 data/scraped/
 smartapply/profile/data/
-spontaneous_apply/
-spontaneous_apply/data/db/*.sqlite
-spontaneous_apply/data/raw/
-spontaneous_apply/data/processed/
-spontaneous_apply/data/logs/
 
 # ---- Editors ----
 .claude/
@@ -55,17 +48,6 @@ spontaneous_apply/data/logs/
 *.swo
 .DS_Store
 
-# ---- Streamlit ----
-.streamlit/secrets.toml
 /data/
-reports/
-scripts/
-notebooks/
-daily scrapper/
-docs/*
-!docs/screenshots/
-!docs/screenshots/*.png
-tests/
 tmp/
 output/
-candidatures_envoyees.csv

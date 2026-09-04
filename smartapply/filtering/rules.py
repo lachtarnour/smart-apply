@@ -103,6 +103,11 @@ DEFAULT_SENIORITY_BLOCK_TERMS = (
     "20+ years",
 )
 
+# Operational policy shared by the local seniority gates and the LLM context.
+# It is intentionally not a user preference: changing the old profile field
+# never changed the deterministic five-year ceiling.
+CANDIDATE_SENIORITY_CONTEXT = "junior to mid (1-3 years)"
+
 # Job description tokens that are strong negative signals.
 DEFAULT_NEGATIVE_DESC_TOKENS = (
     "reporting only without analytical ownership",
@@ -140,9 +145,9 @@ class RuleSet:
 
     target_roles: list[str] = field(default_factory=list)
     deal_breakers: list[str] = field(default_factory=list)
-    preferred_locations: list[str] = field(default_factory=list)
     accepted_contract_types: list[str] = field(default_factory=list)
     accepted_remote_policies: list[str] = field(default_factory=list)
+    accepted_job_languages: list[str] = field(default_factory=lambda: ["fr", "en"])
 
     positive_title_keywords: tuple[str, ...] = DEFAULT_POSITIVE_TITLE_KEYWORDS
     negative_title_keywords: tuple[str, ...] = DEFAULT_NEGATIVE_TITLE_KEYWORDS

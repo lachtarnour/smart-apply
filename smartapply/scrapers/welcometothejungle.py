@@ -141,6 +141,7 @@ class WelcomeToTheJungleScraper(Scraper):
         self.delay_seconds = (
             delay_seconds if delay_seconds is not None else settings.wttj_delay_seconds
         )
+        self.last_warnings: list[str] = []
 
     def is_available(self) -> bool:
         return bool(self.cookie_header.strip())
@@ -153,6 +154,7 @@ class WelcomeToTheJungleScraper(Scraper):
         max_results: int | None = None,
         **kwargs: Any,
     ) -> Iterator[RawJob]:
+        self.last_warnings = []
         if not self.is_available():
             raise ScraperConfigError("WTTJ_COOKIE must be set to use the WTTJ scraper")
         if max_results is not None and max_results <= 0:
@@ -170,6 +172,15 @@ class WelcomeToTheJungleScraper(Scraper):
         timeout = int(kwargs.pop("timeout", self.timeout))
         delay_seconds = float(kwargs.pop("delay_seconds", self.delay_seconds))
         progress_callback = kwargs.pop("progress_callback", None)
+
+        def capture_progress(event: dict[str, Any]) -> None:
+            if event.get("event") == "warning":
+                message = str(event.get("message") or "").strip()
+                if message and message not in self.last_warnings:
+                    self.last_warnings.append(message)
+            if progress_callback is not None:
+                progress_callback(event)
+
         progress_target = kwargs.pop("progress_target", max_results)
         date_posted = kwargs.pop("date_posted", None)
         published_since = _published_since_from_date_posted(date_posted)
@@ -198,7 +209,7 @@ class WelcomeToTheJungleScraper(Scraper):
             timeout=timeout,
             delay_seconds=delay_seconds,
             stop_requested=stop_requested,
-            progress_callback=progress_callback,
+            progress_callback=capture_progress,
         ):
             if _should_stop(stop_requested):
                 return

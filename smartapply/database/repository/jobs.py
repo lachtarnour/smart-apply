@@ -9,7 +9,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from smartapply.database.models import Job, JobScore, JobStatus
+from smartapply.database.models import Job, JobScore, JobStatus, ShortlistOrigin
 
 
 def upsert_job(session: Session, *, external_id: str, **fields: Any) -> Job:
@@ -27,9 +27,7 @@ def upsert_job(session: Session, *, external_id: str, **fields: Any) -> Job:
 
 
 def get_job_by_external_id(session: Session, external_id: str) -> Job | None:
-    return session.execute(
-        select(Job).where(Job.external_id == external_id)
-    ).scalar_one_or_none()
+    return session.execute(select(Job).where(Job.external_id == external_id)).scalar_one_or_none()
 
 
 def get_known_external_ids(session: Session, source: str) -> set[str]:
@@ -90,6 +88,37 @@ def mark_ranked(session: Session, job_id: int) -> None:
         job.ranked_at = datetime.now(timezone.utc)
 
 
+def set_shortlisted(
+    session: Session,
+    job_id: int,
+    *,
+    selected: bool,
+    origin: str | None = None,
+) -> Job | None:
+    """Persist a Top selection as the offer's canonical status."""
+    job = session.get(Job, job_id)
+    if job is None or job.archived_at is not None:
+        return None
+
+    if selected:
+        now = datetime.now(timezone.utc)
+        job.shortlisted_at = job.shortlisted_at or now
+        if origin == ShortlistOrigin.MANUAL or job.shortlist_origin != ShortlistOrigin.MANUAL:
+            job.shortlist_origin = origin or ShortlistOrigin.AUTOMATIC
+        job.filtered_at = job.filtered_at or now
+        job.ranked_at = job.ranked_at or now
+        # Shortlisting is a first-class offer state. Application tracking is
+        # stored on Application and must not turn this into two UI labels.
+        job.status = JobStatus.SHORTLISTED
+        return job
+
+    job.shortlisted_at = None
+    job.shortlist_origin = None
+    if job.status == JobStatus.SHORTLISTED:
+        job.status = JobStatus.ANALYZED if job.analyzed_at is not None else JobStatus.FILTERED
+    return job
+
+
 def mark_analyzed(session: Session, job_id: int) -> None:
     job = session.get(Job, job_id)
     if job is not None:
@@ -97,7 +126,7 @@ def mark_analyzed(session: Session, job_id: int) -> None:
 
 
 def mark_archived(session: Session, job_id: int) -> None:
-    """Mark archived in both the timestamp and the legacy status enum."""
+    """Mark a job archived in both routing and display state."""
     job = session.get(Job, job_id)
     if job is not None:
         job.archived_at = datetime.now(timezone.utc)
@@ -131,6 +160,8 @@ def rescue_archived_job(
     job.analyzed_at = None
     job.filtered_at = now
     job.ranked_at = now
+    job.shortlisted_at = now
+    job.shortlist_origin = ShortlistOrigin.MANUAL
     job.status = JobStatus.SHORTLISTED
 
     audit: dict[str, Any] = {

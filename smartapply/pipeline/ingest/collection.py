@@ -27,14 +27,16 @@ def collect_round_robin(
     known_external_ids: set[str] | None = None,
     known_index: _KnownJobIndex | None = None,
     stop_requested: Callable[[], bool] | None = None,
+    primary_query_count: int | None = None,
 ) -> _CollectResult:
-    """Collect results fairly across expanded queries.
+    """Collect primary searches, then aliases fairly within each tier.
 
     ``max_results`` is the global target of **new** offers (not yet in
-    the DB), not a per-query quota and not a raw-fetch quota. The
-    round-robin keeps paginating past already-known offers until it
-    either accumulates ``max_results`` new ones, exhausts the source,
-    or hits the raw-scan safety cap.
+    the DB), not a per-query quota and not a raw-fetch quota. Explicit user
+    searches form the primary tier. Alias iterators are only
+    opened if that tier cannot supply ``max_results`` new offers. Inside each
+    tier, the round-robin keeps paginating past already-known offers until it
+    reaches the target, exhausts the tier, or hits the raw-scan safety cap.
 
     ``known_external_ids`` is the set of offers already persisted for
     this source. Offers in that set are skipped before counting
@@ -64,49 +66,34 @@ def collect_round_robin(
     scraper_search_kwargs = dict(search_kwargs)
     if stop_requested is not None:
         scraper_search_kwargs["stop_requested"] = stop_requested
-    iterators = [
-        iter(
-            scraper.search(
-                concrete_query,
-                location=location,
-                max_results=scraper_budget,
-                **scraper_search_kwargs,
-            )
-        )
-        for concrete_query in queries
-    ]
-    active = [True] * len(iterators)
     hit_cap = False
-    while any(active):
-        for i, iterator in enumerate(iterators):
-            if not active[i]:
-                continue
-            if _should_stop(stop_requested):
-                logger.warning(
-                    "Collection cancelled before next item: source=%s raw_jobs=%s raw_seen=%s",
-                    source,
-                    len(raw_jobs),
-                    raw_seen,
+    query_tiers = _query_tiers(queries, primary_query_count)
+    for tier_index, tier_queries in enumerate(query_tiers):
+        if tier_index:
+            logger.info(
+                "Primary searches exhausted below target; starting %d alias fallback(s): source=%s",
+                len(tier_queries),
+                source,
+            )
+        iterators = [
+            iter(
+                scraper.search(
+                    concrete_query,
+                    location=location,
+                    max_results=scraper_budget,
+                    **scraper_search_kwargs,
                 )
-                return _CollectResult(
-                    raw_jobs,
-                    skipped_known,
-                    skipped_existing,
-                    hit_cap,
-                    cancelled=True,
-                )
-            if max_results is not None and len(raw_jobs) >= max_results:
-                return _CollectResult(raw_jobs, skipped_known, skipped_existing, hit_cap)
-            if raw_seen_cap is not None and raw_seen >= raw_seen_cap:
-                hit_cap = True
-                return _CollectResult(raw_jobs, skipped_known, skipped_existing, hit_cap)
-            try:
-                raw = next(iterator)
-            except StopIteration:
-                active[i] = False
+            )
+            for concrete_query in tier_queries
+        ]
+        active = [True] * len(iterators)
+        while any(active):
+            for i, iterator in enumerate(iterators):
+                if not active[i]:
+                    continue
                 if _should_stop(stop_requested):
                     logger.warning(
-                        "Collection cancelled after iterator stopped: source=%s raw_jobs=%s raw_seen=%s",
+                        "Collection cancelled before next item: source=%s raw_jobs=%s raw_seen=%s",
                         source,
                         len(raw_jobs),
                         raw_seen,
@@ -118,39 +105,77 @@ def collect_round_robin(
                         hit_cap,
                         cancelled=True,
                     )
-                continue
-            raw_seen += 1
-            if raw.external_id in seen_external_ids:
-                # Intra-call deduplication (e.g. the same offer surfaced
-                # by two expanded queries) — silent, do not count.
-                continue
-            seen_external_ids.add(raw.external_id)
-            if raw.external_id in known:
-                # Already persisted by a previous run: skip *without*
-                # touching ``max_results`` so we keep looking for new
-                # offers further down the API feed.
-                skipped_known += 1
-                continue
-            if known_jobs.matches(raw):
-                skipped_existing += 1
-                continue
-            raw_jobs.append(raw)
-            if max_results is not None and len(raw_jobs) >= max_results:
-                return _CollectResult(raw_jobs, skipped_known, skipped_existing, hit_cap)
-            if _should_stop(stop_requested):
-                logger.warning(
-                    "Collection cancelled after accepted item: source=%s raw_jobs=%s raw_seen=%s",
-                    source,
-                    len(raw_jobs),
-                    raw_seen,
-                )
-                return _CollectResult(
-                    raw_jobs,
-                    skipped_known,
-                    skipped_existing,
-                    hit_cap,
-                    cancelled=True,
-                )
+                if max_results is not None and len(raw_jobs) >= max_results:
+                    return _CollectResult(
+                        raw_jobs,
+                        skipped_known,
+                        skipped_existing,
+                        hit_cap,
+                    )
+                if raw_seen_cap is not None and raw_seen >= raw_seen_cap:
+                    hit_cap = True
+                    return _CollectResult(
+                        raw_jobs,
+                        skipped_known,
+                        skipped_existing,
+                        hit_cap,
+                    )
+                try:
+                    raw = next(iterator)
+                except StopIteration:
+                    active[i] = False
+                    if _should_stop(stop_requested):
+                        logger.warning(
+                            "Collection cancelled after iterator stopped: source=%s raw_jobs=%s raw_seen=%s",
+                            source,
+                            len(raw_jobs),
+                            raw_seen,
+                        )
+                        return _CollectResult(
+                            raw_jobs,
+                            skipped_known,
+                            skipped_existing,
+                            hit_cap,
+                            cancelled=True,
+                        )
+                    continue
+                raw_seen += 1
+                if raw.external_id in seen_external_ids:
+                    # Intra-call deduplication (e.g. the same offer surfaced
+                    # by two expanded queries) — silent, do not count.
+                    continue
+                seen_external_ids.add(raw.external_id)
+                if raw.external_id in known:
+                    # Already persisted by a previous run: skip *without*
+                    # touching ``max_results`` so we keep looking for new
+                    # offers further down the API feed.
+                    skipped_known += 1
+                    continue
+                if known_jobs.matches(raw):
+                    skipped_existing += 1
+                    continue
+                raw_jobs.append(raw)
+                if max_results is not None and len(raw_jobs) >= max_results:
+                    return _CollectResult(
+                        raw_jobs,
+                        skipped_known,
+                        skipped_existing,
+                        hit_cap,
+                    )
+                if _should_stop(stop_requested):
+                    logger.warning(
+                        "Collection cancelled after accepted item: source=%s raw_jobs=%s raw_seen=%s",
+                        source,
+                        len(raw_jobs),
+                        raw_seen,
+                    )
+                    return _CollectResult(
+                        raw_jobs,
+                        skipped_known,
+                        skipped_existing,
+                        hit_cap,
+                        cancelled=True,
+                    )
     return _CollectResult(
         raw_jobs,
         skipped_known,
@@ -162,6 +187,16 @@ def collect_round_robin(
 
 def _should_stop(stop_requested: Callable[[], bool] | None) -> bool:
     return bool(stop_requested and stop_requested())
+
+
+def _query_tiers(
+    queries: list[str],
+    primary_query_count: int | None,
+) -> tuple[list[str], ...]:
+    if primary_query_count is None or primary_query_count >= len(queries):
+        return (queries,)
+    boundary = max(1, primary_query_count)
+    return (queries[:boundary], queries[boundary:])
 
 
 def _collection_budget(

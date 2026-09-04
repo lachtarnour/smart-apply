@@ -30,25 +30,28 @@ _YEAR_MENTION_RE = re.compile(
     r"(?P<unit>ans?|annees?|years?|yrs?)\b"
 )
 
-_MONTH_MENTION_RE = re.compile(
-    r"\b(?P<amount>\d{1,3})\s*(?P<unit>mois|months?)\b"
-)
+_MONTH_MENTION_RE = re.compile(r"\b(?P<amount>\d{1,3})\s*(?P<unit>mois|months?)\b")
 
 _COMPANY_EXPERIENCE_CONTEXT_RE = re.compile(
     r"\b(?:entreprise|societe|cabinet|groupe|acteur|editeur|client|"
-    r"notre\s+client|marche|organisation|structure)\b"
+    r"notre\s+client|marche|organisation|structure|company|firm|business|"
+    r"employer|organisation|organization|our\s+company|our\s+team)\b"
     r"|"
     r"\b(?:forte?s?\s+de|depuis|plus\s+de|a\s+plus\s+de|"
     r"cree(?:e)?\s+il\s+y\s+a|fondee?\s+il\s+y\s+a|"
-    r"existe\s+depuis|acteur\s+depuis|accompagne\s+depuis)\b"
+    r"existe\s+depuis|acteur\s+depuis|accompagne\s+depuis|"
+    r"founded|established|operating\s+since|in\s+business\s+for|"
+    r"has\s+been\s+(?:operating|active)|we\s+have\s+been)\b"
     r"|"
-    r"\b(?:savoir-faire|savoir\s+faire|existence|histoire|anciennete)\b"
+    r"\b(?:savoir-faire|savoir\s+faire|existence|histoire|anciennete|"
+    r"track\s+record|company\s+history|industry\s+experience)\b"
 )
 
 _OPTIONAL_CONTEXT_RE = re.compile(
     r"\b(?:idealement|souhaite(?:e|s|es)?|souhaitable|apprecie(?:e|s|es)?|"
     r"serait\s+(?:apprecie|un\s+plus)|un\s+plus|est\s+un\s+plus|"
-    r"preferre(?:e|s|es)?|preferred|desired|nice\s+to\s+have|bonus|"
+    r"prefere(?:e|s|es)?|ideally|preferably|preferred|desired|desirable|"
+    r"optional|nice\s+to\s+have|would\s+be\s+(?:a\s+plus|preferred)|bonus|"
     r"premiere\s+experience\s+appreciee?|experience\s+significative)\b"
 )
 
@@ -60,9 +63,22 @@ _AGE_CONTEXT_RE = re.compile(
 
 _CANDIDATE_SUBJECT_REQUIRED_RE = re.compile(
     r"\b(?:vous|tu)\s+"
-    r"(?:justifiez|disposez|avez|possedez|presentez|beneficiez)\b"
+    r"(?:(?:devez|devrez)\s+)?"
+    r"(?:justifiez|dispos(?:ez|erez)|avez|aurez|possedez|possederez|"
+    r"presentez|presenterez|beneficiez|justifier|disposer|avoir|posseder)\b"
     r"|"
-    r"\b(?:you)\s+(?:have|bring|possess)\b"
+    r"\byou\s+(?:(?:must|should|need\s+to|will)\s+)?"
+    r"(?:have|bring|possess|demonstrate)\b"
+    r"|"
+    r"\b(?:the\s+)?(?:ideal\s+)?(?:candidates?|applicants?|person)\s+"
+    r"(?:must\s+|should\s+|will\s+)?(?:has|have|brings?|possesses|"
+    r"demonstrates?)\b"
+    r"|"
+    r"\b(?:candidat(?:e)?s?|profils?)\s+"
+    r"(?:doit\s+|devra\s+)?(?:a|avoir|justifie|justifier|dispose|disposer|"
+    r"possede|posseder)\b"
+    r"|"
+    r"\b(?:candidates?|applicants?|person|someone|profils?)\s+(?:avec|with)\b"
 )
 
 _REQUIRED_MARKER_RE = re.compile(
@@ -195,18 +211,14 @@ def required_min_years(text: str | None) -> int | None:
             if _is_age_context(cleaned, match):
                 continue
 
-            has_plus_or_range = bool(
-                pattern is _YEAR_MENTION_RE and match.group("modifier")
-            )
+            has_plus_or_range = bool(pattern is _YEAR_MENTION_RE and match.group("modifier"))
             window = _context(cleaned, match)
             hard_required = _has_hard_required_marker_context(cleaned, match)
             candidate_subject = _has_candidate_subject_required_context(
                 cleaned,
                 match,
             )
-            if _is_company_experience_context(window) and not (
-                hard_required or candidate_subject
-            ):
+            if _is_company_experience_context(window) and not (hard_required or candidate_subject):
                 continue
 
             required = _is_candidate_required_context(

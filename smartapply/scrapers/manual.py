@@ -22,7 +22,7 @@ from smartapply.offers.sources.manual import ManualOfferAdapter, ManualOfferInpu
 _DEFAULT_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 CandiPilot/0.1"
+        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Elan/0.1"
     )
 }
 
@@ -49,10 +49,6 @@ class ManualScraper:
         company: str,
         location: str | None = None,
         application_url: str | None = None,
-        company_description: str | None = None,
-        company_url: str | None = None,
-        recruiter: str | None = None,
-        structured: bool = False,
     ) -> RawJob:
         return self.adapter.from_text(
             text,
@@ -60,10 +56,6 @@ class ManualScraper:
             company=company,
             location=location,
             application_url=application_url,
-            company_description=company_description,
-            company_url=company_url,
-            recruiter=recruiter,
-            structured=structured,
         )
 
     # -------------------- from url --------------------
@@ -124,7 +116,9 @@ class ManualScraper:
 
     @staticmethod
     def _extract_text(soup: BeautifulSoup) -> str:
-        for tag in soup(["script", "style", "noscript", "iframe", "svg", "header", "footer", "nav"]):
+        for tag in soup(
+            ["script", "style", "noscript", "iframe", "svg", "header", "footer", "nav"]
+        ):
             tag.decompose()
         text = soup.get_text("\n", strip=True)
         text = re.sub(r"\n{3,}", "\n\n", text)

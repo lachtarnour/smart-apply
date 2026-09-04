@@ -1,16 +1,19 @@
 """Render the CV and motivation letter for one application.
 
 DOCX is generated for the candidate (editable). HTML and PDF are the
-canonical recruiter-facing artifacts. The renderer never raises on PDF
-failure — it logs a warning and lets the .eml fall back to DOCX.
+canonical recruiter-facing artifacts. PDF failures keep the editable DOCX
+available and are surfaced as validation warnings.
 """
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from smartapply.config import get_settings
 from smartapply.cv import CvDocxRenderer, HtmlApplicationRenderer
+from smartapply.cv.role_contracts import offer_anchored_categories
+from smartapply.cv.skill_display import compact_sparse_secondary_categories
 from smartapply.database.repository import upsert_document
 from smartapply.llm import MotivationLetter
 from smartapply.logging_setup import get_logger
@@ -37,70 +40,85 @@ class ApplicationDocumentRenderer:
         *,
         report: ApplyReport,
         adapted,
-        letter_draft: MotivationLetter,
+        letter: MotivationLetter,
         job_title: str,
         job_company: str,
-        contact_email: str | None,
         language: str,
+        role_family: str | None = None,
+        analysis=None,
+        output_dir: Path | None = None,
     ) -> None:
         """Generate every artifact and populate the corresponding report fields."""
-        out_dir = application_output_dir(self.settings.output_dir, report.application_id)
+        out_dir = output_dir or application_output_dir(
+            self.settings.output_dir,
+            report.application_id,
+        )
         safe_name = self.profile.identity.full_name.replace(" ", "_")
+        display_adapted, skill_merges = compact_sparse_secondary_categories(
+            adapted,
+            primary_family=role_family or "",
+            enabled=getattr(self.settings, "cv_merge_sparse_secondary_skills", True),
+            min_standalone_skills=getattr(
+                self.settings,
+                "cv_secondary_skill_block_min_size",
+                4,
+            ),
+            protected_categories=(
+                offer_anchored_categories(adapted, analysis) if analysis else None
+            ),
+        )
+        if skill_merges:
+            logger.info(
+                "Compacted sparse secondary skill categories for job %s: %s",
+                report.job_id,
+                [
+                    f"{merge.source_category}->{merge.target_category}"
+                    for merge in skill_merges
+                ],
+            )
 
         # ---- DOCX (always — candidate fallback) ----
         docx_path = out_dir / f"CV_{safe_name}.docx"
-        self.docx.save(adapted, docx_path)
+        self.docx.save(display_adapted, docx_path)
         report.docx_path = str(docx_path)
 
         # ---- HTML sources ----
         cv_html_path = out_dir / f"CV_{safe_name}.html"
         letter_html_path = out_dir / f"Lettre_motivation_{safe_name}.html"
-        self.html.save_cv_html(adapted, cv_html_path)
+        self.html.save_cv_html(display_adapted, cv_html_path)
         self.html.save_letter_html(
-            email_draft=letter_draft,
+            letter=letter,
             job_title=job_title,
             job_company=job_company,
-            contact_email=contact_email,
             path=letter_html_path,
             language=language,
-            letter_headline=adapted.cv_title,
+            letter_headline=display_adapted.cv_title,
         )
         report.cv_html_path = str(cv_html_path)
         report.letter_html_path = str(letter_html_path)
 
         # ---- PDF (best effort — DOCX is the fallback) ----
+        cv_pdf_path = out_dir / f"CV_{safe_name}.pdf"
+        letter_pdf_path = out_dir / f"Lettre_motivation_{safe_name}.pdf"
         try:
-            cv_pdf_path = out_dir / f"CV_{safe_name}.pdf"
-            letter_pdf_path = out_dir / f"Lettre_motivation_{safe_name}.pdf"
-            self.html.save_cv_pdf(adapted, cv_pdf_path)
+            self.html.save_cv_pdf(display_adapted, cv_pdf_path)
             self.html.save_letter_pdf(
-                email_draft=letter_draft,
+                letter=letter,
                 job_title=job_title,
                 job_company=job_company,
-                contact_email=contact_email,
                 path=letter_pdf_path,
                 language=language,
-                letter_headline=adapted.cv_title,
+                letter_headline=display_adapted.cv_title,
             )
             report.cv_pdf_path = str(cv_pdf_path)
             report.letter_pdf_path = str(letter_pdf_path)
         except Exception as exc:
+            cv_pdf_path.unlink(missing_ok=True)
+            letter_pdf_path.unlink(missing_ok=True)
+            report.cv_pdf_path = None
+            report.letter_pdf_path = None
             logger.warning("HTML PDF rendering skipped: %s", exc)
             report.validation_warnings.append(f"pdf_generation_skipped:{exc}")
-
-    @staticmethod
-    def attachment_paths(report: ApplyReport) -> list[str]:
-        """Return email-safe PDF attachments only.
-
-        The DOCX CV remains downloadable in the UI, but it must not be sent as
-        an email/Gmail attachment.
-        """
-        paths: list[str] = []
-        if report.cv_pdf_path:
-            paths.append(report.cv_pdf_path)
-        if report.letter_pdf_path:
-            paths.append(report.letter_pdf_path)
-        return paths
 
     @staticmethod
     def add_document_rows(session, application_id: int, report: ApplyReport) -> None:

@@ -6,12 +6,6 @@ from smartapply.database.repository.applications import (
     list_applications,
     update_application_tracking,
 )
-from smartapply.database.repository.contacts import (
-    add_contact,
-    find_contacts_for,
-    get_contact_lookup_cache,
-    upsert_contact_lookup_cache,
-)
 from smartapply.database.repository.documents import add_document, upsert_document
 from smartapply.database.repository.jobs import (
     get_job_by_external_id,
@@ -24,25 +18,24 @@ from smartapply.database.repository.jobs import (
     mark_filtered,
     mark_ranked,
     rescue_archived_job,
+    set_shortlisted,
     update_status,
     upsert_job,
 )
 from smartapply.database.repository.llm_cache import (
     cache_get,
     cache_set,
+    purge_expired_cache,
     record_usage,
     total_cost,
 )
 from smartapply.database.repository.scores import set_score, top_jobs_by_score
 
 __all__ = [
-    "add_contact",
     "add_document",
     "cache_get",
     "cache_set",
     "create_or_get_application",
-    "find_contacts_for",
-    "get_contact_lookup_cache",
     "get_job_by_external_id",
     "get_known_external_ids",
     "list_applications",
@@ -53,15 +46,16 @@ __all__ = [
     "mark_archived",
     "mark_filtered",
     "mark_ranked",
+    "purge_expired_cache",
     "record_usage",
     "rescue_archived_job",
+    "set_shortlisted",
     "set_analysis",
     "set_score",
     "top_jobs_by_score",
     "total_cost",
     "update_application_tracking",
     "update_status",
-    "upsert_contact_lookup_cache",
     "upsert_document",
     "upsert_job",
 ]

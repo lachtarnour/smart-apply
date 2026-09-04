@@ -35,7 +35,7 @@ LinkedIn, tout en gardant les champs bruts dans `source_data` pour audit.
 
 Paramètres importants :
 
-| Paramètre | Origine CandiPilot |
+| Paramètre | Origine Élan |
 | --- | --- |
 | `title` | Requête rôle. |
 | `location` | Localisation demandée. |
@@ -53,7 +53,7 @@ Codes OpenAPI utiles :
 | `experienceLevel` | `1=Internship`, `2=Entry level`, `3=Associate`, `4=Mid-Senior level`, `5=Director`, `6=Executive`. |
 | `remote` | `1=On-site`, `2=Remote`, `3=Hybrid`. |
 
-Stratégie expérience : CandiPilot appelle d'abord LinkedIn avec
+Stratégie expérience : Élan appelle d'abord LinkedIn avec
 `experienceLevel=["2", "3"]`. Si le nombre d'offres retournées est inférieur à
 `max_results`, il lance un second appel avec `experienceLevel=["4"]` et
 `skipJobId` pour éviter de revoir les offres déjà collectées.

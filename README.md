@@ -1,173 +1,235 @@
-# CandiPilot
+# Élan
 
-CandiPilot est un assistant de candidature pour le marché français. Il recherche des offres, filtre les doublons, classe les opportunités par pertinence, génère un dossier adapté (CV, lettre, email) et prépare un brouillon Gmail ou un export `.eml`.
+<p align="center">
+  <strong>A focused workspace for a smarter job search.</strong><br>
+  Discover relevant opportunities, understand your fit, tailor your documents, and track every application from one native macOS app.
+</p>
 
-Le principe est simple : automatiser la préparation, jamais l'envoi. Chaque candidature reste sous contrôle humain.
+<p align="center">
+  <a href="https://github.com/lachtarnour/smart-apply/stargazers"><img src="https://img.shields.io/github/stars/lachtarnour/smart-apply?style=flat&color=7c5cff" alt="GitHub stars"></a>
+  <a href="https://github.com/lachtarnour/smart-apply/network/members"><img src="https://img.shields.io/github/forks/lachtarnour/smart-apply?style=flat&color=55bd92" alt="GitHub forks"></a>
+  <img src="https://img.shields.io/badge/macOS-13%2B-111017?logo=apple&logoColor=white" alt="macOS 13+"><br>
+  <img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white" alt="Python 3.10+">
+  <img src="https://img.shields.io/badge/License-MIT-55bd92" alt="MIT License">
+</p>
 
-![Tableau de bord CandiPilot](docs/screenshots/dashboard.png)
+<p align="center">
+  <img src="docs/screenshots/dashboard.png" alt="Élan dashboard showing application progress and recent applications" width="1000">
+</p>
 
-## Fonctionnalités
+<p align="center"><em>One place to see what needs attention next.</em></p>
 
-- Recherche multi-sources : France Travail, Welcome to the Jungle, LinkedIn via Apify, Google Jobs via SerpApi et saisie manuelle.
-- Filtrage local : dédoublonnage, signaux de contrat, localisation, rôle et niveau d'expérience.
-- Scoring sémantique : classement des offres selon le profil candidat.
-- Génération assistée par IA : CV, lettre de motivation et email adaptés à l'offre.
-- Validation anti-hallucination : les éléments générés doivent rester rattachés au profil source.
-- Finalisation contrôlée : brouillon Gmail ou export `.eml`, sans envoi automatique.
-- Dashboard Streamlit : workflow guidé, offres, candidatures, profil et statistiques.
+## Overview
 
-## Démarrage rapide
+Job boards provide volume, but not enough context. Élan turns a scattered job search into a structured workflow:
 
-```bash
-make install-all
-cp .env.example .env
-make init-db
-make test
-make run-app
+```text
+Discover → Filter → Rank → Review → Tailor documents → Track applications
 ```
 
-Installation minimale, sans UI, PDF et Gmail :
+It collects opportunities from several sources, removes duplicates, evaluates fit against a candidate profile, generates grounded application documents, and keeps the final decision with the candidate.
 
-```bash
-make install
-```
+## Features
 
-L'application Streamlit se lance avec :
-
-```bash
-make run-app
-```
-
-## Configuration
-
-Renseigner les variables utiles dans `.env` après copie de `.env.example`.
-
-| Variable | Usage | Obligatoire |
-|---|---|---|
-| `OPENAI_API_KEY` | LLM et embeddings | Oui, sauf provider `mock` |
-| `FRANCETRAVAIL_CLIENT_ID` / `FRANCETRAVAIL_CLIENT_SECRET` | API France Travail | Si la source est active |
-| `SERPAPI_API_KEY` | Google Jobs via SerpApi | Si la source est active |
-| `APIFY_TOKEN` | LinkedIn Jobs via Apify | Si la source `linkedin` est active |
-| `LINKEDIN_MAX_RESULTS` | Limite globale des appels LinkedIn/Apify, maximum `300` | Optionnel |
-| `WTTJ_COOKIE` | Welcome to the Jungle | Si la source est active |
-| `GMAIL_CREDENTIALS_PATH` | Création de brouillons Gmail | Optionnel |
-| `ANYMAILFINDER_API_KEY` | Enrichissement de contacts | Optionnel |
-| `PROFILE_DIR` | Dossier du profil local privé, par défaut `./smartapply/profile/data` | Optionnel |
-| `TOP_K_RANKED` | Nombre d'offres retenues pour analyse | Optionnel |
-| `EMBEDDINGS_PROVIDER` | `openai`, `local` ou `mock` | Optionnel |
-
-Le dossier `smartapply/profile/data/` est volontairement local et ignoré par Git,
-car il contient des données personnelles. Le dossier versionné
-`smartapply/profile/mock_profile/` donne uniquement la forme attendue des JSON.
-
-## Workflow
-
-![Workflow CandiPilot - collecte](docs/screenshots/workflow-collecte.png)
-
-![Workflow CandiPilot - finalisation](docs/screenshots/workflow-finalisation.png)
-
-| Étape | Objectif | Sortie |
-|---|---|---|
-| 1. Collecte | Chercher les offres, filtrer localement et dédoublonner | Offres candidates |
-| 2. Scoring | Classer les offres selon le profil | Shortlist priorisée |
-| 3. Analyse | Extraire les critères, risques et contacts utiles | Fiche offre structurée |
-| 4. Dossier | Produire CV, lettre et email personnalisés | Dossier de candidature |
-| 5. Action | Prévisualiser puis créer un brouillon Gmail, soumettre un formulaire ou exporter un `.eml` | Candidature prête |
-
-Deux modes sont disponibles :
-
-- **Recherche contrôlée** : validation manuelle à chaque étape.
-- **Autopilot express** : génération en bloc avec quality gate, sans envoi automatique.
+- **Multi-source search** — France Travail, Welcome to the Jungle, LinkedIn through Apify, and Google Jobs through SerpApi.
+- **Local and bilingual filtering** — relevance, location, seniority, contract type, and language rules run locally before ranking.
+- **Explainable matching** — alignment scores and review points help prioritize opportunities without making decisions for you.
+- **Grounded documents** — tailored CVs and motivation letters are checked against the source profile before they are saved.
+- **Application tracking** — statuses, follow-up dates, review points, documents, and next actions stay together.
+- **Local-first storage** — profile data, SQLite database, cache, and generated documents remain on your Mac by default.
 
 ## Interface
 
-| Page | Description |
-|---|---|
-| [Tableau de bord](docs/screenshots/dashboard.png) | Vue de pilotage et prochaine action prioritaire |
-| [Workflow](docs/screenshots/workflow-collecte.png) | Pipeline guidé, manuel ou autopilot |
-| [Offres](docs/screenshots/offres.png) | Recherche, détail et récupération d'offres archivées |
-| [Candidatures](docs/screenshots/candidature-finalisation.png) | Dossiers générés, formulaires et actions finales |
-| [Profil](docs/screenshots/profil.png) | Profil candidat et sources utilisées par le validateur |
-| [Stats](docs/screenshots/stats-entonnoir.png) | Entonnoir logique du pipeline et blocages à surveiller |
-| [Autopilot](docs/screenshots/autopilot.png) | Runs haut volume contrôlés |
+The screenshots below show the current desktop interface, in the order a user typically moves through the product.
 
-### Finalisation et suivi
+<p align="center">
+  <img src="docs/screenshots/search.png" alt="Élan search screen with job title, location, freshness, and source filters" width="1000">
+</p>
+<p align="center"><em>1. Search across several job sources with one set of criteria.</em></p>
 
-![Détail d'une candidature prête](docs/screenshots/candidature-finalisation.png)
+<p align="center">
+  <img src="docs/screenshots/jobs.png" alt="Élan jobs screen with ranked opportunities and fit explanations" width="1000">
+</p>
+<p align="center"><em>2. Review ranked opportunities, scores, statuses, and fit explanations.</em></p>
 
-![Entonnoir logique du pipeline](docs/screenshots/stats-entonnoir.png)
+<p align="center">
+  <img src="docs/screenshots/applications.png" alt="Élan application tracking screen with status and review points" width="1000">
+</p>
+<p align="center"><em>3. Prepare, review, and follow up on each application.</em></p>
 
-## CLI
+## Quick start
+
+### Requirements
+
+- macOS 13 or later
+- Python 3.10 or later
+
+### Install and run
 
 ```bash
-candipilot init-db
-candipilot ingest --source francetravail --query "Data Scientist" -l "Paris" --date-posted week
-candipilot ingest --source linkedin --query "Data Scientist" -l "France" --date-posted today --max-results 10
-candipilot ingest-url --url https://example.com/jobs/42
-candipilot ingest-text --title "ML Engineer" --company "Acme" --file offer.txt
-candipilot process --top-k 20
-candipilot apply --job-id 42 --gmail-draft
-candipilot pipeline --source francetravail --query "Data Scientist" -l "Paris" --top-apply 5
-candipilot autopilot --query "Data Scientist OR ML Engineer" -l "Paris" --target-drafts 25 --gmail-draft
-candipilot stats
+git clone https://github.com/lachtarnour/smart-apply.git
+cd smart-apply
+
+cp .env.example .env
+make install-desktop
+make init-db
+make run-desktop
 ```
 
-La commande historique `smartapply` reste disponible comme alias.
+To build the standalone macOS application:
+
+```bash
+make build-macos
+open dist/Elan.app
+```
+
+For a first run without external credentials, use the mock providers in `.env`:
+
+```dotenv
+LLM_PROVIDER=mock
+EMBEDDINGS_PROVIDER=mock
+```
+
+Add API credentials only for the sources and providers you want to use.
+
+## Configuration
+
+Copy `.env.example` to `.env`. The main settings are:
+
+| Variable | Purpose | Required when… |
+|---|---|---|
+| `OPENAI_API_KEY` | Analysis, document adaptation, and embeddings | `LLM_PROVIDER` is not `mock` |
+| `FRANCETRAVAIL_CLIENT_ID` / `FRANCETRAVAIL_CLIENT_SECRET` | France Travail API access | France Travail is enabled |
+| `SERPAPI_API_KEY` | Google Jobs access | Google Jobs is enabled |
+| `APIFY_TOKEN` | LinkedIn job collection through Apify | LinkedIn is enabled |
+| `WTTJ_COOKIE` | Welcome to the Jungle access | WTTJ is enabled |
+| `EMBEDDINGS_PROVIDER` | `openai`, `local`, or `mock` | optional |
+| `PROFILE_DIR` | Location of the private candidate profile | optional |
+
+By default, runtime data is stored under `~/Library/Application Support/Elan`. Keep personal information, API keys, and generated documents out of version control.
+
+## Adapt Élan to another profile or project
+
+Élan is designed to be adapted. The repository publishes a safe example profile, while the deterministic matching rules are tuned for the original use case. When adapting the project to another candidate, country, role family, or hiring policy, update both the profile data and the static filters.
+
+### 1. Replace the profile data
+
+[`smartapply/profile/mock_profile/`](smartapply/profile/mock_profile/) is the published reference profile. It documents the expected JSON structure and contains no private candidate data.
+
+Create a private working profile from it:
+
+```bash
+mkdir -p smartapply/profile/data
+cp smartapply/profile/mock_profile/*.json smartapply/profile/data/
+```
+
+Edit the files in `smartapply/profile/data/`:
+
+| File | Content |
+|---|---|
+| `identity.json` | Name, contact details, title, location, and summary |
+| `preferences.json` | Target roles, accepted contracts, remote policies, languages, domains, and deal-breakers |
+| `skills.json` | Skills, matching keywords, evidence, and allowed claims |
+| `experiences.json` | Work history and verifiable achievements |
+| `projects.json`, `education.json`, `languages.json`, `certificates.json` | Optional supporting information |
+| `style_guide.json`, `template_style.json` | Writing and document presentation preferences |
+
+Set `PROFILE_DIR` in `.env` when the private profile lives outside `smartapply/profile/data/`. Do not commit real personal information; `mock_profile` is the publishable template.
+
+### 2. Update the hard-coded static filters
+
+The profile controls the main user preferences, but several deterministic vocabularies and safety gates are hard-coded for predictable filtering. Review these files when the default behavior does not match your domain:
+
+| File | What to change |
+|---|---|
+| [`smartapply/filtering/rules.py`](smartapply/filtering/rules.py) | Positive and negative title keywords, hard rejects, seniority gates, description penalties, blocked contracts, and score thresholds |
+| [`smartapply/pipeline/ingest/role_families.py`](smartapply/pipeline/ingest/role_families.py) | Search role families and bilingual aliases used to expand search queries |
+| [`smartapply/filtering/relevance.py`](smartapply/filtering/relevance.py) | Bilingual role concepts, title patterns, technical concepts, and off-target role patterns |
+| [`smartapply/filtering/role_signals.py`](smartapply/filtering/role_signals.py) | Domain, analytics, engineering, and off-target signal vocabularies |
+| [`smartapply/filtering/contract_signals.py`](smartapply/filtering/contract_signals.py) | Contract markers and contextual exceptions |
+| [`smartapply/filtering/seniority.py`](smartapply/filtering/seniority.py) | Seniority and people-management patterns |
+| [`smartapply/filtering/location_signals.py`](smartapply/filtering/location_signals.py) | Location markers and foreign-location detection patterns |
+
+Recommended order:
+
+1. Update `preferences.json` first.
+2. Adjust `rules.py` and `role_families.py` for the new target.
+3. Update the deeper signal files only when you need domain-specific vocabulary or different safety gates.
+4. Run the test suite after every filter change.
+
+```bash
+make test-fast
+```
 
 ## Architecture
 
 ```text
-Sources d'offres
-  -> parsing et dédoublonnage
-  -> filtrage local
-  -> scoring sémantique
-  -> analyse LLM structurée
-  -> génération CV / lettre / email
-  -> validation anti-hallucination
-  -> brouillon Gmail ou export .eml
-  -> suivi SQLite + dashboard Streamlit
+Job sources
+    ↓
+Normalization and deduplication
+    ↓
+Bilingual local filtering
+    ↓
+Semantic ranking
+    ↓
+Structured analysis
+    ↓
+CV and motivation-letter generation
+    ↓
+Deterministic validation
+    ↓
+Application tracking in SQLite
 ```
 
-Principaux modules :
+```text
+smartapply/
+├── scrapers/       Source connectors
+├── filtering/      Local rules and bilingual signals
+├── ranking/        Embeddings and scoring
+├── llm/            Prompts and structured outputs
+├── cv/             Adaptation, validation, and rendering
+├── pipeline/       Workflow orchestration
+├── database/       Local SQLite persistence
+└── desktop/        Qt Quick macOS application
+```
 
-- `smartapply/scrapers` : connecteurs d'offres.
-- `smartapply/offers` : contrats d'offres et adapters par source.
-- `smartapply/filtering` : signaux locaux et exclusions.
-- `smartapply/ranking` : embeddings et scoring.
-- `smartapply/llm` : analyse et génération structurées.
-- `smartapply/cv` : adaptation, validation et rendu du CV.
-- `smartapply/contacts` : recherche, validation et cache des contacts.
-- `smartapply/email_agent` : brouillons Gmail, exports `.eml` et template email.
-- `smartapply/pipeline` : orchestration du workflow.
-- `smartapply/app` : interface Streamlit.
-
-## Qualité et sécurité
-
-- Les tests locaux sont ignorés par Git et conçus pour tourner offline avec les API externes mockées.
-- La génération est encadrée par des schémas JSON stricts.
-- Les bullets de CV et la lettre sont contrôlés par des validateurs déterministes.
-- Gmail ne crée que des brouillons via `users().drafts().create`.
-- Les appels d'envoi Gmail sont bloqués par test statique.
-- Les secrets (`.env`, tokens, credentials) sont exclus du versionnement.
-- Le profil personnel (`smartapply/profile/data/`) est exclu du versionnement.
-- Le scraper manuel refuse les URLs locales, privées ou non HTTP(S).
-
-Commandes utiles :
+## Development
 
 ```bash
-make test
-make test-fast
 make lint
-make format
+make test-fast
+make build-macos
 ```
 
-## Documentation
+The maintenance CLI is available for diagnostics:
 
-- Architecture détaillée : [docs/architecture.md](docs/architecture.md)
-- Détails des sources : [docs/sources](docs/sources/)
-- Captures d'écran : [docs/screenshots](docs/screenshots/)
-- Configuration complète : [.env.example](.env.example)
+```bash
+elan --help
+elan init-db
+elan stats
+```
 
-## Licence
+## Roadmap
 
-MIT
+- [x] Multi-source search and manual offer entry
+- [x] Filtering, deduplication, and semantic ranking
+- [x] CV and motivation-letter generation with validation
+- [x] Application tracking workspace
+- [ ] Guided import of an existing CV
+- [ ] Additional connectors and optional synchronization
+- [ ] Simpler packaging and distribution
+
+## Contributing
+
+Bug reports, ideas, and pull requests are welcome. Please include context, reproduction steps, and an anonymized screenshot when relevant. Before opening a pull request, run:
+
+```bash
+make lint
+make test-fast
+```
+
+If Élan helps your job search, consider giving the project a ⭐ on GitHub. It helps other people discover it.
+
+## License
+
+MIT — see [LICENSE](LICENSE).

@@ -118,14 +118,10 @@ class CvValidator:
                 # Text overlap with source
                 overlap = fuzz.token_set_ratio(blt.text.lower(), src_bullet.text.lower())
                 if overlap < self.min_text_overlap:
-                    warnings.append(
-                        f"low_text_overlap:{blt.source_id} score={overlap}"
-                    )
+                    warnings.append(f"low_text_overlap:{blt.source_id} score={overlap}")
 
                 # Allowed-claims overlap (the soft anti-hallucination check)
-                claim_score = _best_claim_score(
-                    blt.text, src_bullet.effective_allowed_claims
-                )
+                claim_score = _best_claim_score(blt.text, src_bullet.effective_allowed_claims)
                 threshold = (
                     self.min_claim_overlap
                     if src_bullet.evidence_level == "verified"
@@ -139,9 +135,7 @@ class CvValidator:
 
                 # Bullet length
                 if len(blt.text) > self.max_bullet_len:
-                    warnings.append(
-                        f"bullet_too_long:{blt.source_id} len={len(blt.text)}"
-                    )
+                    warnings.append(f"bullet_too_long:{blt.source_id} len={len(blt.text)}")
 
         # ---- Projects ----
         for pid in cv.selected_project_ids:
@@ -171,9 +165,7 @@ class CvValidator:
         # ---- Summary length ----
         if len(cv.professional_summary) > self.max_summary_len:
             warnings.append(f"summary_too_long:len={len(cv.professional_summary)}")
-        summary_lines = [
-            line for line in cv.professional_summary.splitlines() if line.strip()
-        ]
+        summary_lines = [line for line in cv.professional_summary.splitlines() if line.strip()]
         if len(summary_lines) > self.max_summary_lines:
             warnings.append(f"summary_too_many_lines:lines={len(summary_lines)}")
 
@@ -198,9 +190,7 @@ class CvValidator:
                     continue
                 valid_bullets.append(blt)
             if valid_bullets:
-                cleaned_experiences.append(
-                    exp.model_copy(update={"bullets": valid_bullets})
-                )
+                cleaned_experiences.append(exp.model_copy(update={"bullets": valid_bullets}))
             else:
                 removed.append(f"empty_experience:{exp.source_id}")
 

@@ -5,12 +5,27 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from smartapply.cv.motivation_validator import normalize_french_elisions
+from smartapply.cv.role_family import (
+    classify,
+    classify_title,
+    cv_title_family_is_compatible,
+)
 from smartapply.database import session_scope
 from smartapply.database.models import Job
-from smartapply.email_agent import build_application_email
-from smartapply.llm import EmailDraft, JobAnalysis, MotivationLetter
-from smartapply.pipeline.language import detect_offer_language
+from smartapply.language import detect_offer_language
+from smartapply.llm import (
+    AdaptedCV,
+    JobAnalysis,
+    LLMError,
+    MotivationLetter,
+    MotivationLetterRepair,
+)
+from smartapply.llm.prompts import motivation_letter_repair
+from smartapply.logging_setup import get_logger
 from smartapply.pipeline.reports import ApplyReport
+
+logger = get_logger(__name__)
 
 _ANCHOR_STOPWORDS = {
     "and",
@@ -123,22 +138,18 @@ class CvWriterMixin:
         analysis: JobAnalysis,
         offer_language: str,
         document_company: str,
-    ) -> tuple[Any, MotivationLetter, EmailDraft]:
-        """Generate CV + motivation letter, then build the sending email."""
+        refresh_cache: bool = False,
+    ) -> tuple[Any, MotivationLetter]:
+        """Generate the adapted CV and motivation letter together."""
         adapted, letter_draft, _selection = self.adapter.adapt_application(
             analysis,
             job_title=job.title,
             job_company=document_company,
             language=offer_language,
             job_id=job.id,
+            refresh_cache=refresh_cache,
         )
-        email_draft = build_application_email(
-            candidate_name=self.profile.identity.full_name,
-            job_title=job.title,
-            job_company=document_company,
-            language=offer_language,
-        )
-        return adapted, letter_draft, email_draft
+        return adapted, letter_draft
 
     def _validate_with_auto_fix(self, adapted, report: ApplyReport):
         result = self.validator.validate(adapted)
@@ -165,6 +176,81 @@ class CvWriterMixin:
         report.validation_warnings.extend(result.warnings)
         report.validation_errors.extend(result.errors)
 
+    def _repair_letter_once(
+        self,
+        letter_draft: MotivationLetter,
+        adapted: AdaptedCV,
+        analysis: JobAnalysis,
+        *,
+        job_title: str,
+        job_company: str,
+        language: str,
+        job_id: int,
+        refresh_cache: bool = False,
+    ) -> MotivationLetter:
+        """Repair one letter-only defect with at most one cheap-model call.
+
+        The original letter is retained when there is no defect, more than one
+        defect, a provider failure, or a repair that introduces any new issue.
+        """
+        initial = self.letter_validator.validate(
+            letter_draft,
+            cv=adapted,
+            analysis=analysis,
+        )
+        defects = [*initial.errors, *initial.warnings]
+        if len(defects) != 1:
+            return letter_draft
+
+        prompt = motivation_letter_repair.build_user_prompt(
+            profile=self.profile,
+            defect=defects[0],
+            language=language,
+            job_title=job_title,
+            job_company=job_company,
+            analysis=analysis,
+            adapted_cv=adapted,
+            letter=letter_draft,
+        )
+        try:
+            repair = self.llm.complete_json(
+                system=motivation_letter_repair.SYSTEM,
+                user=prompt,
+                schema=MotivationLetterRepair,
+                model=self.llm.cheap_model,
+                temperature=0.1,
+                purpose="motivation_letter_repair",
+                job_id=job_id,
+                refresh_cache=refresh_cache,
+            )
+        except LLMError as exc:
+            logger.warning(
+                "Motivation-letter repair failed for job %s; keeping original: %s",
+                job_id,
+                exc,
+            )
+            return letter_draft
+
+        repaired = letter_draft.model_copy(update={"body": repair.body.strip()})
+        repaired = repaired.model_copy(
+            update={
+                "body": normalize_french_elisions(repaired.body, language=language),
+            }
+        )
+        repaired_result = self.letter_validator.validate(
+            repaired,
+            cv=adapted,
+            analysis=analysis,
+        )
+        if repaired_result.errors or repaired_result.warnings:
+            logger.info(
+                "Motivation-letter repair rejected for job %s: %s",
+                job_id,
+                [*repaired_result.errors, *repaired_result.warnings],
+            )
+            return letter_draft
+        return repaired
+
     def _validate_cv_offer_alignment(
         self,
         adapted,
@@ -173,22 +259,19 @@ class CvWriterMixin:
         report: ApplyReport,
     ) -> None:
         anchors = _offer_anchors(analysis, job_title)
-        if not anchors:
-            return
-        title = _norm(adapted.cv_title)
-        summary = _norm(adapted.professional_summary)
-        if not any(anchor in title for anchor in anchors):
+        offer_family = classify(analysis, title=job_title)
+        title_family = classify_title(adapted.cv_title)
+        if not cv_title_family_is_compatible(offer_family, title_family):
             report.validation_warnings.append("cv_title_not_offer_anchored")
-        if not any(anchor in summary for anchor in anchors):
+        summary = _norm(adapted.professional_summary)
+        if anchors and not any(anchor in summary for anchor in anchors):
             report.validation_warnings.append("summary_not_offer_anchored")
 
     def _load_job_analysis(self, job_id: int) -> tuple[Job, JobAnalysis]:
         with session_scope() as s:
             job = s.get(Job, job_id)
             if job is None or job.analysis is None:
-                raise ValueError(
-                    f"Job {job_id} not analyzed. Run process_pending first."
-                )
+                raise ValueError(f"Job {job_id} not analyzed. Run process_pending first.")
             raw = job.analysis.raw_response or {}
             offer_language = raw.get("offer_language") or detect_offer_language(
                 f"{job.title}\n{job.cleaned_description or job.description}"
@@ -203,12 +286,7 @@ class CvWriterMixin:
                 match_reasons=list(job.analysis.match_reasons or []),
                 risks=list(job.analysis.risks or []),
                 cv_keywords_to_include=list(job.analysis.cv_keywords_to_include or []),
-                contact_domain_kind=raw.get("contact_domain_kind") or "unknown",
-                contact_domain_hint=raw.get("contact_domain_hint") or "",
-                contact_domain_reason=raw.get("contact_domain_reason") or "",
                 offer_language=offer_language,
-                company_size=raw.get("company_size") or "unknown",
-                company_size_reason=raw.get("company_size_reason") or "",
                 extracted_company_name=raw.get("extracted_company_name") or "",
                 extracted_location=raw.get("extracted_location") or "",
                 company_context=raw.get("company_context") or "",

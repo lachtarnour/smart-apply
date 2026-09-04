@@ -58,16 +58,34 @@ class JobPreferences(BaseModel):
     """What kind of jobs the candidate accepts."""
 
     target_roles: list[str]
-    preferred_locations: list[str]
     accepted_contract_types: list[str]
     accepted_remote_policies: list[str]
-    accepted_job_languages: list[str] = Field(
-        description="Languages the candidate accepts to work in (en, fr, ...)"
-    )
+    accepted_job_languages: list[str] = Field(default_factory=lambda: ["fr", "en"])
     domains_of_interest: list[str] = Field(default_factory=list)
     deal_breakers: list[str] = Field(default_factory=list)
-    seniority: str | None = None
-    salary_min_eur: int | None = Field(default=None, ge=0)
+
+    @field_validator("accepted_job_languages")
+    @classmethod
+    def normalize_accepted_job_languages(cls, values: list[str]) -> list[str]:
+        """Normalize the French/English spellings accepted in profile JSON."""
+        aliases = {
+            "fr": "fr",
+            "fra": "fr",
+            "francais": "fr",
+            "français": "fr",
+            "french": "fr",
+            "frensh": "fr",
+            "en": "en",
+            "eng": "en",
+            "anglais": "en",
+            "english": "en",
+        }
+        normalized: list[str] = []
+        for raw in values:
+            language = aliases.get(raw.strip().lower(), raw.strip().lower())
+            if language and language not in normalized:
+                normalized.append(language)
+        return normalized
 
 
 class SkillCategory(BaseModel):
@@ -234,7 +252,7 @@ class Project(BaseModel):
 
     @property
     def description(self) -> str:
-        """Concatenated bullet texts — derived view for legacy consumers."""
+        """Concatenate project evidence for ranking and document rendering."""
         return " ".join(b.text for b in self.bullets).strip()
 
 

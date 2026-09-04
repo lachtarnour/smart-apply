@@ -6,12 +6,14 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from functools import lru_cache
 
-from sqlalchemy import Column, create_engine, inspect, text
+from sqlalchemy import Column, create_engine, event, func, inspect, select, text, update
 from sqlalchemy.engine import Dialect, Engine
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.schema import CreateIndex
 
 from smartapply.config import get_settings
-from smartapply.database.models import Base
+from smartapply.database.models import Base, Job, JobScore, JobStatus, LLMUsage, ShortlistOrigin
+from smartapply.database.repository.llm_cache import purge_expired_cache
 from smartapply.logging_setup import get_logger
 
 logger = get_logger(__name__)
@@ -21,8 +23,27 @@ logger = get_logger(__name__)
 def get_engine() -> Engine:
     settings = get_settings()
     url = settings.database_url
-    connect_args = {"check_same_thread": False} if url.startswith("sqlite") else {}
-    return create_engine(url, connect_args=connect_args, future=True)
+    is_sqlite = url.startswith("sqlite")
+    connect_args = {"check_same_thread": False, "timeout": 30} if is_sqlite else {}
+    engine = create_engine(url, connect_args=connect_args, future=True)
+    if is_sqlite:
+        _configure_sqlite(engine)
+    return engine
+
+
+def _configure_sqlite(engine: Engine) -> None:
+    @event.listens_for(engine, "connect")
+    def set_sqlite_pragmas(dbapi_connection, _connection_record) -> None:
+        cursor = dbapi_connection.cursor()
+        try:
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.execute("PRAGMA busy_timeout=30000")
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA synchronous=NORMAL")
+            cursor.execute("PRAGMA temp_store=MEMORY")
+            cursor.execute("PRAGMA cache_size=-32768")
+        finally:
+            cursor.close()
 
 
 @lru_cache(maxsize=1)
@@ -40,6 +61,14 @@ def init_db() -> None:
     """
     Base.metadata.create_all(get_engine())
     auto_migrate()
+    ensure_indexes()
+    backfill_shortlisted_at()
+    backfill_usage_job_external_ids()
+    with session_scope() as session:
+        purge_expired_cache(
+            session,
+            ttl_days=get_settings().llm_cache_ttl_days,
+        )
 
 
 def drop_db() -> None:
@@ -72,6 +101,89 @@ def auto_migrate() -> list[str]:
                 executed.append(statement)
 
     return executed
+
+
+def ensure_indexes() -> None:
+    """Create model indexes added after an existing SQLite database was created."""
+    engine = get_engine()
+    if engine.dialect.name == "sqlite":
+        with engine.begin() as connection:
+            for table in Base.metadata.sorted_tables:
+                for index in table.indexes:
+                    connection.execute(CreateIndex(index, if_not_exists=True))
+        return
+    for table in Base.metadata.sorted_tables:
+        for index in table.indexes:
+            index.create(bind=engine, checkfirst=True)
+
+
+def backfill_usage_job_external_ids() -> int:
+    """Preserve attribution for legacy usage rows while their jobs still exist."""
+    job_external_id = select(Job.external_id).where(Job.id == LLMUsage.job_id).scalar_subquery()
+    with get_engine().begin() as conn:
+        result = conn.execute(
+            update(LLMUsage)
+            .where(
+                LLMUsage.job_id.is_not(None),
+                LLMUsage.job_external_id.is_(None),
+            )
+            .values(job_external_id=job_external_id)
+        )
+    return int(result.rowcount or 0)
+
+
+def backfill_shortlisted_at() -> int:
+    """Preserve the Top selection for databases created before the dedicated marker."""
+    with get_engine().begin() as conn:
+        result = conn.execute(
+            update(Job)
+            .where(
+                Job.shortlisted_at.is_(None),
+                Job.archived_at.is_(None),
+                Job.status.in_((JobStatus.SHORTLISTED, JobStatus.ANALYZED)),
+            )
+            .values(
+                shortlisted_at=func.coalesce(
+                    Job.ranked_at,
+                    Job.analyzed_at,
+                    Job.scraped_at,
+                ),
+                status=JobStatus.SHORTLISTED,
+            )
+        )
+        # Older databases could retain the selection marker while the job
+        # status had already advanced with its application. Normalize those
+        # rows so the offer has one canonical visible status.
+        conn.execute(
+            update(Job)
+            .where(
+                Job.shortlisted_at.is_not(None),
+                Job.archived_at.is_(None),
+                Job.status != JobStatus.SHORTLISTED,
+            )
+            .values(status=JobStatus.SHORTLISTED)
+        )
+        rows = conn.execute(
+            select(Job.id, JobScore.components)
+            .outerjoin(JobScore, JobScore.job_id == Job.id)
+            .where(
+                Job.shortlisted_at.is_not(None),
+                Job.shortlist_origin.is_(None),
+            )
+        ).all()
+        for job_id, components in rows:
+            manual_state = (components or {}).get("manual_shortlist")
+            is_manual = isinstance(manual_state, dict) and manual_state.get("selected") is True
+            conn.execute(
+                update(Job)
+                .where(Job.id == job_id)
+                .values(
+                    shortlist_origin=(
+                        ShortlistOrigin.MANUAL if is_manual else ShortlistOrigin.AUTOMATIC
+                    )
+                )
+            )
+    return int(result.rowcount or 0)
 
 
 def _build_add_column_sql(table_name: str, column: Column, dialect: Dialect) -> str:

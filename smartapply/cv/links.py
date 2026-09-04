@@ -69,7 +69,7 @@ def render_bullet_html(text: str, links: Iterable[BulletLink]) -> Markup:
         if segment.url:
             parts.append(
                 f'<a href="{escape(segment.url)}">'
-                f'{escape(segment.text)}'
+                f"{escape(segment.text)}"
                 '<span class="inline-link" aria-hidden="true"></span>'
                 "</a>"
             )

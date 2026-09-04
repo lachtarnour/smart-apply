@@ -3,22 +3,15 @@
 Phases:
 - Phase 1: ``Ingestor``  → scrape and persist raw jobs.
 - Phase 2: ``Processor`` → dedup + filter + rank + LLM analysis on top-K.
-- Phase 3: ``Applier``   → adapt CV + email + contact + drafts. Supports
-                            ``mode='manual'`` and ``mode='autopilot'``.
-
-The public API of ``Pipeline`` is intentionally identical to the previous
-monolithic version so the CLI, the Streamlit app and tests don't need to
-change.
+- Phase 3: ``Applier``   → adapt and render the CV and motivation letter.
 """
 
 from __future__ import annotations
 
-import re
 from collections.abc import Callable
 from typing import Any
 
 from smartapply.config import get_settings
-from smartapply.contacts import ContactProviderChain, ContactService, default_contact_chain
 from smartapply.cv import CvAdapter, CvValidator
 from smartapply.database import session_scope
 from smartapply.database.repository import top_jobs_by_score
@@ -29,6 +22,7 @@ from smartapply.logging_setup import get_logger
 from smartapply.offers import ManualOfferInput
 from smartapply.pipeline.application_renderer import ApplicationDocumentRenderer
 from smartapply.pipeline.applier import Applier
+from smartapply.pipeline.ingest import IngestCollection
 from smartapply.pipeline.ingestor import Ingestor, IngestReport
 from smartapply.pipeline.processor import Processor
 from smartapply.pipeline.reports import (
@@ -45,7 +39,6 @@ from smartapply.utils.contracts import (
 )
 
 logger = get_logger(__name__)
-_EMAIL_IN_TEXT_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 
 
 def freshness_kwargs(
@@ -79,21 +72,19 @@ def _linkedin_max_results(max_results: int | None, settings) -> int:
     requested = settings.linkedin_max_results if max_results is None else max_results
     if requested > settings.linkedin_max_results:
         raise ValueError(
-            "linkedin max_results exceeds LINKEDIN_MAX_RESULTS "
-            f"({settings.linkedin_max_results})."
+            f"linkedin max_results exceeds LINKEDIN_MAX_RESULTS ({settings.linkedin_max_results})."
         )
     return requested
 
 
 class Pipeline:
-    """Facade exposing the same surface as the monolithic Pipeline used to."""
+    """Facade for collection, analysis and application-document generation."""
 
     def __init__(
         self,
         profile=None,
         llm=None,
         embeddings=None,
-        contact_chain: ContactProviderChain | None = None,
     ):
         self.profile = profile or get_profile()
         self.llm = llm or get_llm_provider()
@@ -106,11 +97,7 @@ class Pipeline:
         self.scorer = JobScorer(self.profile, embeddings=self.embeddings)
         self.adapter = CvAdapter(self.profile, llm=self.llm, embeddings=self.embeddings)
         self.validator = CvValidator(self.profile)
-        self.contact_chain = contact_chain or default_contact_chain()
-
-        # Renderers and services
         self.renderer = ApplicationDocumentRenderer(self.profile)
-        self.contact_service = ContactService(self.contact_chain)
 
         # Phase modules
         self._ingestor = Ingestor()
@@ -127,7 +114,6 @@ class Pipeline:
             adapter=self.adapter,
             validator=self.validator,
             renderer=self.renderer,
-            contact_service=self.contact_service,
         )
 
     # =================================================================
@@ -144,6 +130,27 @@ class Pipeline:
         stop_requested: Callable[[], bool] | None = None,
         **search_kwargs: Any,
     ) -> IngestReport:
+        collection = self.collect_source(
+            source,
+            query,
+            location,
+            max_results=max_results,
+            stop_requested=stop_requested,
+            **search_kwargs,
+        )
+        return self.persist_collection(collection)
+
+    def collect_source(
+        self,
+        source: str,
+        query: str,
+        location: str | None = None,
+        *,
+        max_results: int | None = 20,
+        stop_requested: Callable[[], bool] | None = None,
+        **search_kwargs: Any,
+    ) -> IngestCollection:
+        """Collect one source without a write transaction."""
         source_key = source.strip().lower()
         if source_key == "linkedin":
             max_results = _linkedin_max_results(max_results, self.settings)
@@ -161,15 +168,11 @@ class Pipeline:
         if source_key == "serpapi" and should_filter_serpapi_to_fulltime(accepted):
             existing_chips = search_kwargs.get("chips", "")
             fulltime_chip = "employment_type:FULLTIME"
-            chips = [
-                chip.strip()
-                for chip in str(existing_chips).split(",")
-                if chip.strip()
-            ]
+            chips = [chip.strip() for chip in str(existing_chips).split(",") if chip.strip()]
             if fulltime_chip.lower() not in {chip.lower() for chip in chips}:
                 chips.append(fulltime_chip)
             search_kwargs["chips"] = ",".join(chips)
-        return self._ingestor.from_source(
+        return self._ingestor.collect_source(
             source,
             query,
             location,
@@ -177,6 +180,10 @@ class Pipeline:
             stop_requested=stop_requested,
             **search_kwargs,
         )
+
+    def persist_collection(self, collection: IngestCollection) -> IngestReport:
+        """Persist a collected source in one short, serialized transaction."""
+        return self._ingestor.persist_collection(collection)
 
     def ingest_url(self, url: str) -> IngestReport:
         return self._ingestor.from_url(url)
@@ -187,9 +194,6 @@ class Pipeline:
     def run_manual_offer(
         self,
         offer: ManualOfferInput,
-        *,
-        contact_email: str | None = None,
-        create_gmail_draft: bool = False,
     ) -> dict[str, Any]:
         """Ingest one structured manual offer, analyze it, then generate the application."""
         ingest = self.ingest_manual_offer(offer)
@@ -202,15 +206,12 @@ class Pipeline:
             }
 
         process = self.analyze_jobs(job_ids)
-        resolved_contact_email = contact_email or _extract_email(offer.recruteur)
         applications: list[ApplyReport] = []
         for job_id in job_ids:
             applications.append(
                 self.apply_to(
                     job_id,
-                    contact_email=resolved_contact_email,
-                    contact_form_url=offer.url_candidature,
-                    create_gmail_draft=create_gmail_draft,
+                    form_url=offer.application_url,
                 )
             )
         return {
@@ -227,10 +228,6 @@ class Pipeline:
         company: str,
         location: str | None = None,
         application_url: str | None = None,
-        company_description: str | None = None,
-        company_url: str | None = None,
-        recruiter: str | None = None,
-        structured: bool = False,
     ) -> IngestReport:
         return self._ingestor.from_text(
             text,
@@ -238,10 +235,6 @@ class Pipeline:
             company=company,
             location=location,
             application_url=application_url,
-            company_description=company_description,
-            company_url=company_url,
-            recruiter=recruiter,
-            structured=structured,
         )
 
     # =================================================================
@@ -288,32 +281,14 @@ class Pipeline:
         self,
         job_id: int,
         *,
-        contact_email: str | None = None,
-        contact_form_url: str | None = None,
-        create_gmail_draft: bool = False,
+        form_url: str | None = None,
+        force_regenerate: bool = False,
     ) -> ApplyReport:
-        """Manual path: combined CV + letter draft, optional manual contact."""
+        """Generate a CV-and-letter dossier for one analyzed offer."""
         return self._applier.apply(
             job_id,
-            mode="manual",
-            contact_email=contact_email,
-            contact_form_url=contact_form_url,
-            create_gmail_draft=create_gmail_draft,
-        )
-
-    def apply_to_autopilot(
-        self,
-        job_id: int,
-        *,
-        create_gmail_draft: bool = True,
-        require_quality_gate: bool | None = None,
-    ) -> ApplyReport:
-        """Autopilot path: combined LLM draft + quality gate + cached chain."""
-        return self._applier.apply(
-            job_id,
-            mode="autopilot",
-            create_gmail_draft=create_gmail_draft,
-            require_quality_gate=require_quality_gate,
+            form_url=form_url,
+            force_regenerate=force_regenerate,
         )
 
     # =================================================================
@@ -326,7 +301,6 @@ class Pipeline:
         sources: list[tuple[str, str, str | None]],
         max_per_source: int | None = 20,
         top_k_apply: int = 5,
-        create_gmail_drafts: bool = False,
         date_posted: str | None = None,
         serpapi_hl: str | None = None,
     ) -> dict[str, Any]:
@@ -343,15 +317,13 @@ class Pipeline:
         process = self.process_pending()
 
         with session_scope() as s:
-            top_jobs = list(top_jobs_by_score(s, top_k_apply))
+            top_jobs = list(top_jobs_by_score(s, top_k_apply, unapplied_only=True))
             top_ids = [j.id for j in top_jobs]
 
         applies: list[ApplyReport] = []
         for jid in top_ids:
             try:
-                applies.append(
-                    self.apply_to(jid, create_gmail_draft=create_gmail_drafts)
-                )
+                applies.append(self.apply_to(jid))
             except Exception as e:
                 logger.exception("apply_to(%s) failed: %s", jid, e)
 
@@ -360,8 +332,3 @@ class Pipeline:
             "process": process.__dict__,
             "applications": [a.__dict__ for a in applies],
         }
-
-
-def _extract_email(value: str | None) -> str | None:
-    match = _EMAIL_IN_TEXT_RE.search(value or "")
-    return match.group(0).lower() if match else None

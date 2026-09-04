@@ -52,16 +52,24 @@ class CvBlockSelector:
         top_k_experiences: int = 5,
         top_k_projects: int = 10,
     ) -> SelectionResult:
-        analysis_vec = self.embeddings.embed_one(self._analysis_text(analysis))
+        # One batched provider call is both faster and easier to cache than a
+        # separate request for every static profile block.
+        texts = [self._analysis_text(analysis)]
+        texts.extend(self._experience_text(exp) for exp in profile.experiences)
+        texts.extend(self._project_text(project) for project in profile.projects)
+        vectors = self.embeddings.embed(texts)
+        analysis_vec = vectors[0]
+        experience_offset = 1
+        project_offset = experience_offset + len(profile.experiences)
 
         exp_scores: dict[str, float] = {}
-        for exp in profile.experiences:
-            v = self.embeddings.embed_one(self._experience_text(exp))
+        for index, exp in enumerate(profile.experiences):
+            v = vectors[experience_offset + index]
             exp_scores[exp.id] = cosine_similarity(analysis_vec, v)
 
         proj_scores: dict[str, float] = {}
-        for proj in profile.projects:
-            v = self.embeddings.embed_one(self._project_text(proj))
+        for index, proj in enumerate(profile.projects):
+            v = vectors[project_offset + index]
             proj_scores[proj.id] = cosine_similarity(analysis_vec, v)
 
         # Always keep the most recent experience — recency matters even if

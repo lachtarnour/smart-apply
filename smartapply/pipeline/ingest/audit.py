@@ -64,5 +64,3 @@ def _build_search_audit(raws: list[RawJob]) -> list[dict[str, Any]]:
             }
         )
     return audit
-
-

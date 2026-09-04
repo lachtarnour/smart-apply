@@ -69,9 +69,11 @@ def parse_company_html(html: str, *, url: str | None = None) -> dict[str, Any]:
         "header_text": header,
     }
 
+
 def parse_saved_company(path: str | Path, *, url: str | None = None) -> dict[str, Any]:
     """Parse a saved WTTJ company profile HTML file."""
     return parse_company_html(Path(path).read_text(encoding="utf-8", errors="replace"), url=url)
+
 
 def _company_profile_from_detail_api(
     payload: dict[str, Any],
@@ -107,6 +109,7 @@ def _company_profile_from_detail_api(
         "source": "detail_api",
     }
 
+
 def _merge_company_profile_from_matches_api(
     source_data: dict[str, Any],
     matches_api: dict[str, Any],
@@ -128,6 +131,7 @@ def _merge_company_profile_from_matches_api(
     source_data["company_profile"] = profile
     source_data["company_stats"] = stats or source_data.get("company_stats") or {}
 
+
 def _attach_company_profile(
     job: RawJob,
     *,
@@ -142,7 +146,9 @@ def _attach_company_profile(
             profile_url = _company_url_from_api_item(matches_api)
     profile_url = _canonical_company_url(profile_url)
     if not profile_url:
-        source_data["company_domain"] = _domain_from_url(_as_text(source_data.get("company_website")))
+        source_data["company_domain"] = _domain_from_url(
+            _as_text(source_data.get("company_website"))
+        )
         job.source_data = source_data
         return
 
@@ -171,12 +177,15 @@ def _attach_company_profile(
                 )
         company_cache[profile_url] = company_profile
 
-    website = _as_text(company_profile.get("website")) or _as_text(source_data.get("company_website"))
+    website = _as_text(company_profile.get("website")) or _as_text(
+        source_data.get("company_website")
+    )
     source_data["company_profile_url"] = profile_url
     source_data["company_profile"] = company_profile
     source_data["company_website"] = website
     source_data["company_domain"] = _domain_from_url(website)
     job.source_data = source_data
+
 
 def _fetch_company_profile_html(
     profile_url: str,
@@ -197,6 +206,7 @@ def _fetch_company_profile_html(
         response.raise_for_status()
         return response.text
     raise last_error or requests.RequestException("WTTJ company page did not return HTML")
+
 
 def _fetch_company_profile_api(profile_url: str, *, timeout: int) -> dict[str, Any]:
     slug = _company_slug_from_profile_url(profile_url)
@@ -219,6 +229,7 @@ def _fetch_company_profile_api(profile_url: str, *, timeout: int) -> dict[str, A
         raise WTTJScraperError("Unexpected WTTJ organization API payload.")
     return _company_profile_from_public_api(organization, profile_url)
 
+
 def _company_profile_from_public_api(
     organization: dict[str, Any],
     profile_url: str,
@@ -239,9 +250,11 @@ def _company_profile_from_public_api(
         "source": "organization_api",
     }
 
+
 def _company_slug_from_profile_url(profile_url: str) -> str | None:
     match = re.search(r"/companies/([^/?#]+)", profile_url)
     return match.group(1) if match else None
+
 
 def _company_website_from_public_api(value: Any) -> str | None:
     text = _as_text(value)
@@ -253,6 +266,7 @@ def _company_website_from_public_api(value: Any) -> str | None:
         return None
     candidate = f"https://{text}"
     return candidate if _is_external_url(candidate) else None
+
 
 def _merge_company_profiles(
     base: dict[str, Any],
@@ -270,6 +284,7 @@ def _merge_company_profiles(
             merged[key] = value
     return merged
 
+
 def _company_url_from_api_item(job: dict[str, Any]) -> str | None:
     organization = job.get("organization")
     if not isinstance(organization, dict):
@@ -278,6 +293,7 @@ def _company_url_from_api_item(job: dict[str, Any]) -> str | None:
     if not organization_slug:
         return None
     return _canonical_company_url(f"{WTTJ_BASE_URL}/fr/companies/{organization_slug}")
+
 
 def _company_profile_url(soup: BeautifulSoup) -> str | None:
     for anchor in soup.find_all("a", href=True):
@@ -291,6 +307,7 @@ def _company_profile_url(soup: BeautifulSoup) -> str | None:
                 return url
     return None
 
+
 def _company_website(soup: BeautifulSoup, organization: dict[str, Any]) -> str | None:
     for anchor in soup.find_all("a", href=True):
         text = _clean_text(anchor.get_text(" ", strip=True)).lower()
@@ -301,6 +318,7 @@ def _company_website(soup: BeautifulSoup, organization: dict[str, Any]) -> str |
     if same_as and _is_external_url(same_as):
         return same_as
     return None
+
 
 def _company_summary_from_job_page(soup: BeautifulSoup) -> str | None:
     block = _block_after_heading(soup, "Qui sont-ils ?", parent_steps=2)
@@ -313,9 +331,14 @@ def _company_summary_from_job_page(soup: BeautifulSoup) -> str | None:
     ]
     return _clean_text("\n".join(paragraphs)) or None
 
+
 def _company_tags(soup: BeautifulSoup) -> list[str]:
-    tags = [_clean_text(tag.get_text(" ", strip=True)) for tag in soup.select('[data-testid="job-company-tag"]')]
+    tags = [
+        _clean_text(tag.get_text(" ", strip=True))
+        for tag in soup.select('[data-testid="job-company-tag"]')
+    ]
     return [tag for tag in tags if tag]
+
 
 def _company_stats_from_job_page(soup: BeautifulSoup) -> dict[str, str | None]:
     tags = _company_tags(soup)
@@ -340,12 +363,20 @@ def _company_stats_from_job_page(soup: BeautifulSoup) -> dict[str, str | None]:
         stats["gender_breakdown"] = " / ".join(percentages)
     return {key: value for key, value in stats.items() if value}
 
+
 def _workplace(soup: BeautifulSoup) -> str | None:
     block = _block_after_heading(soup, "Le lieu de travail", parent_steps=2)
     if not block:
         return None
-    candidates = [text for text in _leaf_texts(block, tags=("a", "span", "p")) if text != "Le lieu de travail"]
-    return candidates[-1] if candidates else _strip_heading(_clean_text(block.get_text(" ", strip=True)), "Le lieu de travail")
+    candidates = [
+        text for text in _leaf_texts(block, tags=("a", "span", "p")) if text != "Le lieu de travail"
+    ]
+    return (
+        candidates[-1]
+        if candidates
+        else _strip_heading(_clean_text(block.get_text(" ", strip=True)), "Le lieu de travail")
+    )
+
 
 def _section_items_by_heading(soup: BeautifulSoup, heading: str) -> list[str]:
     block = _block_after_heading(soup, heading, parent_steps=2)
@@ -364,6 +395,7 @@ def _section_items_by_heading(soup: BeautifulSoup, heading: str) -> list[str]:
             items.append(text)
     return items
 
+
 def _company_profile_stats(soup: BeautifulSoup) -> dict[str, str | None]:
     selectors = {
         "founded": '[data-testid="stats-creation-year"]',
@@ -375,6 +407,7 @@ def _company_profile_stats(soup: BeautifulSoup) -> dict[str, str | None]:
     }
     stats = {key: _text_for_selector(soup, selector) for key, selector in selectors.items()}
     return {key: value for key, value in stats.items() if value}
+
 
 def _company_profile_text_blocks(soup: BeautifulSoup) -> dict[str, str]:
     blocks: dict[str, str] = {}
@@ -388,6 +421,7 @@ def _company_profile_text_blocks(soup: BeautifulSoup) -> dict[str, str]:
             blocks[heading] = body
     return blocks
 
+
 def _company_profile_addresses(soup: BeautifulSoup) -> list[str]:
     addresses: list[str] = []
     for block in soup.select('[data-testid="organization-content-block-map"]'):
@@ -395,6 +429,7 @@ def _company_profile_addresses(soup: BeautifulSoup) -> list[str]:
         if text and text not in addresses:
             addresses.append(text)
     return addresses
+
 
 def _company_name_from_profile(soup: BeautifulSoup) -> str | None:
     title = soup.title.get_text(" ", strip=True) if soup.title else ""
@@ -404,6 +439,7 @@ def _company_name_from_profile(soup: BeautifulSoup) -> str | None:
     if header:
         return header.split(" Follow ", 1)[0].strip() or None
     return None
+
 
 def _social_links(soup: BeautifulSoup) -> dict[str, str]:
     links: dict[str, str] = {}

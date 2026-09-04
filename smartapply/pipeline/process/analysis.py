@@ -16,7 +16,7 @@ from smartapply.llm.prompts import job_analysis as analysis_prompts
 from smartapply.logging_setup import get_logger
 from smartapply.offers import build_analyzer_input
 from smartapply.pipeline.process.audit import (
-    _is_anonymous_company,
+    _should_replace_job_company,
     _should_replace_job_location,
 )
 from smartapply.pipeline.reports import AnalyzeReport
@@ -27,7 +27,10 @@ logger = get_logger(__name__)
 class AnalysisMixin:
     """Analyze selected jobs with the configured LLM provider."""
 
-    def _analyze_in_parallel(self, shortlisted_jobs: list[Job]) -> int:
+    def _analyze_in_parallel(
+        self,
+        shortlisted_jobs: list[Job],
+    ) -> tuple[int, list[dict[str, object]]]:
         """Run ``_analyze_one`` concurrently over the shortlist.
 
         Each ``_analyze_one`` opens its own ``session_scope``, so SQLAlchemy
@@ -36,13 +39,13 @@ class AnalysisMixin:
         rate limits.
         """
         if not shortlisted_jobs:
-            return 0
+            return 0, []
         workers = min(self.settings.llm_max_concurrent, len(shortlisted_jobs))
         analyzed = 0
+        errors: list[dict[str, object]] = []
         with ThreadPoolExecutor(max_workers=workers) as pool:
             futures = {
-                pool.submit(self._analyze_one, job_id=job.id): job
-                for job in shortlisted_jobs
+                pool.submit(self._analyze_one, job_id=job.id): job for job in shortlisted_jobs
             }
             for future in as_completed(futures):
                 job = futures[future]
@@ -51,7 +54,16 @@ class AnalysisMixin:
                     analyzed += 1
                 except Exception as e:
                     logger.error("Analysis failed for job %s: %s", job.id, e)
-        return analyzed
+                    errors.append(
+                        {
+                            "job_id": int(job.id),
+                            "title": job.title,
+                            "company": job.company,
+                            "message": str(e),
+                        }
+                    )
+        errors.sort(key=lambda error: int(error["job_id"]))
+        return analyzed, errors
 
     def analyze_jobs(self, job_ids: list[int]) -> AnalyzeReport:
         """Analyze exactly the selected jobs that have not already been analyzed."""
@@ -61,21 +73,19 @@ class AnalysisMixin:
 
         with session_scope() as s:
             jobs = (
-                s.query(Job)
-                .filter(Job.id.in_(unique_ids))
-                .filter(Job.archived_at.is_(None))
-                .all()
+                s.query(Job).filter(Job.id.in_(unique_ids)).filter(Job.archived_at.is_(None)).all()
             )
             found_ids = {int(job.id) for job in jobs}
             to_analyze = [job for job in jobs if job.analyzed_at is None]
             already_analyzed = len(jobs) - len(to_analyze)
 
-        analyzed = self._analyze_in_parallel(to_analyze)
+        analyzed, errors = self._analyze_in_parallel(to_analyze)
         return AnalyzeReport(
             requested=len(unique_ids),
             already_analyzed=already_analyzed,
             analyzed=analyzed,
             skipped_missing=len(set(unique_ids) - found_ids),
+            errors=errors,
         )
 
     # -------------------- internals --------------------
@@ -91,7 +101,7 @@ class AnalysisMixin:
                 analyzer_input=analyzer_input,
             )
             analysis = self.llm.complete_json(
-                system=analysis_prompts.system_for_variant(self.settings.prompt),
+                system=analysis_prompts.SYSTEM,
                 user=user_prompt,
                 schema=JobAnalysis,
                 model=self.llm.cheap_model,
@@ -113,10 +123,9 @@ class AnalysisMixin:
                 raw_response=analysis.model_dump(),
                 model_used=self.llm.cheap_model,
             )
-            if analysis.extracted_company_name and _is_anonymous_company(job.company):
+            if _should_replace_job_company(job.company, analysis.extracted_company_name):
                 job.company = analysis.extracted_company_name.strip()
             if _should_replace_job_location(job.location, analysis.extracted_location):
                 job.location = analysis.extracted_location.strip()
             mark_analyzed(s, job.id)
             update_status(s, job.id, JobStatus.ANALYZED)
-

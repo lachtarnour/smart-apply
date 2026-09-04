@@ -15,7 +15,6 @@ def format_skill_profiles(profile: Profile) -> str:
         blocks = [f"{cid}: {', '.join(skills)}" for cid, skills in effective.items()]
         description = f" — {skill_profile.description}" if skill_profile.description else ""
         lines.append(
-            f"- {skill_profile.id}: {skill_profile.name}{description} "
-            f"({'; '.join(blocks)})"
+            f"- {skill_profile.id}: {skill_profile.name}{description} ({'; '.join(blocks)})"
         )
     return "\n".join(lines)

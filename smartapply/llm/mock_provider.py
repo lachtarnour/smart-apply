@@ -56,6 +56,7 @@ class MockLLMProvider(LLMProvider):
         purpose: str = "generic",
         job_id: int | None = None,
         use_cache: bool = True,
+        refresh_cache: bool = False,
     ) -> T:
         if purpose not in self._registry:
             raise LLMError(

@@ -29,12 +29,16 @@ def upsert_document(
     **fields: Any,
 ) -> GeneratedDocument:
     """Create or replace the single current document of a given type."""
-    docs = session.execute(
-        select(GeneratedDocument)
-        .where(GeneratedDocument.application_id == application_id)
-        .where(GeneratedDocument.doc_type == doc_type)
-        .order_by(GeneratedDocument.id.asc())
-    ).scalars().all()
+    docs = (
+        session.execute(
+            select(GeneratedDocument)
+            .where(GeneratedDocument.application_id == application_id)
+            .where(GeneratedDocument.doc_type == doc_type)
+            .order_by(GeneratedDocument.id.asc())
+        )
+        .scalars()
+        .all()
+    )
     if not docs:
         return add_document(session, application_id, doc_type=doc_type, **fields)
     current = docs[0]

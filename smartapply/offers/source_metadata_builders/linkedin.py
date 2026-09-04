@@ -17,15 +17,15 @@ def build_linkedin_source_metadata(source_data: dict[str, Any] | None) -> str:
     if not isinstance(source_data, dict):
         return ""
 
-    contact_lines = _contact_lines(source_data)
+    url_lines = _application_url_lines(source_data)
     fact_lines = _fact_lines(source_data)
     motivation_lines = _motivation_lines(source_data)
-    if not contact_lines and not fact_lines and not motivation_lines:
+    if not url_lines and not fact_lines and not motivation_lines:
         return ""
 
     sections: list[str] = []
-    if contact_lines:
-        sections.append("CONTACT_AND_APPLICATION_METADATA:\n" + "\n".join(contact_lines))
+    if url_lines:
+        sections.append("APPLICATION_URL_METADATA:\n" + "\n".join(url_lines))
     if fact_lines:
         sections.append("STRUCTURED_JOB_FACTS:\n" + "\n".join(fact_lines))
     if motivation_lines:
@@ -33,7 +33,7 @@ def build_linkedin_source_metadata(source_data: dict[str, Any] | None) -> str:
     return "\n\n".join(sections)
 
 
-def _contact_lines(source_data: dict[str, Any]) -> list[str]:
+def _application_url_lines(source_data: dict[str, Any]) -> list[str]:
     lines = ["source: linkedin"]
     _append_scalar(lines, "companyName", source_data.get("companyName"))
     _append_scalar(lines, "recruiterName", source_data.get("recruiterName"))

@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+from sqlalchemy import select
+
 from smartapply.database import session_scope
-from smartapply.database.models import Job, JobStatus
+from smartapply.database.models import Application, Job, JobScore, ShortlistOrigin
 from smartapply.database.repository import (
     list_pending_processing,
     mark_ranked,
     set_score,
-    update_status,
+    set_shortlisted,
 )
 from smartapply.pipeline.reports import RankingReport
 
@@ -31,34 +33,39 @@ class RankingMixin:
             if job_ids is not None:
                 selected_ids = set(job_ids)
                 pending = [job for job in pending if job.id in selected_ids]
-            if not pending:
-                return RankingReport(0, 0, 0, 0, 0, [], [])
+            duplicate_ids: set[int] = set()
+            ranked: list[tuple[Job, object]] = []
+            if pending:
+                override_ids = set(local_filter_override_ids or [])
+                duplicate_ids = self._mark_duplicates(s, active_jobs)
+                unique_jobs = [j for j in pending if j.id not in duplicate_ids]
 
-            override_ids = set(local_filter_override_ids or [])
-            duplicate_ids = self._mark_duplicates(s, active_jobs)
-            unique_jobs = [j for j in pending if j.id not in duplicate_ids]
+                to_filter = [j for j in unique_jobs if j.filtered_at is None]
+                already_kept = [j for j in unique_jobs if j.filtered_at is not None]
+                newly_kept = self._apply_local_filter(
+                    s,
+                    to_filter,
+                    override_ids=override_ids,
+                )
+                ranked = self.scorer.rank(already_kept + newly_kept)
+                self._persist_scores(s, ranked)
 
-            to_filter = [j for j in unique_jobs if j.filtered_at is None]
-            already_kept = [j for j in unique_jobs if j.filtered_at is not None]
-            newly_kept = self._apply_local_filter(
-                s,
-                to_filter,
-                override_ids=override_ids,
-            )
-            kept_jobs = already_kept + newly_kept
-
-            ranked = self.scorer.rank(kept_jobs)
+            candidates = self._ranked_shortlist_candidates(s)
             shortlist_n = min(
                 top_k_ranked or self.settings.top_k_ranked,
-                len(ranked),
+                len(candidates),
             )
-            shortlisted_jobs = self._persist_ranking(s, ranked, shortlist_n)
-            ranked_ids = [int(job.id) for job, _ in ranked]
+            shortlisted_jobs = self._replace_automatic_shortlist(
+                s,
+                candidates,
+                shortlist_n,
+            )
+            ranked_ids = [int(job.id) for job in candidates]
             shortlisted_ids = [int(job.id) for job in shortlisted_jobs]
 
         return RankingReport(
             total=len(pending),
-            kept_after_filter=len(kept_jobs),
+            kept_after_filter=len(ranked_ids),
             duplicates_removed=len(duplicate_ids),
             ranked=len(ranked_ids),
             shortlisted=len(shortlisted_ids),
@@ -66,21 +73,20 @@ class RankingMixin:
             shortlisted_ids=shortlisted_ids,
         )
 
-    def _persist_ranking(
+    def _persist_scores(
         self,
         session,
         ranked: list[tuple[Job, object]],
-        shortlist_n: int,
-    ) -> list[Job]:
-        for i, (job, comp) in enumerate(ranked):
+    ) -> None:
+        for job, comp in ranked:
             previous_components = (
-                dict(job.score.components)
-                if job.score is not None and job.score.components
-                else {}
+                dict(job.score.components) if job.score is not None and job.score.components else {}
             )
             components = comp.to_dict()
             if previous_components.get("reasons"):
                 components["reasons"] = previous_components["reasons"]
+            if previous_components.get("filter_disposition"):
+                components["filter_disposition"] = previous_components["filter_disposition"]
             set_score(
                 session,
                 job.id,
@@ -94,10 +100,62 @@ class RankingMixin:
                 components=components,
             )
             mark_ranked(session, job.id)
-            if i < shortlist_n:
-                update_status(session, job.id, JobStatus.SHORTLISTED)
-            else:
-                # Keep ranked-but-not-shortlisted jobs visible as fresh backlog.
-                # They still carry ranking timestamps/scores, but are not rejected.
-                update_status(session, job.id, JobStatus.SCRAPED)
-        return [job for job, _ in ranked[:shortlist_n]]
+
+    @staticmethod
+    def _ranked_shortlist_candidates(session) -> list[Job]:
+        """Return every active, scored offer that still has no application."""
+        return list(
+            session.execute(
+                select(Job)
+                .join(JobScore, JobScore.job_id == Job.id)
+                .outerjoin(Application, Application.job_id == Job.id)
+                .where(
+                    Job.archived_at.is_(None),
+                    Job.filtered_at.is_not(None),
+                    JobScore.final_score.is_not(None),
+                    Application.id.is_(None),
+                )
+                .order_by(JobScore.final_score.desc(), Job.id.asc())
+            )
+            .scalars()
+            .all()
+        )
+
+    @staticmethod
+    def _replace_automatic_shortlist(
+        session,
+        candidates: list[Job],
+        shortlist_n: int,
+    ) -> list[Job]:
+        """Replace the automatic Top while preserving explicitly pinned offers."""
+        automatic_top = candidates[:shortlist_n]
+        automatic_ids = {int(job.id) for job in automatic_top}
+        previous_automatic = session.execute(
+            select(Job).where(
+                Job.shortlisted_at.is_not(None),
+                Job.shortlist_origin == ShortlistOrigin.AUTOMATIC,
+            )
+        ).scalars()
+        for job in previous_automatic:
+            if int(job.id) not in automatic_ids:
+                set_shortlisted(session, job.id, selected=False)
+
+        for job in automatic_top:
+            set_shortlisted(
+                session,
+                job.id,
+                selected=True,
+                origin=ShortlistOrigin.AUTOMATIC,
+            )
+
+        selected_by_id = {int(job.id): job for job in automatic_top}
+        manual_jobs = session.execute(
+            select(Job).where(
+                Job.shortlisted_at.is_not(None),
+                Job.shortlist_origin == ShortlistOrigin.MANUAL,
+                Job.archived_at.is_(None),
+            )
+        ).scalars()
+        for job in manual_jobs:
+            selected_by_id.setdefault(int(job.id), job)
+        return list(selected_by_id.values())

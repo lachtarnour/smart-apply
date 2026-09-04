@@ -31,6 +31,7 @@ class LLMProvider(ABC):
         purpose: str = "generic",
         job_id: int | None = None,
         use_cache: bool = True,
+        refresh_cache: bool = False,
     ) -> T: ...
 
     @property

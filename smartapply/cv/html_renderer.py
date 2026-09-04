@@ -11,6 +11,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+from functools import lru_cache
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
@@ -18,13 +19,23 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from smartapply.cv.education import education_entries_for_english
 from smartapply.cv.links import render_bullet_html
 from smartapply.cv.skill_profile import infer_skill_profile_id
-from smartapply.llm import AdaptedCV, EmailDraft
+from smartapply.llm import AdaptedCV, MotivationLetter
 from smartapply.profile import Profile
 
 TEMPLATES_DIR = Path(__file__).with_name("templates")
 MIN_PROJECTS = 2
 
 _PDF_COUNT_RE = re.compile(rb"/Count\s+(\d+)")
+
+
+@lru_cache(maxsize=1)
+def _weasyprint_html():
+    """Return WeasyPrint's HTML renderer when its native libraries load."""
+    try:
+        from weasyprint import HTML  # type: ignore
+    except (ImportError, OSError):
+        return None
+    return HTML
 
 
 def _chrome_executable() -> str | None:
@@ -52,13 +63,16 @@ def html_to_pdf(html: str, pdf_path: str | Path, *, base_dir: str | Path | None 
     pdf_path = Path(pdf_path).resolve()
     pdf_path.parent.mkdir(parents=True, exist_ok=True)
 
-    try:
-        from weasyprint import HTML  # type: ignore
-
-        HTML(string=html, base_url=str(base_dir or TEMPLATES_DIR)).write_pdf(str(pdf_path))
-        return pdf_path
-    except ImportError:
-        pass
+    weasyprint_html = _weasyprint_html()
+    if weasyprint_html is not None:
+        try:
+            weasyprint_html(
+                string=html,
+                base_url=str(base_dir or TEMPLATES_DIR),
+            ).write_pdf(str(pdf_path))
+            return pdf_path
+        except OSError:
+            pass
 
     chrome = _chrome_executable()
     if not chrome:
@@ -121,12 +135,7 @@ class HtmlApplicationRenderer:
 
     @property
     def pdf_available(self) -> bool:
-        try:
-            import weasyprint  # noqa: F401
-
-            return True
-        except ImportError:
-            return _chrome_executable() is not None
+        return _weasyprint_html() is not None or _chrome_executable() is not None
 
     def render_cv_html(self, adapted: AdaptedCV, *, force_one_page: bool = False) -> str:
         template = self.env.get_template("cv.html.j2")
@@ -186,25 +195,23 @@ class HtmlApplicationRenderer:
     def render_letter_html(
         self,
         *,
-        email_draft: EmailDraft,
+        letter: MotivationLetter,
         job_title: str,
         job_company: str,
-        contact_email: str | None = None,
         language: str = "fr",
         letter_headline: str | None = None,
     ) -> str:
         template = self.env.get_template("motivation_letter.html.j2")
         labels = self._letter_labels(language)
-        paragraphs = self._letter_paragraphs(email_draft.body)
+        paragraphs = self._letter_paragraphs(letter.body)
         headline = (letter_headline or "").strip() or self.profile.identity.title
         return template.render(
             profile=self.profile,
-            subject=email_draft.subject,
+            subject=letter.subject,
             paragraphs=paragraphs,
             job_title=job_title,
             job_company=job_company,
             letter_headline=headline,
-            contact_email=contact_email,
             contact_line=self._contact_line(),
             contact_items=self._contact_items(),
             labels=labels,
@@ -219,21 +226,19 @@ class HtmlApplicationRenderer:
     def save_letter_html(
         self,
         *,
-        email_draft: EmailDraft,
+        letter: MotivationLetter,
         job_title: str,
         job_company: str,
         path: str | Path,
-        contact_email: str | None = None,
         language: str = "fr",
         letter_headline: str | None = None,
     ) -> Path:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         html = self.render_letter_html(
-            email_draft=email_draft,
+            letter=letter,
             job_title=job_title,
             job_company=job_company,
-            contact_email=contact_email,
             language=language,
             letter_headline=letter_headline,
         )
@@ -253,19 +258,17 @@ class HtmlApplicationRenderer:
     def save_letter_pdf(
         self,
         *,
-        email_draft: EmailDraft,
+        letter: MotivationLetter,
         job_title: str,
         job_company: str,
         path: str | Path,
-        contact_email: str | None = None,
         language: str = "fr",
         letter_headline: str | None = None,
     ) -> Path:
         html = self.render_letter_html(
-            email_draft=email_draft,
+            letter=letter,
             job_title=job_title,
             job_company=job_company,
-            contact_email=contact_email,
             language=language,
             letter_headline=letter_headline,
         )
@@ -350,9 +353,7 @@ class HtmlApplicationRenderer:
         min_projects = min(MIN_PROJECTS, len(project_by_id))
         context = self._adapted_context(adapted)
         remaining = [
-            project
-            for project_id, project in project_by_id.items()
-            if project_id not in seen
+            project for project_id, project in project_by_id.items() if project_id not in seen
         ]
         remaining.sort(
             key=lambda project: self._project_relevance(project, context),
@@ -376,11 +377,14 @@ class HtmlApplicationRenderer:
         return (score, len(keywords))
 
     def _infer_skill_profile_id(self, adapted: AdaptedCV) -> str:
-        return infer_skill_profile_id(
-            self.profile,
-            self._adapted_context(adapted),
-            default="mixed",
-        ) or "mixed"
+        return (
+            infer_skill_profile_id(
+                self.profile,
+                self._adapted_context(adapted),
+                default="mixed",
+            )
+            or "mixed"
+        )
 
     def _select_display_skills(self, category, adapted: AdaptedCV) -> list[str]:
         """Surface CV-relevant skills first without applying an arbitrary cap."""
@@ -422,11 +426,7 @@ class HtmlApplicationRenderer:
             adapted.cv_title,
             adapted.professional_summary,
             " ".join(adapted.selected_project_ids),
-            " ".join(
-                bullet.text
-                for exp in adapted.selected_experiences
-                for bullet in exp.bullets
-            ),
+            " ".join(bullet.text for exp in adapted.selected_experiences for bullet in exp.bullets),
         ]
         return " ".join(context_bits).lower()
 
@@ -443,10 +443,7 @@ class HtmlApplicationRenderer:
         bullet_count = sum(len(item["bullets"]) for item in experiences)
         skill_count = sum(len(row["skills"]) for row in skill_categories)
         density = (
-            len(experiences) * 1.4
-            + bullet_count * 0.9
-            + len(projects) * 0.8
-            + skill_count * 0.12
+            len(experiences) * 1.4 + bullet_count * 0.9 + len(projects) * 0.8 + skill_count * 0.12
         )
         # Density bands tune font size, line-height, and vertical rhythm
         # together. Dense modes tighten the layout but never remove content.
