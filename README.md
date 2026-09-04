@@ -6,9 +6,9 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/lachtarnour/smart-apply/stargazers"><img src="https://img.shields.io/github/stars/lachtarnour/smart-apply?style=flat&color=7c5cff" alt="GitHub stars"></a>
-  <a href="https://github.com/lachtarnour/smart-apply/network/members"><img src="https://img.shields.io/github/forks/lachtarnour/smart-apply?style=flat&color=55bd92" alt="GitHub forks"></a>
-  <a href="https://github.com/lachtarnour/smart-apply/releases"><img src="https://img.shields.io/github/v/release/lachtarnour/smart-apply?display_name=tag&style=flat&color=9b8cff" alt="Latest release"></a>
+  <a href="https://github.com/lachtarnour/elan-career/stargazers"><img src="https://img.shields.io/github/stars/lachtarnour/elan-career?style=flat&color=7c5cff" alt="GitHub stars"></a>
+  <a href="https://github.com/lachtarnour/elan-career/network/members"><img src="https://img.shields.io/github/forks/lachtarnour/elan-career?style=flat&color=55bd92" alt="GitHub forks"></a>
+  <a href="https://github.com/lachtarnour/elan-career/releases"><img src="https://img.shields.io/github/v/release/lachtarnour/elan-career?display_name=tag&style=flat&color=9b8cff" alt="Latest release"></a>
   <img src="https://img.shields.io/badge/macOS-13%2B-111017?logo=apple&logoColor=white" alt="macOS 13+"><br>
   <img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/License-MIT-55bd92" alt="MIT License">
@@ -81,8 +81,8 @@ The screenshots below show the current desktop interface, in the order a user ty
 ### Install and run
 
 ```bash
-git clone https://github.com/lachtarnour/smart-apply.git
-cd smart-apply
+git clone https://github.com/lachtarnour/elan-career.git
+cd elan-career
 
 cp .env.example .env
 make install-desktop
