@@ -200,6 +200,16 @@ def test_serpapi_network_error_is_not_reported_as_zero_results(mocker) -> None:
     assert "api_key" not in str(exc_info.value)
 
 
+def test_serpapi_invalid_json_is_not_reported_as_zero_results(mocker) -> None:
+    response = _mock_response({})
+    response.json.side_effect = ValueError("invalid JSON")
+    mocker.patch("smartapply.scrapers.serpapi.requests.get", return_value=response)
+
+    scraper = SerpApiGoogleJobsScraper(api_key="fake-key")
+    with pytest.raises(ScraperError, match="response invalid"):
+        list(scraper.search("Data Scientist", location="Paris", max_results=5))
+
+
 def test_serpapi_widens_zero_result_date_filter_before_giving_up(mocker) -> None:
     page_jobs = [
         {
@@ -255,6 +265,23 @@ def test_linkedin_apify_uses_configured_default_max_results(mocker, monkeypatch)
     list(s.search("Data Scientist", max_results=None))
 
     assert post_mock.call_args.kwargs["json"]["limit"] == 3
+    get_settings.cache_clear()
+
+
+def test_linkedin_apify_uses_configured_timeout(mocker, monkeypatch) -> None:
+    from smartapply.config import get_settings
+
+    monkeypatch.setenv("LINKEDIN_TIMEOUT", "17")
+    get_settings.cache_clear()
+    post_mock = mocker.patch(
+        "smartapply.scrapers.linkedin.requests.post",
+        return_value=_mock_response([]),
+    )
+
+    scraper = LinkedInJobsScraper(token="fake-apify-token")
+    list(scraper.search("Data Scientist", max_results=1))
+
+    assert post_mock.call_args.kwargs["timeout"] == 17
     get_settings.cache_clear()
 
 
@@ -618,6 +645,21 @@ def test_francetravail_network_error_is_not_reported_as_zero_results(mocker) -> 
     )
 
     with pytest.raises(requests.ConnectionError, match="France Travail offline"):
+        list(scraper.search("Data Scientist", location="Paris", max_results=5))
+
+
+def test_francetravail_invalid_json_is_not_reported_as_zero_results(mocker) -> None:
+    scraper = FranceTravailScraper(client_id="cid", client_secret="csec")
+    mocker.patch.object(scraper, "_get_token", return_value="token")
+    response = _mock_response({})
+    response.json.side_effect = ValueError("invalid JSON")
+    mocker.patch.object(
+        scraper,
+        "_request_with_cancel",
+        return_value=response,
+    )
+
+    with pytest.raises(ValueError, match="invalid JSON"):
         list(scraper.search("Data Scientist", location="Paris", max_results=5))
 
 

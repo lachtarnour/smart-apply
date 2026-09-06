@@ -21,6 +21,7 @@ from rapidfuzz import fuzz
 from unidecode import unidecode
 
 from smartapply.config import get_settings
+from smartapply.parsing import clean_description
 
 _COMPANY_SUFFIXES = re.compile(
     r"\b(s\.?a\.?s\.?|s\.?a\.?|sarl|s\.a\.r\.l\.|ltd\.?|inc\.?|llc|gmbh|b\.?v\.?|n\.?v\.?|plc|co\.?|corp\.?|corporation|company)\b",
@@ -44,6 +45,17 @@ class DedupReport:
     @property
     def n_duplicates_removed(self) -> int:
         return sum(len(g) - 1 for g in self.duplicate_groups)
+
+
+@dataclass(frozen=True)
+class DuplicateCandidate:
+    """A probable duplicate found without changing either offer."""
+
+    job: JobLike
+    title_score: float
+    description_score: float
+    confidence: float
+    match_type: str = "fuzzy"
 
 
 def normalize_company(name: str) -> str:
@@ -76,6 +88,63 @@ class Deduplicator:
         )
 
     # -------------------- public API --------------------
+
+    def find_probable_duplicate(
+        self,
+        target: JobLike,
+        candidates: Sequence[JobLike],
+    ) -> DuplicateCandidate | None:
+        """Find the strongest ambiguous match for ``target``.
+
+        This method intentionally does not use the strict thresholds of
+        :meth:`deduplicate`: its result is a review candidate, never an
+        automatic merge.  The lower description floor catches source-specific
+        rewrites while the exact company/title block prevents broad false
+        positives.
+        """
+        target_company = normalize_company(target.company)
+        target_title = normalize_title(target.title)
+        if not target_company or not target_title:
+            return None
+
+        best: DuplicateCandidate | None = None
+        for candidate in candidates:
+            if candidate is target or getattr(candidate, "external_id", None) == getattr(
+                target, "external_id", None
+            ):
+                continue
+            if normalize_company(candidate.company) != target_company:
+                continue
+
+            title_score = fuzz.token_set_ratio(target_title, normalize_title(candidate.title))
+            if title_score < 90:
+                continue
+
+            target_description = _dedup_description(target)
+            candidate_description = _dedup_description(candidate)
+            description_score = (
+                fuzz.token_set_ratio(target_description, candidate_description)
+                if target_description and candidate_description
+                else 0.0
+            )
+            # Same company/title alone is not enough: employers commonly
+            # publish several openings under one generic job label.
+            if description_score < 55:
+                continue
+
+            confidence = round(
+                (0.55 * float(title_score) + 0.45 * float(description_score)) / 100.0,
+                4,
+            )
+            match = DuplicateCandidate(
+                job=candidate,
+                title_score=round(float(title_score), 2),
+                description_score=round(float(description_score), 2),
+                confidence=confidence,
+            )
+            if best is None or match.confidence > best.confidence:
+                best = match
+        return best
 
     def deduplicate(self, jobs: Sequence[JobLike]) -> DedupReport:
         # Bucket by normalized company; only jobs sharing the same company
@@ -142,3 +211,14 @@ class Deduplicator:
             return title_score >= self.title_threshold + 5
         desc_score = fuzz.token_set_ratio(desc_a, desc_b)
         return desc_score >= self.desc_threshold
+
+
+def _dedup_description(job: JobLike) -> str:
+    """Return normalized text used for review matching.
+
+    Persisted rows already have ``cleaned_description``; raw scraper objects
+    do not.  Supporting both keeps ingestion and database audits on the same
+    normalization path.
+    """
+    value = getattr(job, "cleaned_description", None) or getattr(job, "description", "")
+    return clean_description(str(value or ""))

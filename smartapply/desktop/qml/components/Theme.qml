@@ -16,11 +16,11 @@ QtObject {
 
     readonly property color ink: "#FCFAFF"
     readonly property color inkSoft: "#E0DCE9"
-    readonly property color inkMuted: "#9B96A8"
-    readonly property color inkFaint: "#696476"
+    readonly property color inkMuted: "#B0A9BF"
+    readonly property color inkFaint: "#858095"
 
-    readonly property color line: "#2C2939"
-    readonly property color lineStrong: "#484258"
+    readonly property color line: "#332F40"
+    readonly property color lineStrong: "#5A526C"
     readonly property color accent: "#8E7CFF"
     readonly property color accentBright: "#B9AEFF"
     readonly property color accentDark: "#C8C0FF"
@@ -29,22 +29,41 @@ QtObject {
     readonly property color accentLine: "#5D518B"
     readonly property color accentGlow: "#765FFF"
     readonly property color success: "#55D3AA"
-    readonly property color successSoft: "#173930"
+    readonly property color successSoft: "#10251F"
     readonly property color warning: "#EDB767"
-    readonly property color warningSoft: "#3C2E1D"
+    readonly property color warningSoft: "#261D12"
     readonly property color danger: "#FF7F96"
     readonly property color dangerSoft: "#40232D"
     readonly property color blue: "#82AAFF"
     readonly property color neutralSoft: "#24212E"
     readonly property color highlight: "#16FFFFFF"
-    readonly property color shadow: "#65000000"
+    readonly property color shadow: "#28000000"
     readonly property color shadowSoft: "#36000000"
     readonly property color scrim: "#B8000000"
 
+    readonly property color successLine: "#285B4D"
+    readonly property color warningLine: "#684D2B"
+    readonly property color dangerLine: "#673541"
+    readonly property int controlHeight: 40
+    readonly property int pageGap: 24
+    readonly property int sectionGap: 16
+    readonly property int cardPadding: 22
+    readonly property int scrollGutter: 14
+    readonly property int pageTitleSize: 26
+    readonly property int sectionTitleSize: 17
+    readonly property int bodySize: 13
+    readonly property int captionSize: 11
+
+    // Keep strokes on whole or half logical pixels so they land cleanly on
+    // both standard and Retina displays instead of being blended between
+    // device pixels.
+    readonly property real lineWidth: 1.0
+    readonly property real lineWidthStrong: 1.5
+
     readonly property int radiusSmall: 10
-    readonly property int radiusMedium: 14
-    readonly property int radiusLarge: 20
-    readonly property int radiusXLarge: 26
+    readonly property int radiusMedium: 11
+    readonly property int radiusLarge: 18
+    readonly property int radiusXLarge: 20
 
     readonly property int motionQuick: 90
     readonly property int motionFast: 130

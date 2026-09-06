@@ -2,23 +2,28 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from threading import Barrier, get_ident
 from types import SimpleNamespace
 
 import pytest
+from PySide6.QtCore import QObject
 
-from smartapply.database import Job, JobStatus, ShortlistOrigin, session_scope
+from smartapply.database import Application, Job, JobStatus, ShortlistOrigin, session_scope
 from smartapply.database.repository import (
     create_or_get_application,
+    mark_analyzed,
     mark_archived,
+    mark_filtered,
     set_analysis,
     set_score,
     set_shortlisted,
     upsert_job,
 )
+from smartapply.desktop.bridge import DesktopBridge
 from smartapply.desktop.services import DesktopService
 from smartapply.desktop.source_health import SourceHealth
+from smartapply.jobsearch.workflow import APPLICATION_STATUSES
 
 
 def _job(*, external_id: str, description: str = "Description") -> int:
@@ -35,6 +40,48 @@ def _job(*, external_id: str, description: str = "Description") -> int:
         )
         session.flush()
         return job.id
+
+
+def test_bridge_keeps_the_selected_top_k_for_shortlist_updates() -> None:
+    bridge = DesktopBridge.__new__(DesktopBridge)
+    QObject.__init__(bridge)
+    bridge._shortlist_top_k = 25
+    bridge.service = SimpleNamespace(
+        set_shortlist_top_k=lambda value: max(1, min(100, int(value))),
+        update_shortlist=lambda **kwargs: kwargs,
+    )
+    captured: dict[str, int] = {}
+
+    def capture_run(*args, **kwargs):
+        captured.update(kwargs)
+
+    bridge._run = capture_run
+
+    bridge.updateShortlist(5)
+
+    assert bridge.shortlistTopK == 5
+    assert captured["top_k"] == 5
+
+
+def test_bridge_passes_normalized_top_k_to_analysis() -> None:
+    bridge = DesktopBridge.__new__(DesktopBridge)
+    QObject.__init__(bridge)
+    bridge._analysis_top_k = 25
+    bridge.service = SimpleNamespace(
+        set_analysis_top_k=lambda value: max(1, min(100, int(value))),
+        process_pending=lambda **kwargs: kwargs,
+    )
+    captured: dict[str, int] = {}
+
+    def capture_run(*args, **kwargs):
+        captured.update(kwargs)
+
+    bridge._run = capture_run
+
+    bridge.processPending(0)
+
+    assert bridge.analysisTopK == 1
+    assert captured["top_k"] == 1
 
 
 def test_profile_directory_is_created_at_the_active_location(
@@ -55,19 +102,96 @@ def test_profile_directory_is_created_at_the_active_location(
     assert resolved.is_dir()
 
 
+def test_database_parent_directory_is_created_at_the_active_location(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    database_path = tmp_path / "nested" / "data" / "smartapply.db"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{database_path}")
+    from smartapply.config import get_settings
+
+    get_settings.cache_clear()
+    try:
+        settings = get_settings()
+    finally:
+        get_settings.cache_clear()
+
+    assert settings.database_url == f"sqlite:///{database_path}"
+    assert database_path.parent.is_dir()
+
+
 def test_job_rows_include_experience_and_application_state(isolated_db) -> None:
     job_id = _job(
         external_id="manual:table",
         description="Nous recherchons un profil avec 3+ ans d'expérience requis.",
     )
     with session_scope() as session:
-        create_or_get_application(session, job_id)
+        application = create_or_get_application(session, job_id)
+        application_id = application.id
 
     rows = DesktopService().list_jobs()
 
     assert len(rows) == 1
     assert rows[0].experience == "3+ ans"
-    assert rows[0].application_id is not None
+    assert rows[0].application_id == application_id
+    assert rows[0].status == JobStatus.ANALYZED
+    assert rows[0].analyzed is False
+    assert rows[0].can_generate is False
+    assert rows[0].can_send is True
+
+    detail = DesktopService().get_job(job_id)
+    assert detail is not None
+    assert detail.application is not None
+    assert detail.application.id == application_id
+    assert detail.application.job_id == job_id
+
+
+def test_dashboard_counts_confirmed_duplicate_submissions_once(isolated_db) -> None:
+    root_id = _job(external_id="manual:dashboard-canonical")
+    alias_id = _job(external_id="manual:dashboard-alias")
+    now = datetime.now(timezone.utc)
+    with session_scope() as session:
+        root = session.get(Job, root_id)
+        alias = session.get(Job, alias_id)
+        assert root is not None
+        assert alias is not None
+        alias.canonical_job_id = root_id
+        alias.duplicate_review_status = "confirmed"
+        alias.status = JobStatus.ARCHIVED
+        alias.archived_at = now
+
+        root_application = create_or_get_application(session, root_id)
+        root_application.status = JobStatus.SENT
+        root_application.form_submitted_at = now - timedelta(days=1)
+        alias_application = create_or_get_application(session, alias_id)
+        alias_application.status = JobStatus.SENT
+        alias_application.form_submitted_at = now
+
+    snapshot = DesktopService().dashboard()
+    assert snapshot.sent == 1
+    assert sum(point.count for point in snapshot.sent_by_day) == 1
+    assert snapshot.sent_by_day[-2].count == 1
+    assert snapshot.sent_by_day[-1].count == 0
+
+
+def test_job_rows_expose_generation_capability_from_analysis_state(isolated_db) -> None:
+    job_id = _job(external_id="manual:actions")
+
+    row = DesktopService().list_jobs()[0]
+    assert row.analyzed is False
+    assert row.can_generate is False
+    assert row.can_send is False
+
+    with session_scope() as session:
+        job = session.get(Job, job_id)
+        assert job is not None
+        job.analyzed_at = datetime.now(timezone.utc)
+        job.status = JobStatus.ANALYZED
+
+    row = DesktopService().list_jobs()[0]
+    assert row.analyzed is True
+    assert row.can_generate is True
+    assert row.can_send is False
 
 
 def test_job_detail_keeps_profile_matches_and_review_points(isolated_db) -> None:
@@ -130,13 +254,60 @@ def test_archived_job_detail_shows_only_human_readable_decisive_reason(isolated_
 
 def test_manual_archive_records_a_clear_reason(isolated_db) -> None:
     job_id = _job(external_id="manual:user-archive")
+    with session_scope() as session:
+        mark_analyzed(session, job_id)
+        assert set_shortlisted(session, job_id, selected=True) is not None
 
     DesktopService().archive_job(job_id)
     detail = DesktopService().get_job(job_id)
 
     assert detail is not None
     assert detail.status == JobStatus.ARCHIVED
+    assert detail.shortlisted is False
     assert detail.archive_reasons == ("Archivée manuellement",)
+    with session_scope() as session:
+        archived = session.get(Job, job_id)
+        assert archived is not None
+        assert archived.shortlisted_at is None
+        assert archived.shortlist_origin is None
+
+
+def test_archived_application_without_offer_marker_still_shows_archive_reason(isolated_db) -> None:
+    job_id = _job(external_id="manual:legacy-archived-application")
+    with session_scope() as session:
+        application = create_or_get_application(session, job_id)
+        application.status = JobStatus.ARCHIVED
+
+    detail = DesktopService().get_job(job_id)
+
+    assert detail is not None
+    assert detail.status == JobStatus.ARCHIVED
+    assert detail.archive_reasons == ("Offre écartée par les critères de sélection",)
+
+
+def test_mark_job_sent_updates_linked_application_and_offer(isolated_db) -> None:
+    job_id = _job(external_id="manual:user-sent")
+    with session_scope() as session:
+        application = create_or_get_application(session, job_id)
+        application_id = application.id
+
+    assert DesktopService().mark_job_sent(job_id) is True
+
+    with session_scope() as session:
+        job = session.get(Job, job_id)
+        application = session.get(Application, application_id)
+        assert job is not None and job.status == JobStatus.SENT
+        assert application is not None and application.status == JobStatus.SENT
+        assert application.form_submitted_at is not None
+
+
+def test_mark_job_sent_without_application_is_rejected(isolated_db) -> None:
+    job_id = _job(external_id="manual:user-sent-without-application")
+
+    assert DesktopService().mark_job_sent(job_id) is False
+    with session_scope() as session:
+        job = session.get(Job, job_id)
+        assert job is not None and job.status != JobStatus.SENT
 
 
 def test_rescue_jobs_only_reinjects_archived_selection(isolated_db) -> None:
@@ -151,13 +322,15 @@ def test_rescue_jobs_only_reinjects_archived_selection(isolated_db) -> None:
     with session_scope() as session:
         rescued = session.get(Job, archived_id)
         assert rescued is not None
-        assert rescued.status == JobStatus.SHORTLISTED
-        assert rescued.shortlisted_at is not None
+        assert rescued.status == JobStatus.FILTERED
+        assert rescued.shortlisted_at is None
         assert rescued.archived_at is None
 
 
 def test_manual_top_selection_persists_across_service_instances(isolated_db) -> None:
     job_id = _job(external_id="manual:persistent-shortlist")
+    with session_scope() as session:
+        mark_analyzed(session, job_id)
 
     assert DesktopService().set_job_shortlisted(job_id, selected=True) is True
 
@@ -179,17 +352,152 @@ def test_manual_top_selection_persists_across_service_instances(isolated_db) -> 
     final_detail = DesktopService().get_job(job_id)
     assert final_detail is not None
     assert final_detail.shortlisted is False
-    assert final_detail.status == JobStatus.FILTERED
+    assert final_detail.status == JobStatus.ANALYZED
     assert final_detail.archive_reasons == ()
 
 
-def test_top_k_preference_is_managed_and_persisted_by_the_application(isolated_db) -> None:
+def test_manual_top_selection_analyzes_unanalyzed_offer_first(isolated_db, monkeypatch) -> None:
+    job_id = _job(external_id="manual:auto-analysis-before-shortlist")
+    analyzed_calls: list[list[int]] = []
+
+    class FakePipeline:
+        def analyze_jobs(self, job_ids):
+            analyzed_calls.append(list(job_ids))
+            with session_scope() as session:
+                mark_analyzed(session, job_id)
+            return SimpleNamespace(analyzed=1, already_analyzed=0, errors=[])
+
+    monkeypatch.setattr("smartapply.pipeline.Pipeline", FakePipeline)
+
+    assert DesktopService().set_job_shortlisted(job_id, selected=True) is True
+    detail = DesktopService().get_job(job_id)
+    assert detail is not None
+    assert analyzed_calls == [[job_id]]
+    assert detail.analyzed is True
+    assert detail.status == JobStatus.SHORTLISTED
+
+
+def test_removing_analyzed_offer_from_top_selection_keeps_analyzed_status(isolated_db) -> None:
+    job_id = _job(external_id="manual:analyzed-shortlist-removal")
+    service = DesktopService()
+    with session_scope() as session:
+        mark_analyzed(session, job_id)
+
+    assert service.set_job_shortlisted(job_id, selected=True) is True
+
+    assert service.set_job_shortlisted(job_id, selected=False) is True
+    final_detail = DesktopService().get_job(job_id)
+    assert final_detail is not None
+    assert final_detail.status == JobStatus.ANALYZED
+    assert final_detail.analyzed is True
+
+
+def test_new_filter_only_includes_filtered_offers_waiting_for_analysis(isolated_db) -> None:
+    pending_id = _job(external_id="manual:pending-filter")
+    shortlisted_id = _job(external_id="manual:shortlisted-filter")
+    service = DesktopService()
+    with session_scope() as session:
+        mark_filtered(session, pending_id)
+        mark_filtered(session, shortlisted_id)
+        mark_analyzed(session, shortlisted_id)
+        set_shortlisted(session, shortlisted_id, selected=True)
+
+    new_rows = service.list_jobs(status=JobStatus.SCRAPED)
+
+    assert [row.id for row in new_rows] == [pending_id]
+    assert all(row.status == JobStatus.SCRAPED for row in new_rows)
+
+
+def test_shortlist_filter_excludes_generated_applications(isolated_db) -> None:
+    shortlisted_id = _job(external_id="manual:shortlist-without-app")
+    generated_id = _job(external_id="manual:shortlist-with-app")
+    with session_scope() as session:
+        for job_id in (shortlisted_id, generated_id):
+            mark_analyzed(session, job_id)
+            set_shortlisted(session, job_id, selected=True)
+        create_or_get_application(session, generated_id)
+
+    rows = DesktopService().list_jobs(status=JobStatus.SHORTLISTED)
+
+    assert [row.id for row in rows] == [shortlisted_id]
+
+
+def test_shortlist_summary_ignores_unanalyzed_legacy_rows(isolated_db) -> None:
+    valid_id = _job(external_id="manual:valid-summary-shortlist")
+    stale_id = _job(external_id="manual:stale-summary-shortlist")
+    with session_scope() as session:
+        mark_analyzed(session, valid_id)
+        assert set_shortlisted(session, valid_id, selected=True) is not None
+        stale = session.get(Job, stale_id)
+        assert stale is not None
+        stale.shortlisted_at = datetime.now(timezone.utc)
+        stale.status = JobStatus.SHORTLISTED
+
     service = DesktopService()
 
-    assert service.set_top_k(12) == 12
-    assert DesktopService().top_k() == 12
-    assert service.set_top_k(500) == 100
-    assert DesktopService().top_k() == 100
+    assert service.shortlist_summary().total == 1
+    assert service.shortlisted_generation_ids() == [valid_id]
+
+
+def test_job_statuses_hide_internal_filtered_state(isolated_db) -> None:
+    statuses = DesktopService.job_statuses()
+
+    assert JobStatus.FILTERED not in {value for value, _label in statuses}
+    assert [value for value, _label in statuses] == [
+        JobStatus.DUPLICATE_REVIEW,
+        JobStatus.SCRAPED,
+        JobStatus.ANALYZED,
+        JobStatus.SHORTLISTED,
+        JobStatus.READY_FOR_FORM_SUBMISSION,
+        JobStatus.SENT,
+        JobStatus.ARCHIVED,
+    ]
+
+
+def test_job_status_filters_follow_application_tracking_state(isolated_db) -> None:
+    job_ids: dict[str, int] = {}
+    with session_scope() as session:
+        for index, status in enumerate(APPLICATION_STATUSES):
+            job = upsert_job(
+                session,
+                external_id=f"manual:application-status:{index}",
+                title="Machine Learning Engineer",
+                company="Acme",
+                location="Paris",
+                contract_type="CDI",
+                description="Description",
+                source="manual",
+            )
+            application = create_or_get_application(session, job.id)
+            application.status = status
+            job.status = status
+            if status == JobStatus.ARCHIVED:
+                mark_archived(session, job.id)
+            job_ids[status] = job.id
+
+    service = DesktopService()
+    for status, job_id in job_ids.items():
+        rows = service.list_jobs(status=status)
+        assert [row.id for row in rows] == [job_id]
+
+
+def test_shortlist_top_k_preference_is_managed_and_persisted(isolated_db) -> None:
+    service = DesktopService()
+
+    assert service.set_shortlist_top_k(12) == 12
+    assert DesktopService().shortlist_top_k() == 12
+    assert service.set_shortlist_top_k(500) == 100
+    assert DesktopService().shortlist_top_k() == 100
+
+
+def test_analysis_and_shortlist_top_k_preferences_are_independent(isolated_db) -> None:
+    service = DesktopService()
+
+    assert service.set_analysis_top_k(7) == 7
+    assert service.set_shortlist_top_k(13) == 13
+
+    assert DesktopService().analysis_top_k() == 7
+    assert DesktopService().shortlist_top_k() == 13
 
 
 def test_generate_top_selection_ignores_non_selected_jobs(isolated_db, monkeypatch) -> None:
@@ -197,6 +505,8 @@ def test_generate_top_selection_ignores_non_selected_jobs(isolated_db, monkeypat
     second_id = _job(external_id="manual:top-second")
     outside_id = _job(external_id="manual:not-in-top")
     with session_scope() as session:
+        mark_analyzed(session, first_id)
+        mark_analyzed(session, second_id)
         set_shortlisted(session, first_id, selected=True)
         set_shortlisted(session, second_id, selected=True)
 
@@ -218,7 +528,7 @@ def test_generate_top_selection_ignores_non_selected_jobs(isolated_db, monkeypat
 
     assert report["requested"] == 2
     assert report["generated"] == 2
-    assert analyzed_calls == [first_id, second_id]
+    assert analyzed_calls == []
     assert generated_calls == [first_id, second_id]
     assert outside_id not in generated_calls
 
@@ -425,6 +735,69 @@ def test_generate_application_lets_pipeline_validate_existing_reservation(
     assert exc_info.value.application_id == application_id
 
 
+def test_generate_application_returns_existing_dossier_for_stale_screen(
+    isolated_db, monkeypatch
+) -> None:
+    from smartapply.pipeline import ApplicationAlreadyExistsError
+
+    job_id = _job(external_id="manual:existing-documents")
+    with session_scope() as session:
+        app = create_or_get_application(session, job_id)
+        app.cv_docx_path = "/documents/CV.docx"
+        application_id = app.id
+
+    class FakePipeline:
+        def apply_to(self, received_job_id):
+            assert received_job_id == job_id
+            raise ApplicationAlreadyExistsError(job_id, application_id)
+
+    monkeypatch.setattr("smartapply.pipeline.Pipeline", FakePipeline)
+    assert DesktopService().generate_application(job_id) == {
+        "job_id": job_id,
+        "application_id": application_id,
+        "existing": True,
+    }
+
+
+def test_bridge_opens_existing_application_instead_of_reporting_creation() -> None:
+    bridge = DesktopBridge.__new__(DesktopBridge)
+    QObject.__init__(bridge)
+    bridge._refresh_workflow = lambda: None
+    bridge._set_activity = lambda *args: None
+    opened = []
+    notifications = []
+    bridge.openApplication = opened.append
+    bridge.toastRequested.connect(lambda *args: notifications.append(args))
+
+    bridge._generation_done({"job_id": 705, "application_id": 127, "existing": True})
+
+    assert opened == [127]
+    assert notifications[0][0] == "Candidature existante"
+    assert notifications[0][2] == "neutral"
+
+
+def test_opening_archived_dossier_switches_filter_and_keeps_requested_selection() -> None:
+    bridge = DesktopBridge.__new__(DesktopBridge)
+    QObject.__init__(bridge)
+    bridge._current_job = {"id": 1115}
+    bridge._selected_job_id = 1115
+    bridge._job_detail_loading = False
+    bridge.service = SimpleNamespace(get_job=lambda job_id: None)
+    bridge._start_read = lambda *args, **kwargs: None
+    routes = []
+    bridge.navigationRequested.connect(lambda *args: routes.append(args))
+
+    bridge._application_opened_in_jobs(SimpleNamespace(job_id=705, status=JobStatus.ARCHIVED))
+    assert routes == [("jobs?status=archived", 705)]
+    assert bridge._selected_job_id == 705
+
+    # The list may finish loading before the requested dossier detail.
+    selected = []
+    bridge.selectJob = selected.append
+    bridge._jobs_loaded([{"id": 2}, {"id": 705}])
+    assert selected == []
+
+
 def test_search_collects_sources_in_parallel_then_persists_serially(
     isolated_db,
     monkeypatch,
@@ -434,6 +807,7 @@ def test_search_collects_sources_in_parallel_then_persists_serially(
     rendezvous = Barrier(2, timeout=2)
     collection_threads: list[int] = []
     persistence_calls: list[tuple[str, int]] = []
+    phase_calls: list[tuple[str, list[int]]] = []
     caller_thread = get_ident()
 
     class FakePipeline:
@@ -444,11 +818,16 @@ def test_search_collects_sources_in_parallel_then_persists_serially(
 
         def persist_collection(self, collection):
             persistence_calls.append((collection.source, get_ident()))
+            phase_calls.append(("persist", []))
             return IngestReport(
                 source=collection.source,
-                fetched=0,
-                persisted=0,
+                fetched=1,
+                persisted=1,
+                job_ids=[len(phase_calls)],
             )
+
+        def filter_pending(self, *, job_ids=None):
+            phase_calls.append(("filter", list(job_ids or [])))
 
     monkeypatch.setattr("smartapply.pipeline.Pipeline", FakePipeline)
 
@@ -465,6 +844,7 @@ def test_search_collects_sources_in_parallel_then_persists_serially(
         ("serpapi", caller_thread),
         ("linkedin", caller_thread),
     ]
+    assert phase_calls == [("persist", []), ("persist", []), ("filter", [1, 2])]
     assert not result.errors
 
 
@@ -575,6 +955,7 @@ def test_application_output_directory_uses_persisted_document_location(
         session.flush()
         application_id = application.id
 
-    assert DesktopService().application_output_directory(application_id) == (
-        isolated_db / "output" / "custom-name"
-    ).resolve()
+    assert (
+        DesktopService().application_output_directory(application_id)
+        == (isolated_db / "output" / "custom-name").resolve()
+    )

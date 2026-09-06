@@ -39,6 +39,41 @@ class EmbeddingsProvider(ABC):
     def embed_one(self, text: str) -> list[float]:
         return self.embed([text])[0]
 
+    def _cache_key(self, text: str) -> str:
+        payload = f"{self.model_name}\0{text}".encode()
+        return hashlib.sha256(payload).hexdigest()
+
+    def _read_cache(self, keys: list[str]) -> dict[str, list[float]]:
+        try:
+            with session_scope() as session:
+                rows = session.scalars(
+                    select(EmbeddingCache).where(EmbeddingCache.cache_key.in_(set(keys)))
+                ).all()
+                return {row.cache_key: list(row.vector) for row in rows}
+        except Exception as exc:
+            logger.warning("Embedding cache lookup failed (continuing): %s", exc)
+            return {}
+
+    def _write_cache(self, vectors: dict[str, list[float]]) -> None:
+        if not vectors:
+            return
+        try:
+            with session_scope() as session:
+                existing = set(
+                    session.scalars(
+                        select(EmbeddingCache.cache_key).where(
+                            EmbeddingCache.cache_key.in_(set(vectors))
+                        )
+                    )
+                )
+                session.add_all(
+                    EmbeddingCache(cache_key=key, model=self.model_name, vector=vector)
+                    for key, vector in vectors.items()
+                    if key not in existing
+                )
+        except Exception as exc:
+            logger.warning("Embedding cache write failed (continuing): %s", exc)
+
 
 # -------------------- OpenAI --------------------
 
@@ -113,41 +148,6 @@ class OpenAIEmbeddingsProvider(EmbeddingsProvider):
     def _create_embeddings(self, client, batch: list[str]):  # noqa: ANN001
         return client.embeddings.create(model=self._model, input=batch)
 
-    def _cache_key(self, text: str) -> str:
-        payload = f"{self._model}\0{text}".encode()
-        return hashlib.sha256(payload).hexdigest()
-
-    def _read_cache(self, keys: list[str]) -> dict[str, list[float]]:
-        try:
-            with session_scope() as session:
-                rows = session.scalars(
-                    select(EmbeddingCache).where(EmbeddingCache.cache_key.in_(set(keys)))
-                ).all()
-                return {row.cache_key: list(row.vector) for row in rows}
-        except Exception as exc:
-            logger.warning("Embedding cache lookup failed (continuing): %s", exc)
-            return {}
-
-    def _write_cache(self, vectors: dict[str, list[float]]) -> None:
-        if not vectors:
-            return
-        try:
-            with session_scope() as session:
-                existing = set(
-                    session.scalars(
-                        select(EmbeddingCache.cache_key).where(
-                            EmbeddingCache.cache_key.in_(set(vectors))
-                        )
-                    )
-                )
-                session.add_all(
-                    EmbeddingCache(cache_key=key, model=self._model, vector=vector)
-                    for key, vector in vectors.items()
-                    if key not in existing
-                )
-        except Exception as exc:
-            logger.warning("Embedding cache write failed (continuing): %s", exc)
-
     def _record_usage(self, response) -> None:  # noqa: ANN001
         usage = getattr(response, "usage", None)
         prompt_tokens = (
@@ -198,9 +198,27 @@ class LocalEmbeddingsProvider(EmbeddingsProvider):
     def embed(self, texts: list[str]) -> list[list[float]]:
         if not texts:
             return []
+
+        keys = [self._cache_key(text) for text in texts]
+        cached = self._read_cache(keys)
+        missing_by_key: dict[str, str] = {}
+        for key, source_text in zip(keys, texts, strict=True):
+            if key not in cached:
+                missing_by_key.setdefault(key, source_text)
+        if not missing_by_key:
+            return [cached[key] for key in keys]
+
         model = self._model_lazy()
-        vectors = model.encode(texts, normalize_embeddings=True)
-        return [v.tolist() for v in vectors]
+        missing_items = list(missing_by_key.items())
+        missing_texts = [text for _, text in missing_items]
+        vectors = model.encode(missing_texts, normalize_embeddings=True)
+        generated = {
+            key: list(vector.tolist())
+            for (key, _), vector in zip(missing_items, vectors, strict=True)
+        }
+        self._write_cache(generated)
+        cached.update(generated)
+        return [cached[key] for key in keys]
 
 
 # -------------------- Mock (for tests) --------------------

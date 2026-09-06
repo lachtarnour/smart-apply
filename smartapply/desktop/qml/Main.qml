@@ -8,80 +8,99 @@ ApplicationWindow {
     id: window
     width: 1480
     height: 920
-    minimumWidth: 1200
-    minimumHeight: 780
+    // The offers page contains a dense table plus a detail panel. Below this
+    // width the fixed columns cannot remain readable without overlapping.
+    minimumWidth: 1320
+    minimumHeight: 820
+    // macOS unified titlebar: keep the native traffic-light controls while
+    // allowing the QML chrome/content to continue into the titlebar area.
+    flags: Qt.Window | Qt.ExpandedClientAreaHint | Qt.NoTitleBarBackgroundHint
+    // ApplicationWindow normally reserves the native safe area at the top.
+    // The background already covers it, so do not add a second empty strip;
+    // the rail and pages position their own content deliberately.
+    topPadding: 0
     visible: true
-    title: "Élan"
+    // Keep the native window controls without a visible brand label.
+    title: ""
     color: Theme.canvas
     font.family: Theme.fontFamily
 
     property string currentRoute: "dashboard"
     property string pendingRoute: "dashboard"
+    property string jobsFilterStatus: "scraped"
     property real pageOffset: 0
     property bool dashboardLoaded: true
     property bool searchLoaded: false
+    property bool duplicatesLoaded: false
     property bool jobsLoaded: false
-    property bool applicationsLoaded: false
     property bool manualLoaded: false
     property bool profileLoaded: false
     property bool settingsLoaded: false
-    readonly property bool expandedNavigation: width >= 1380
+    // Keep the rail compact on a 14-inch display so the working area remains
+    // wide enough for the list/detail layouts.
+    readonly property bool expandedNavigation: width >= 1560
     property var actions: [
         {title: "Accueil", icon: Theme.icon("home"), route: "dashboard"},
         {title: "Recherche", icon: Theme.icon("search"), route: "search"},
+        {title: "Doublons", icon: Theme.icon("files"), route: "duplicates"},
         {title: "Offres", icon: Theme.icon("briefcase"), route: "jobs"},
-        {title: "Candidatures", icon: Theme.icon("files"), route: "applications"},
         {title: "Ajouter une offre", icon: Theme.icon("plus"), route: "manual"},
         {title: "Profil", icon: Theme.icon("user"), route: "profile"},
         {title: "Réglages", icon: Theme.icon("settings"), route: "settings"}
     ]
 
     function routeIndex(route) {
-        var routes = ["dashboard", "search", "jobs", "applications", "manual", "profile", "settings"]
-        var value = routes.indexOf(route)
+        var routes = ["dashboard", "search", "duplicates", "jobs", "manual", "profile", "settings"]
+        var value = routes.indexOf(routePage(route))
         return value < 0 ? 0 : value
     }
 
+    function routePage(route) {
+        return String(route || "dashboard").split("?")[0]
+    }
+
+    function routeStatus(route) {
+        var match = String(route || "").match(/[?&]status=([^&]+)/)
+        if (!match) return ""
+        var status = decodeURIComponent(match[1])
+        // ``filtered`` is an internal persistence state, not a UI filter.
+        return status === "filtered" ? "scraped" : status
+    }
+
     function refreshRoute(route) {
-        if (route === "dashboard") AppBridge.refreshDashboard()
-        if (route === "jobs") AppBridge.loadJobs("", "")
-        if (route === "applications") AppBridge.loadApplications("", "")
-        if (route === "profile") AppBridge.refreshProfile()
-        if (route === "settings") AppBridge.refreshDiagnostics()
+        var page = routePage(route)
+        if (page === "dashboard") AppBridge.refreshDashboard()
+        if (page === "duplicates") AppBridge.loadJobs("", "duplicate_review", "duplicate_confidence", false)
+        if (page === "jobs") {
+            var status = routeStatus(route) || jobsFilterStatus
+            AppBridge.loadJobs("", status, "score", false)
+        }
+        if (page === "profile") AppBridge.refreshProfile()
+        if (page === "settings") AppBridge.refreshDiagnostics()
     }
 
     function ensureRouteLoaded(route) {
-        if (route === "dashboard") dashboardLoaded = true
-        else if (route === "search") searchLoaded = true
-        else if (route === "jobs") jobsLoaded = true
-        else if (route === "applications") applicationsLoaded = true
-        else if (route === "manual") manualLoaded = true
-        else if (route === "profile") profileLoaded = true
-        else if (route === "settings") settingsLoaded = true
+        var page = routePage(route)
+        if (page === "dashboard") dashboardLoaded = true
+        else if (page === "search") searchLoaded = true
+        else if (page === "duplicates") duplicatesLoaded = true
+        else if (page === "jobs") jobsLoaded = true
+        else if (page === "manual") manualLoaded = true
+        else if (page === "profile") profileLoaded = true
+        else if (page === "settings") settingsLoaded = true
     }
 
     function navigate(route) {
+        var page = routePage(route)
+        var status = routeStatus(route)
+        if (page === "jobs" && status) jobsFilterStatus = status
         if (pageSwitch.running && pendingRoute === route) return
-        if (route === currentRoute) {
+        if (page === currentRoute) {
             refreshRoute(route)
             return
         }
         pendingRoute = route
         pageSwitch.restart()
-    }
-
-    Timer {
-        id: pageWarmup
-        property int step: 0
-        property var routes: ["search", "jobs", "applications", "manual", "profile", "settings"]
-        interval: step === 0 ? 850 : 180
-        repeat: true
-        running: window.visible && step < routes.length
-        onTriggered: {
-            if (AppBridge.busy) return
-            window.ensureRouteLoaded(routes[step])
-            step += 1
-        }
     }
 
     RowLayout {
@@ -103,12 +122,12 @@ ApplicationWindow {
             Rectangle {
                 width: 280; height: 280; radius: 140
                 x: navigationRail.width - 170; y: -190
-                color: "#126B52FF"
+                color: "#066B52FF"
             }
             Rectangle {
                 width: 220; height: 220; radius: 110
                 x: -150; y: navigationRail.height - 120
-                color: "#0A735CFF"
+                color: "#03735CFF"
             }
 
             Rectangle {
@@ -125,46 +144,31 @@ ApplicationWindow {
                 anchors.fill: parent
                 anchors.leftMargin: 12
                 anchors.rightMargin: 12
-                anchors.topMargin: 18
+                // Reserve only the native traffic-light safe area after the
+                // client area is expanded into the macOS titlebar.
+                anchors.topMargin: Math.max(32, window.SafeArea.margins.top + 8)
                 anchors.bottomMargin: 16
                 spacing: 5
 
-                RowLayout {
-                    Layout.fillWidth: true
-                    Layout.bottomMargin: 17
-                    spacing: 11
-                    Item {
-                        Layout.alignment: Qt.AlignHCenter
-                        Layout.preferredWidth: 46
-                        Layout.preferredHeight: 46
-                        Rectangle {
-                            anchors.fill: parent
-                            anchors.margins: 3
-                            radius: 15
-                            color: "#1D765CFF"
-                        }
-                        Image {
-                            anchors.fill: parent
-                            source: Qt.resolvedUrl("../resources/app_icon.svg")
-                            smooth: true
-                            mipmap: true
-                        }
-                    }
-                    ColumnLayout {
-                        visible: window.expandedNavigation
-                        Layout.fillWidth: true
-                        spacing: 0
-                        Text { text: "Élan"; color: Theme.ink; font.family: Theme.fontFamily; font.pixelSize: 16; font.weight: Font.Bold; font.letterSpacing: -0.35 }
-                    }
-                }
-
                 RailItem { Layout.fillWidth: window.expandedNavigation; Layout.alignment: Qt.AlignHCenter; expanded: window.expandedNavigation; text: "Accueil"; compactText: "Accueil"; iconSource: Theme.icon("home"); selected: window.currentRoute === "dashboard"; onClicked: window.navigate("dashboard") }
                 RailItem { Layout.fillWidth: window.expandedNavigation; Layout.alignment: Qt.AlignHCenter; expanded: window.expandedNavigation; text: "Recherche"; compactText: "Recherche"; iconSource: Theme.icon("search"); selected: window.currentRoute === "search"; onClicked: window.navigate("search") }
+                RailItem { Layout.fillWidth: window.expandedNavigation; Layout.alignment: Qt.AlignHCenter; expanded: window.expandedNavigation; text: "Doublons"; compactText: "Doublons"; iconSource: Theme.icon("files"); selected: window.currentRoute === "duplicates"; onClicked: window.navigate("duplicates") }
                 RailItem { Layout.fillWidth: window.expandedNavigation; Layout.alignment: Qt.AlignHCenter; expanded: window.expandedNavigation; text: "Offres"; compactText: "Offres"; iconSource: Theme.icon("briefcase"); selected: window.currentRoute === "jobs"; onClicked: window.navigate("jobs") }
-                RailItem { Layout.fillWidth: window.expandedNavigation; Layout.alignment: Qt.AlignHCenter; expanded: window.expandedNavigation; text: "Candidatures"; compactText: "Suivi"; iconSource: Theme.icon("files"); selected: window.currentRoute === "applications"; onClicked: window.navigate("applications") }
                 RailItem { Layout.fillWidth: window.expandedNavigation; Layout.alignment: Qt.AlignHCenter; expanded: window.expandedNavigation; text: "Ajouter une offre"; compactText: "Ajouter"; iconSource: Theme.icon("plus"); selected: window.currentRoute === "manual"; onClicked: window.navigate("manual") }
 
                 Item { Layout.fillHeight: true }
+
+                Item {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 22
+                    Rectangle {
+                        id: statusLight
+                        anchors.centerIn: parent
+                        width: 9; height: 9; radius: 5
+                        color: AppBridge.busy ? Theme.warning : Theme.success
+                        Rectangle { anchors.centerIn: parent; width: 18; height: 18; radius: 9; color: AppBridge.busy ? "#22EDB767" : "#2455D3AA"; z: -1 }
+                    }
+                }
 
                 RailItem { Layout.fillWidth: window.expandedNavigation; Layout.alignment: Qt.AlignHCenter; expanded: window.expandedNavigation; text: "Profil"; compactText: "Profil"; iconSource: Theme.icon("user"); selected: window.currentRoute === "profile"; onClicked: window.navigate("profile") }
                 RailItem { Layout.fillWidth: window.expandedNavigation; Layout.alignment: Qt.AlignHCenter; expanded: window.expandedNavigation; text: "Réglages"; compactText: "Réglages"; iconSource: Theme.icon("settings"); selected: window.currentRoute === "settings"; onClicked: window.navigate("settings") }
@@ -197,18 +201,10 @@ ApplicationWindow {
                         spacing: 0
                         Text { width: parent.width; text: AppBridge.profile.name || "Votre profil"; color: "#E7E5EC"; font.pixelSize: 11; font.weight: Font.DemiBold; elide: Text.ElideRight }
                     }
-                    ToolTip.visible: avatarHover.hovered && !window.expandedNavigation
-                    ToolTip.text: AppBridge.profile.name || "Profil"
                     HoverHandler { id: avatarHover }
                     TapHandler { onTapped: window.navigate("profile") }
                 }
             }
-        }
-
-        Rectangle {
-            Layout.preferredWidth: 1
-            Layout.fillHeight: true
-                color: Theme.line
         }
 
         ColumnLayout {
@@ -216,132 +212,177 @@ ApplicationWindow {
             Layout.fillHeight: true
             spacing: 0
 
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 60
-                gradient: Gradient {
-                    orientation: Gradient.Vertical
-                    GradientStop { position: 0; color: "#121019" }
-                    GradientStop { position: 1; color: Theme.chrome }
-                }
-                RowLayout {
-                    anchors.fill: parent
-                    anchors.leftMargin: 24
-                    anchors.rightMargin: 30
-                    spacing: 16
-                    Item { Layout.fillWidth: true }
-                    Button {
-                        id: commandButton
-                        Layout.preferredWidth: 220
-                        Layout.preferredHeight: 36
-                        hoverEnabled: true
-                        onClicked: commandPalette.open()
-                        contentItem: RowLayout {
-                            spacing: 8
-                            Rectangle {
-                                Layout.preferredWidth: 24; Layout.preferredHeight: 24; radius: 8
-                                color: commandButton.hovered ? Theme.accentSoft : Theme.neutralSoft
-                                SvgIcon { anchors.centerIn: parent; source: Theme.icon("search"); color: commandButton.hovered ? Theme.accentBright : Theme.inkMuted; width: 13; height: 13 }
-                            }
-                            Text { Layout.fillWidth: true; text: "Navigation"; color: commandButton.hovered ? Theme.inkSoft : Theme.inkMuted; font.pixelSize: 11; font.weight: Font.Medium }
-                        }
-                        background: Rectangle {
-                            radius: 12
-                            gradient: Gradient {
-                                orientation: Gradient.Vertical
-                                GradientStop { position: 0; color: commandButton.hovered ? Theme.surfaceRaised : Theme.surfaceMuted }
-                                GradientStop { position: 1; color: Theme.surface }
-                            }
-                            border.color: commandButton.hovered ? Theme.accentLine : Theme.line
-                            Rectangle { anchors.left: parent.left; anchors.right: parent.right; anchors.leftMargin: 12; anchors.rightMargin: 12; anchors.top: parent.top; height: 1; color: Theme.highlight }
-                        }
-                    }
-                    Rectangle { Layout.preferredWidth: 1; Layout.preferredHeight: 24; color: Theme.line }
-                    RowLayout {
-                        spacing: 8
-                        Rectangle {
-                            Layout.preferredWidth: 8; Layout.preferredHeight: 8; radius: 4
-                            color: AppBridge.busy ? Theme.warning : Theme.success
-                            Rectangle { anchors.centerIn: parent; width: 16; height: 16; radius: 8; color: AppBridge.busy ? "#22EDB767" : "#2455D3AA"; z: -1 }
-                        }
-                        Text { text: AppBridge.busy ? "Traitement" : "À jour"; color: Theme.inkMuted; font.pixelSize: 11; font.weight: Font.Medium }
-                    }
-                }
-                Rectangle { anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom; height: 1; color: Theme.line }
-            }
-
             Item {
                 id: contentHost
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 opacity: 1
                 scale: 1
-                transform: Translate { x: window.pageOffset }
                 AmbientBackdrop { anchors.fill: parent }
                 StackLayout {
                     id: pages
+                    objectName: "pages"
+                    clip: true
                     anchors.fill: parent
                     anchors.leftMargin: 28
                     anchors.rightMargin: 28
-                    anchors.topMargin: 12
-                    anchors.bottomMargin: 20
+                    // Keep the page content below the native macOS titlebar
+                    // and add a small breathing space shared by every page.
+                    // The window background still extends edge-to-edge.
+                    anchors.topMargin: Math.max(32, window.SafeArea.margins.top + 8)
+                    anchors.bottomMargin: 28
+                    transform: Translate { x: window.pageOffset }
                     currentIndex: 0
                     Loader {
                         active: window.dashboardLoaded
+                        asynchronous: true
                         sourceComponent: Component { DashboardPage { onNavigateRequested: function(route) { window.navigate(route) } } }
                     }
                     Loader {
                         active: window.searchLoaded
+                        asynchronous: true
                         sourceComponent: Component { SearchPage { onNavigateRequested: function(route) { window.navigate(route) } } }
                     }
                     Loader {
-                        active: window.jobsLoaded
-                        sourceComponent: Component { JobsPage { onNavigateRequested: function(route) { window.navigate(route) } } }
+                        active: window.duplicatesLoaded
+                        asynchronous: true
+                        sourceComponent: Component { DuplicatesPage { onNavigateRequested: function(route) { window.navigate(route) } } }
                     }
                     Loader {
-                        active: window.applicationsLoaded
-                        sourceComponent: Component { ApplicationsPage { onNavigateRequested: function(route) { window.navigate(route) } } }
+                        active: window.jobsLoaded
+                        asynchronous: true
+                        sourceComponent: Component {
+                            JobsPage {
+                                requestedFilter: window.jobsFilterStatus
+                                onFilterChanged: function(status) { window.jobsFilterStatus = status }
+                                onNavigateRequested: function(route) { window.navigate(route) }
+                            }
+                        }
                     }
                     Loader {
                         active: window.manualLoaded
+                        asynchronous: true
                         sourceComponent: Component { ManualPage { onNavigateRequested: function(route) { window.navigate(route) } } }
                     }
                     Loader {
                         active: window.profileLoaded
+                        asynchronous: true
                         sourceComponent: Component { ProfilePage { onNavigateRequested: function(route) { window.navigate(route) } } }
                     }
                     Loader {
                         active: window.settingsLoaded
+                        asynchronous: true
                         sourceComponent: Component { SettingsPage { onNavigateRequested: function(route) { window.navigate(route) } } }
                     }
                 }
+
+                // Notifications float above the page so their appearance
+                // never changes the geometry of the current workspace.
+                Rectangle {
+                    id: toast
+                    objectName: "toast"
+                    z: 120
+                    property string kind: "neutral"
+                    property string titleText: ""
+                    property string messageText: ""
+                    anchors.top: parent.top
+                    anchors.right: parent.right
+                    anchors.topMargin: Math.max(32, window.SafeArea.margins.top + 8)
+                    anchors.rightMargin: 28
+                    width: Math.min(390, Math.max(260, parent.width - 56))
+                    height: implicitHeight
+                    implicitHeight: toastRow.implicitHeight + 28
+                    radius: 14
+                    color: Theme.surfaceRaised
+                    border.color: kind === "success" ? "#286B57" : kind === "danger" ? "#7E3443" : kind === "warning" ? "#785827" : "#393548"
+                    opacity: 0
+                    visible: opacity > 0
+                    transform: Translate { id: toastTranslate; x: 20; Behavior on x { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } } }
+                    RowLayout {
+                        id: toastRow
+                        anchors.fill: parent
+                        anchors.margins: 14
+                        anchors.rightMargin: 34
+                        spacing: 12
+                        Rectangle {
+                            Layout.preferredWidth: 38; Layout.preferredHeight: 38; radius: 12
+                            color: toast.kind === "success" ? "#203F36" : toast.kind === "danger" ? "#45262E" : toast.kind === "warning" ? "#443622" : "#302B4B"
+                            Text { anchors.centerIn: parent; text: toast.kind === "success" ? "✓" : toast.kind === "danger" ? "×" : toast.kind === "warning" ? "!" : "i"; color: toast.kind === "success" ? "#62D6B0" : toast.kind === "danger" ? "#FF8CA0" : toast.kind === "warning" ? "#F4BB62" : "#A99FFF"; font.pixelSize: 17; font.weight: Font.Bold }
+                        }
+                        ColumnLayout {
+                            Layout.fillWidth: true; spacing: 2
+                            Text { Layout.fillWidth: true; text: toast.titleText; color: "#F5F3F8"; font.pixelSize: 13; font.weight: Font.DemiBold; wrapMode: Text.WordWrap }
+                            Text { visible: toast.messageText.length > 0; Layout.fillWidth: true; text: toast.messageText; color: "#A9A6B2"; font.pixelSize: 11; wrapMode: Text.WordWrap }
+                        }
+                    }
+                    AppButton {
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.margins: 6
+                        implicitWidth: 24
+                        implicitHeight: 24
+                        quiet: true
+                        refined: true
+                        iconSize: 12
+                        iconSource: Theme.icon("x")
+                        objectName: "toastDismiss"
+                        Accessible.name: "Fermer la notification"
+                        onClicked: { toast.opacity = 0; toastTimer.stop() }
+                    }
+                    HoverHandler { id: toastHover }
+                    Behavior on opacity { NumberAnimation { duration: 180 } }
+                    Timer { id: toastTimer; interval: 4600; onTriggered: { if (toastHover.hovered) restart(); else { toast.opacity = 0; toastTranslate.x = 20 } } }
+                    function show(title, message, type) { titleText = title; messageText = message; kind = type; opacity = 1; toastTranslate.x = 0; toastTimer.restart() }
+                }
             }
+        }
+        }
+
+    // ExpandedClientAreaHint puts this strip inside the client area, so the
+    // native titlebar no longer receives the drag automatically. Qt delegates
+    // the move to macOS, preserving native snapping and window animations.
+    Item {
+        id: windowDragRegion
+        x: navigationRail.width
+        y: 0
+        width: Math.max(0, window.width - navigationRail.width)
+        height: Math.max(12, window.SafeArea.margins.top - 14)
+        z: 50
+
+        DragHandler {
+            target: null
+            acceptedButtons: Qt.LeftButton
+            onActiveChanged: if (active) window.startSystemMove()
         }
     }
 
     SequentialAnimation {
         id: pageSwitch
         ParallelAnimation {
-            NumberAnimation { target: contentHost; property: "opacity"; to: 0; duration: 55; easing.type: Easing.InQuad }
+            NumberAnimation { target: pages; property: "opacity"; to: 0; duration: 55; easing.type: Easing.InQuad }
             NumberAnimation { target: window; property: "pageOffset"; to: -4; duration: 60; easing.type: Easing.InQuad }
         }
         ParallelAnimation {
             ScriptAction {
-                script: {
-                    window.ensureRouteLoaded(window.pendingRoute)
-                    window.currentRoute = window.pendingRoute
-                    pages.currentIndex = window.routeIndex(window.pendingRoute)
+                    script: {
+                    var page = window.routePage(window.pendingRoute)
+                    window.ensureRouteLoaded(page)
+                    window.currentRoute = page
+                    pages.currentIndex = window.routeIndex(page)
                     window.refreshRoute(window.pendingRoute)
                     window.pageOffset = 8
                 }
             }
-            NumberAnimation { target: contentHost; property: "opacity"; from: 0; to: 1; duration: 175; easing.type: Easing.OutCubic }
+            NumberAnimation { target: pages; property: "opacity"; from: 0; to: 1; duration: 175; easing.type: Easing.OutCubic }
             NumberAnimation { target: window; property: "pageOffset"; from: 8; to: 0; duration: 195; easing.type: Easing.OutCubic }
         }
     }
 
+    Shortcut { sequences: ["Meta+K", "Ctrl+K"]; onActivated: commandPalette.open() }
+
     Popup {
         id: commandPalette
+        objectName: "commandPalette"
         width: Math.min(640, window.width - 80)
         height: Math.min(520, window.height - 100)
         x: Math.round((window.width - width) / 2)
@@ -363,7 +404,7 @@ ApplicationWindow {
                     GradientStop { position: 1; color: Theme.surface }
                 }
                 border.color: Theme.accentLine
-                border.width: 1
+                border.width: Theme.lineWidth
                 Rectangle { anchors.left: parent.left; anchors.right: parent.right; anchors.leftMargin: 24; anchors.rightMargin: 24; anchors.top: parent.top; height: 1; color: "#28FFFFFF" }
             }
         }
@@ -406,6 +447,13 @@ ApplicationWindow {
                 spacing: 3
                 model: window.actions.filter(function(item) { var q = commandSearch.text.toLowerCase(); return q.length === 0 || item.title.toLowerCase().indexOf(q) >= 0 })
                 currentIndex: count > 0 ? 0 : -1
+                Text {
+                    anchors.centerIn: parent
+                    visible: commandList.count === 0
+                    text: "Aucune page trouvée"
+                    color: Theme.inkMuted
+                    font.pixelSize: Theme.bodySize
+                }
                 delegate: Rectangle {
                     required property var modelData
                     required property int index
@@ -436,63 +484,26 @@ ApplicationWindow {
         visible: opacity > 0
         opacity: AppBridge.busy ? 1 : 0
         anchors.top: parent.top
-        anchors.topMargin: 76
+        anchors.topMargin: 20
         anchors.horizontalCenter: parent.horizontalCenter
-        width: Math.min(430, busyRow.implicitWidth + 34)
+        width: Math.min(430, Math.max(220, busyRow.implicitWidth + 34))
         height: 44
         radius: 15
         color: Theme.surfaceRaised
         border.color: Theme.accentLine
-        Row {
+        RowLayout {
             id: busyRow
-            anchors.centerIn: parent
+            anchors.fill: parent
+            anchors.margins: 12
             spacing: 10
             Item {
-                width: 18; height: 18
+                Layout.preferredWidth: 18; Layout.preferredHeight: 18
                 Rectangle { width: 6; height: 6; radius: 3; color: Theme.accentBright; anchors.top: parent.top; anchors.horizontalCenter: parent.horizontalCenter }
                 RotationAnimation on rotation { running: AppBridge.busy; from: 0; to: 360; duration: 850; loops: Animation.Infinite }
             }
-            Text { text: AppBridge.busyLabel || "Traitement en cours…"; color: "#EAE8F2"; font.pixelSize: 12; font.weight: Font.DemiBold; anchors.verticalCenter: parent.verticalCenter }
+            Text { Layout.fillWidth: true; text: AppBridge.busyLabel || "Traitement en cours…"; color: Theme.inkSoft; font.pixelSize: 12; font.weight: Font.DemiBold; elide: Text.ElideRight }
         }
         Behavior on opacity { NumberAnimation { duration: 180 } }
-    }
-
-    Rectangle {
-        id: toast
-        z: 120
-        property string kind: "neutral"
-        property string titleText: ""
-        property string messageText: ""
-        anchors.right: parent.right
-        anchors.rightMargin: 24
-        anchors.bottom: parent.bottom
-        // Keep the toast above the fixed action bar used by the application detail page.
-        anchors.bottomMargin: 92
-        width: 390
-        implicitHeight: toastRow.implicitHeight + 28
-        radius: 18
-        color: Theme.surfaceRaised
-        border.color: kind === "success" ? "#286B57" : kind === "danger" ? "#7E3443" : kind === "warning" ? "#785827" : "#393548"
-        opacity: 0
-        visible: opacity > 0
-        transform: Translate { id: toastTranslate; x: 20; Behavior on x { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } } }
-        RowLayout {
-            id: toastRow
-            anchors.fill: parent; anchors.margins: 14; spacing: 12
-            Rectangle {
-                Layout.preferredWidth: 38; Layout.preferredHeight: 38; radius: 12
-                color: toast.kind === "success" ? "#203F36" : toast.kind === "danger" ? "#45262E" : toast.kind === "warning" ? "#443622" : "#302B4B"
-                Text { anchors.centerIn: parent; text: toast.kind === "success" ? "✓" : toast.kind === "danger" ? "×" : toast.kind === "warning" ? "!" : "i"; color: toast.kind === "success" ? "#62D6B0" : toast.kind === "danger" ? "#FF8CA0" : toast.kind === "warning" ? "#F4BB62" : "#A99FFF"; font.pixelSize: 17; font.weight: Font.Bold }
-            }
-            ColumnLayout {
-                Layout.fillWidth: true; spacing: 2
-                Text { Layout.fillWidth: true; text: toast.titleText; color: "#F5F3F8"; font.pixelSize: 13; font.weight: Font.DemiBold; wrapMode: Text.WordWrap }
-                Text { visible: toast.messageText.length > 0; Layout.fillWidth: true; text: toast.messageText; color: "#A9A6B2"; font.pixelSize: 11; wrapMode: Text.WordWrap }
-            }
-        }
-        Behavior on opacity { NumberAnimation { duration: 180 } }
-        Timer { id: toastTimer; interval: 4600; onTriggered: { toast.opacity = 0; toastTranslate.x = 20 } }
-        function show(title, message, type) { titleText = title; messageText = message; kind = type; opacity = 1; toastTranslate.x = 0; toastTimer.restart() }
     }
 
     Connections {

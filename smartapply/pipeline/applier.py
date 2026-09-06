@@ -100,7 +100,6 @@ class Applier(ApplicationPersistenceMixin, CvWriterMixin):
         )
         self._validate_letter(letter, adapted, analysis, report)
         self._validate_cv_offer_alignment(adapted, analysis, job.title, report)
-        approved = not report.validation_errors
         resolved_form_url = form_url or job.application_url
         report.form_url = resolved_form_url
         artifacts = AtomicApplicationOutput(
@@ -121,7 +120,11 @@ class Applier(ApplicationPersistenceMixin, CvWriterMixin):
             )
 
             artifacts.publish(report)
-            status = JobStatus.READY_FOR_FORM_SUBMISSION if approved else JobStatus.QUALITY_REJECTED
+            status = (
+                JobStatus.READY_FOR_FORM_SUBMISSION
+                if not report.validation_errors
+                else JobStatus.QUALITY_REJECTED
+            )
             report.status = status
             self._persist_application(
                 report=report,

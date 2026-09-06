@@ -33,6 +33,8 @@ def next_action_for(
     updated_at: datetime | None = None,
 ) -> str:
     """Return a short next-action hint for the application tracker."""
+    if status == JobStatus.DUPLICATE_REVIEW:
+        return "Vérifier l’offre ressemblante"
     if status == JobStatus.READY_FOR_FORM_SUBMISSION:
         return "Relire les documents de candidature"
     if status == JobStatus.QUALITY_REJECTED:

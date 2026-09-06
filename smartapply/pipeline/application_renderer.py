@@ -71,10 +71,7 @@ class ApplicationDocumentRenderer:
             logger.info(
                 "Compacted sparse secondary skill categories for job %s: %s",
                 report.job_id,
-                [
-                    f"{merge.source_category}->{merge.target_category}"
-                    for merge in skill_merges
-                ],
+                [f"{merge.source_category}->{merge.target_category}" for merge in skill_merges],
             )
 
         # ---- DOCX (always — candidate fallback) ----

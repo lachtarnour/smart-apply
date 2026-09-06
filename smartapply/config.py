@@ -8,6 +8,7 @@ from pathlib import Path
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import make_url
 
 DEFAULT_RUNTIME_DIR = Path.home() / "Library" / "Application Support" / "Elan"
 RUNTIME_DIR = Path(os.environ.get("ELAN_HOME", DEFAULT_RUNTIME_DIR)).expanduser().resolve()
@@ -72,6 +73,7 @@ class Settings(BaseSettings):
     linkedin_experience_level: str = Field(default="2,3,4")
     linkedin_remote: str = Field(default="1,2,3")
     linkedin_date_posted: str = Field(default="week")
+    linkedin_timeout: int = Field(default=180, ge=1, le=300)
     linkedin_max_results: int = Field(default=50, ge=1, le=300)
 
     # Welcome to the Jungle personalized matches
@@ -112,6 +114,19 @@ class Settings(BaseSettings):
     def ensure_dirs(self) -> None:
         for p in (self.output_dir, self.cache_dir):
             p.mkdir(parents=True, exist_ok=True)
+
+        # SQLite does not create parent directories when opening a database.
+        # Ensure a fresh installation can initialize its database before the
+        # first connection is opened.
+        database_url = make_url(self.database_url)
+        if database_url.get_backend_name() == "sqlite" and database_url.database not in {
+            None,
+            ":memory:",
+        }:
+            Path(database_url.database).expanduser().resolve().parent.mkdir(
+                parents=True,
+                exist_ok=True,
+            )
 
 
 @lru_cache(maxsize=1)

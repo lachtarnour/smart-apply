@@ -6,9 +6,33 @@ from collections.abc import Sequence
 from datetime import datetime, timezone
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from smartapply.database.models import Application, JobStatus
+
+
+def clear_shortlist_for_sent_applications(session: Session) -> int:
+    """Remove stale Top markers from applications already marked as sent."""
+    applications = (
+        session.execute(
+            select(Application)
+            .options(joinedload(Application.job))
+            .where(Application.status == JobStatus.SENT)
+        )
+        .scalars()
+        .all()
+    )
+    updated = 0
+    for application in applications:
+        job = application.job
+        if job is not None and (
+            job.shortlisted_at is not None or job.status == JobStatus.SHORTLISTED
+        ):
+            job.shortlisted_at = None
+            job.shortlist_origin = None
+            job.status = JobStatus.SENT
+            updated += 1
+    return updated
 
 
 def create_or_get_application(session: Session, job_id: int) -> Application:
@@ -46,17 +70,25 @@ def update_application_tracking(
     app = session.get(Application, application_id)
     if app is None:
         raise ValueError(f"Application {application_id} not found")
+
+    job = app.job
     if status is not None:
         app.status = status
-        if app.job is not None and app.job.status != JobStatus.SHORTLISTED:
-            app.job.status = status
     if notes is not None:
         app.notes = notes
+
     now = datetime.now(timezone.utc)
     if form_submitted:
         app.form_submitted_at = now
-    if form_submitted:
         app.status = JobStatus.SENT
-        if app.job is not None and app.job.status != JobStatus.SHORTLISTED:
-            app.job.status = JobStatus.SENT
+
+    if job is not None and (status is not None or form_submitted):
+        # Keep a shortlist marker only while the offer is waiting for dossier
+        # generation. Once a candidature is sent, the application is the
+        # canonical workflow state.
+        if app.status == JobStatus.SENT:
+            job.shortlisted_at = None
+            job.shortlist_origin = None
+        if app.status == JobStatus.SENT or job.status != JobStatus.SHORTLISTED:
+            job.status = app.status
     return app

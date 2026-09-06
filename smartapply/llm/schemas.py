@@ -15,6 +15,15 @@ _strict = ConfigDict(extra="forbid")
 class JobAnalysis(BaseModel):
     model_config = _strict
 
+    fit_score: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Overall fit of this job offer for the candidate, expressed as a number "
+            "between 0 and 1."
+        ),
+    )
     role_type: str = Field(description="Concise role label, e.g. 'Data Scientist NLP'")
     seniority: str = Field(description="One of: junior, mid, senior, lead, manager")
     domain: str = Field(description="Industry / vertical the role sits in")

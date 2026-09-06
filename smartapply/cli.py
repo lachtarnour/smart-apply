@@ -9,6 +9,7 @@ from pathlib import Path
 import click
 
 from smartapply.config import get_settings
+from smartapply.cv.selector import CvBlockSelector
 from smartapply.database import init_db as _init_db
 from smartapply.database import session_scope
 from smartapply.database.repository import (
@@ -23,6 +24,8 @@ from smartapply.jobsearch import (
     next_action_for,
 )
 from smartapply.logging_setup import setup_logging
+from smartapply.profile import get_profile
+from smartapply.ranking import build_profile_text, get_embeddings_provider
 from smartapply.scrapers import SERPAPI_DATE_POSTED_OPTIONS
 
 DATE_POSTED_CHOICE = click.Choice(list(SERPAPI_DATE_POSTED_OPTIONS))
@@ -55,6 +58,29 @@ def init_db_command() -> None:
     """Create the SQLite tables."""
     _init_db()
     click.echo(f"Database initialized at {get_settings().database_url}")
+
+
+@cli.command("refresh-embeddings")
+def refresh_embeddings_command() -> None:
+    """Precompute and cache the stable profile and project embeddings."""
+    _init_db()
+    profile = get_profile()
+    texts = [build_profile_text(profile)]
+    texts.extend(CvBlockSelector.project_text(project) for project in profile.projects)
+    provider = get_embeddings_provider()
+    provider.embed(texts)
+    click.echo(
+        json.dumps(
+            {
+                "provider": provider.name,
+                "model": provider.model_name,
+                "profile_embeddings": 1,
+                "project_embeddings": len(profile.projects),
+                "cached": True,
+            },
+            indent=2,
+        )
+    )
 
 
 @cli.command("ingest")

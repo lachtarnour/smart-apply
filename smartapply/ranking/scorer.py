@@ -95,7 +95,7 @@ def build_profile_text(profile: Profile) -> str:
     for exp in profile.experiences:
         parts.append(f"{exp.title} at {exp.company}: " + " ".join(b.text for b in exp.bullets))
     for proj in profile.projects:
-        parts.append(f"{proj.name}: {proj.description}")
+        parts.append(f"{proj.name}: {proj.description}\nKeywords: {', '.join(proj.keywords)}")
     return "\n".join(parts)
 
 

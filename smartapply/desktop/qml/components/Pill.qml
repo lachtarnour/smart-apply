@@ -5,10 +5,11 @@ Rectangle {
     property string text: ""
     property string tone: "neutral"
     property bool compact: false
+    property int fontPixelSize: compact ? 11 : 12
 
     implicitWidth: label.implicitWidth + (compact ? 16 : 22)
-    implicitHeight: compact ? 26 : 30
-    radius: height / 2
+    implicitHeight: compact ? Math.max(26, label.implicitHeight + 10) : Math.max(30, label.implicitHeight + 12)
+    radius: 8
     gradient: Gradient {
         orientation: Gradient.Vertical
         GradientStop {
@@ -30,17 +31,23 @@ Rectangle {
                   : tone === "warning" ? "#594326"
                   : tone === "danger" ? "#60313B"
                   : tone === "accent" ? Theme.accentLine : Theme.lineStrong
-    border.width: 1
+    border.width: Theme.lineWidth
 
     Text {
         id: label
-        anchors.centerIn: parent
+        anchors.fill: parent
+        anchors.leftMargin: 8
+        anchors.rightMargin: 8
+        horizontalAlignment: Text.AlignHCenter
+        verticalAlignment: Text.AlignVCenter
+        elide: Text.ElideRight
         text: root.text
         color: root.tone === "success" ? Theme.success
                : root.tone === "warning" ? Theme.warning
                : root.tone === "danger" ? Theme.danger
                : root.tone === "accent" ? Theme.accentDark : Theme.inkSoft
-        font.pixelSize: root.compact ? 11 : 12
+        font.pixelSize: root.fontPixelSize
         font.weight: Font.DemiBold
+        renderType: Text.NativeRendering
     }
 }

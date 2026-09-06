@@ -6,13 +6,22 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from functools import lru_cache
 
-from sqlalchemy import Column, create_engine, event, func, inspect, select, text, update
+from sqlalchemy import Column, create_engine, event, func, inspect, or_, select, text, update
 from sqlalchemy.engine import Dialect, Engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.schema import CreateIndex
 
 from smartapply.config import get_settings
-from smartapply.database.models import Base, Job, JobScore, JobStatus, LLMUsage, ShortlistOrigin
+from smartapply.database.models import (
+    Base,
+    Job,
+    JobDuplicateStatus,
+    JobScore,
+    JobStatus,
+    LLMUsage,
+    ShortlistOrigin,
+)
+from smartapply.database.repository.applications import clear_shortlist_for_sent_applications
 from smartapply.database.repository.llm_cache import purge_expired_cache
 from smartapply.logging_setup import get_logger
 
@@ -63,8 +72,13 @@ def init_db() -> None:
     auto_migrate()
     ensure_indexes()
     backfill_shortlisted_at()
+    clear_archived_shortlists()
+    clear_unanalyzed_shortlists()
+    backfill_analyzed_statuses()
     backfill_usage_job_external_ids()
+    backfill_duplicate_reviews()
     with session_scope() as session:
+        clear_shortlist_for_sent_applications(session)
         purge_expired_cache(
             session,
             ttl_days=get_settings().llm_cache_ttl_days,
@@ -132,6 +146,54 @@ def backfill_usage_job_external_ids() -> int:
     return int(result.rowcount or 0)
 
 
+def backfill_duplicate_reviews() -> int:
+    """Hold legacy fuzzy matches for review without merging or deleting rows.
+
+    New ingests perform the same check before persistence.  This one-time-safe
+    pass protects databases created before duplicate review existed, including
+    rows that already own an archived or active application.
+    """
+    from smartapply.dedup import Deduplicator
+
+    with session_scope() as session:
+        jobs = session.execute(select(Job).order_by(Job.id.asc())).scalars().all()
+        matcher = Deduplicator()
+        updated = 0
+        for index, job in enumerate(jobs):
+            review_status = job.duplicate_review_status or JobDuplicateStatus.NONE
+            if review_status != JobDuplicateStatus.NONE:
+                continue
+            candidate = matcher.find_probable_duplicate(job, jobs[:index])
+            if candidate is None or int(candidate.job.id) == int(job.id):
+                continue
+            candidate_archived = bool(
+                candidate.job.archived_at or candidate.job.status == JobStatus.ARCHIVED
+            )
+            job_archived = bool(job.archived_at or job.status == JobStatus.ARCHIVED)
+            if job_archived and candidate_archived:
+                # A pair with no actionable offer does not need a human
+                # decision. Record the skip so this legacy repair remains
+                # idempotent on future startups.
+                job.possible_duplicate_of_id = None
+                job.duplicate_review_status = JobDuplicateStatus.REJECTED
+                job.duplicate_match_type = candidate.match_type
+                job.duplicate_confidence = candidate.confidence
+                job.status = JobStatus.ARCHIVED
+                updated += 1
+                continue
+            job.possible_duplicate_of_id = int(candidate.job.id)
+            job.duplicate_review_status = JobDuplicateStatus.PENDING
+            job.duplicate_match_type = candidate.match_type
+            job.duplicate_confidence = candidate.confidence
+            # An old shortlist marker must not remain actionable while the
+            # user is deciding.  Existing analysis/application history stays
+            # intact and is still used by the application guard.
+            job.shortlisted_at = None
+            job.shortlist_origin = None
+            updated += 1
+        return updated
+
+
 def backfill_shortlisted_at() -> int:
     """Preserve the Top selection for databases created before the dedicated marker."""
     with get_engine().begin() as conn:
@@ -140,7 +202,7 @@ def backfill_shortlisted_at() -> int:
             .where(
                 Job.shortlisted_at.is_(None),
                 Job.archived_at.is_(None),
-                Job.status.in_((JobStatus.SHORTLISTED, JobStatus.ANALYZED)),
+                Job.status == JobStatus.SHORTLISTED,
             )
             .values(
                 shortlisted_at=func.coalesce(
@@ -148,20 +210,7 @@ def backfill_shortlisted_at() -> int:
                     Job.analyzed_at,
                     Job.scraped_at,
                 ),
-                status=JobStatus.SHORTLISTED,
             )
-        )
-        # Older databases could retain the selection marker while the job
-        # status had already advanced with its application. Normalize those
-        # rows so the offer has one canonical visible status.
-        conn.execute(
-            update(Job)
-            .where(
-                Job.shortlisted_at.is_not(None),
-                Job.archived_at.is_(None),
-                Job.status != JobStatus.SHORTLISTED,
-            )
-            .values(status=JobStatus.SHORTLISTED)
         )
         rows = conn.execute(
             select(Job.id, JobScore.components)
@@ -184,6 +233,82 @@ def backfill_shortlisted_at() -> int:
                 )
             )
     return int(result.rowcount or 0)
+
+
+def backfill_analyzed_statuses() -> int:
+    """Align legacy status labels with completed analysis markers."""
+    with get_engine().begin() as conn:
+        result = conn.execute(
+            update(Job)
+            .where(
+                Job.status.in_((JobStatus.SCRAPED, JobStatus.FILTERED)),
+                Job.analyzed_at.is_not(None),
+                Job.shortlisted_at.is_(None),
+                Job.archived_at.is_(None),
+            )
+            .values(status=JobStatus.ANALYZED)
+        )
+    return int(result.rowcount or 0)
+
+
+def clear_archived_shortlists() -> int:
+    """Remove stale Top-selection markers from legacy archived offers."""
+    with get_engine().begin() as conn:
+        result = conn.execute(
+            update(Job)
+            .where(
+                Job.archived_at.is_not(None),
+                or_(
+                    Job.shortlisted_at.is_not(None),
+                    Job.shortlist_origin.is_not(None),
+                    Job.status == JobStatus.SHORTLISTED,
+                ),
+            )
+            .values(
+                shortlisted_at=None,
+                shortlist_origin=None,
+                status=JobStatus.ARCHIVED,
+            )
+        )
+    return int(result.rowcount or 0)
+
+
+def clear_unanalyzed_shortlists() -> int:
+    """Remove invalid Top-selection markers from unanalyzed offers.
+
+    The final Top selection is only valid after LLM analysis. This repairs
+    legacy databases that persisted ``shortlisted`` before that invariant was
+    enforced, while keeping the offer available in the pending queue.
+    """
+    base_conditions = (
+        or_(
+            Job.shortlisted_at.is_not(None),
+            Job.shortlist_origin.is_not(None),
+            Job.status == JobStatus.SHORTLISTED,
+        ),
+        Job.analyzed_at.is_(None),
+        Job.archived_at.is_(None),
+    )
+    with get_engine().begin() as conn:
+        filtered = conn.execute(
+            update(Job)
+            .where(*base_conditions, Job.filtered_at.is_not(None))
+            .values(
+                shortlisted_at=None,
+                shortlist_origin=None,
+                status=JobStatus.FILTERED,
+            )
+        )
+        scraped = conn.execute(
+            update(Job)
+            .where(*base_conditions, Job.filtered_at.is_(None))
+            .values(
+                shortlisted_at=None,
+                shortlist_origin=None,
+                status=JobStatus.SCRAPED,
+            )
+        )
+    return int(filtered.rowcount or 0) + int(scraped.rowcount or 0)
 
 
 def _build_add_column_sql(table_name: str, column: Column, dialect: Dialect) -> str:

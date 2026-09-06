@@ -11,111 +11,63 @@ Dialog {
     property string kind: "primary"
     property url iconSource: Theme.icon(kind === "danger" ? "alert-circle" : "check")
 
-    width: 430
-    height: 244
+    width: Math.min(460, parent ? parent.width - 48 : 460)
+    implicitHeight: dialogContent.implicitHeight + padding * 2
     modal: true
     focus: true
-    padding: 0
+    padding: 24
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-
-    background: Item {
-        Rectangle {
-            anchors.fill: parent
-            anchors.topMargin: 12
-            anchors.bottomMargin: -12
-            radius: 26
-            color: Theme.shadow
-        }
-        Rectangle {
-            anchors.fill: parent
-            radius: 24
-            gradient: Gradient {
-                orientation: Gradient.Vertical
-                GradientStop { position: 0; color: Theme.surfaceRaised }
-                GradientStop { position: 1; color: Theme.surface }
-            }
-            border.color: root.kind === "danger" ? "#6B3946" : Theme.accentLine
-            Rectangle { anchors.left: parent.left; anchors.right: parent.right; anchors.leftMargin: 22; anchors.rightMargin: 22; anchors.top: parent.top; height: 1; color: "#2BFFFFFF" }
-        }
+    Accessible.name: heading
+    background: Rectangle {
+        radius: Theme.radiusLarge
+        color: Theme.surfaceRaised
+        border.color: root.kind === "danger" ? Theme.dangerLine : Theme.lineStrong
     }
-
     Overlay.modal: Rectangle { color: Theme.scrim }
-
     contentItem: ColumnLayout {
-        spacing: 0
-
-        Item {
+        id: dialogContent
+        spacing: 20
+        RowLayout {
             Layout.fillWidth: true
-            Layout.preferredHeight: 86
+            spacing: 14
             Rectangle {
-                width: 42; height: 42; radius: 13
-                x: 22; anchors.verticalCenter: parent.verticalCenter
-                gradient: Gradient {
-                    orientation: Gradient.Vertical
-                    GradientStop { position: 0; color: root.kind === "danger" ? "#552D3A" : "#3B3160" }
-                    GradientStop { position: 1; color: root.kind === "danger" ? Theme.dangerSoft : Theme.accentSoft }
-                }
-                border.color: root.kind === "danger" ? "#6B3946" : Theme.accentLine
-                SvgIcon {
-                    anchors.centerIn: parent
-                    source: root.iconSource
-                    color: root.kind === "danger" ? Theme.danger : Theme.accentDark
-                    width: 19; height: 19
-                }
+                Layout.preferredWidth: 40
+                Layout.preferredHeight: 40
+                radius: 12
+                color: root.kind === "danger" ? Theme.dangerSoft : Theme.accentSoft
+                SvgIcon { anchors.centerIn: parent; source: root.iconSource; color: root.kind === "danger" ? Theme.danger : Theme.accentBright; width: 20; height: 20 }
             }
-            Column {
-                x: 78
-                width: parent.width - 100
-                anchors.verticalCenter: parent.verticalCenter
-                spacing: 0
-                Text { width: parent.width; text: root.heading; color: Theme.ink; font.pixelSize: 18; font.weight: Font.Bold; font.letterSpacing: -0.25; wrapMode: Text.WordWrap }
-            }
-        }
-
-        Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.line }
-
-        Item {
-            Layout.fillWidth: true
-            Layout.fillHeight: true
             Text {
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.top: parent.top
-                anchors.margins: 22
-                text: root.message
-                color: Theme.inkSoft
-                font.pixelSize: 12
+                Layout.fillWidth: true
+                text: root.heading
+                color: Theme.ink
+                font.pixelSize: 19
+                font.weight: Font.DemiBold
                 wrapMode: Text.WordWrap
-                lineHeight: 1.25
             }
         }
-
-        Rectangle {
+        Text {
             Layout.fillWidth: true
-            Layout.preferredHeight: 67
-            color: Theme.surfaceMuted
-            Rectangle { anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; height: 1; color: Theme.line }
-            RowLayout {
-                anchors.fill: parent
-                anchors.margins: 12
-                spacing: 9
-                Item { Layout.fillWidth: true }
-                AppButton { text: "Annuler"; onClicked: root.reject() }
-                AppButton { text: root.confirmText; kind: root.kind; onClicked: root.accept() }
-            }
+            visible: text.length > 0
+            text: root.message
+            color: Theme.inkSoft
+            font.pixelSize: 13
+            lineHeight: 1.35
+            wrapMode: Text.WordWrap
+        }
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 8
+            Item { Layout.fillWidth: true }
+            AppButton { text: "Annuler"; onClicked: root.reject() }
+            AppButton { text: root.confirmText; kind: root.kind; onClicked: root.accept() }
         }
     }
-
     enter: Transition {
         ParallelAnimation {
             NumberAnimation { property: "opacity"; from: 0; to: 1; duration: 150; easing.type: Easing.OutCubic }
-            NumberAnimation { property: "scale"; from: 0.97; to: 1; duration: 180; easing.type: Easing.OutCubic }
+            NumberAnimation { property: "scale"; from: 0.98; to: 1; duration: 150; easing.type: Easing.OutCubic }
         }
     }
-    exit: Transition {
-        ParallelAnimation {
-            NumberAnimation { property: "opacity"; from: 1; to: 0; duration: 110 }
-            NumberAnimation { property: "scale"; from: 1; to: 0.985; duration: 110 }
-        }
-    }
+    exit: Transition { NumberAnimation { property: "opacity"; from: 1; to: 0; duration: 100 } }
 }

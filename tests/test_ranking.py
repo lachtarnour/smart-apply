@@ -66,6 +66,43 @@ def test_openai_embeddings_are_persistently_cached_and_usage_is_recorded(
         assert usage.cost_usd > 0
 
 
+def test_local_embeddings_are_persistently_cached(isolated_db) -> None:
+    from sqlalchemy import func, select
+
+    from smartapply.database import session_scope
+    from smartapply.database.models import EmbeddingCache
+    from smartapply.ranking.embeddings import LocalEmbeddingsProvider
+
+    calls: list[list[str]] = []
+
+    class FakeVector:
+        def __init__(self, values: list[float]):
+            self.values = values
+
+        def tolist(self) -> list[float]:
+            return self.values
+
+    class FakeModel:
+        def encode(self, texts, *, normalize_embeddings):  # noqa: ANN001
+            assert normalize_embeddings is True
+            calls.append(list(texts))
+            return [FakeVector([float(index), 1.0]) for index, _ in enumerate(texts)]
+
+    provider = LocalEmbeddingsProvider(model="local-test")
+    provider._model = FakeModel()
+    first = provider.embed(["alpha", "beta", "alpha"])
+
+    second_provider = LocalEmbeddingsProvider(model="local-test")
+    second_provider._model = FakeModel()
+    second = second_provider.embed(["alpha", "beta", "alpha"])
+
+    assert calls == [["alpha", "beta"]]
+    assert first == second
+    assert first[0] == first[2]
+    with session_scope() as session:
+        assert session.scalar(select(func.count(EmbeddingCache.id))) == 2
+
+
 # ----------------- Scoring -----------------
 
 

@@ -7,38 +7,43 @@ Button {
     property string sortKey: ""
     property bool active: false
     property bool ascending: true
-    property bool alignRight: false
+    property bool centered: false
     signal sortRequested(string key)
 
     implicitHeight: 38
     hoverEnabled: true
+    clip: true
     padding: 0
+    leftPadding: 0
+    rightPadding: 0
     onClicked: sortRequested(sortKey)
 
-    contentItem: Row {
-        spacing: 4
-        anchors.left: root.alignRight ? undefined : parent.left
-        anchors.right: root.alignRight ? parent.right : undefined
-        anchors.verticalCenter: parent.verticalCenter
-        Text {
-            text: root.title.toUpperCase()
-            color: root.active ? Theme.ink : Theme.inkMuted
-            font.pixelSize: 9
-            font.weight: Font.Bold
-            font.letterSpacing: 0.55
+    Accessible.name: "Trier par " + title
+    contentItem: Item {
+        Row {
+            spacing: 3
+            x: root.centered ? Math.max(0, (parent.width - width) / 2) : 0
             anchors.verticalCenter: parent.verticalCenter
-        }
-        SvgIcon {
-            visible: root.active
-            source: Theme.icon("chevron-right")
-            color: Theme.accent
-            width: 11; height: 11
-            rotation: root.ascending ? -90 : 90
-            anchors.verticalCenter: parent.verticalCenter
+            Text {
+                text: root.title
+                color: root.active ? Theme.inkSoft : Theme.inkMuted
+                font.pixelSize: 10
+                font.weight: Font.Medium
+                anchors.verticalCenter: parent.verticalCenter
+                renderType: Text.NativeRendering
+            }
+            SvgIcon {
+                visible: root.active
+                source: Theme.icon("chevron-right")
+                color: Theme.accentBright
+                width: 9; height: 9
+                rotation: root.ascending ? -90 : 90
+                anchors.verticalCenter: parent.verticalCenter
+            }
         }
     }
     background: Rectangle {
-        radius: 8
-        color: root.hovered ? Theme.surfaceHover : "transparent"
+        radius: 6
+        color: root.hovered || root.visualFocus ? Theme.surfaceHover : "transparent"
     }
 }

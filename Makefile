@@ -1,4 +1,4 @@
-.PHONY: help install install-desktop venv test test-fast lint format clean run-desktop build-macos run-cli init-db
+.PHONY: help install install-desktop venv test test-fast lint format clean run-desktop build run-cli init-db refresh-embeddings
 
 PY ?= /opt/homebrew/bin/python3.11
 VENV = .venv
@@ -11,12 +11,13 @@ help:
 	@echo "  make install          Installe le coeur et les outils de développement"
 	@echo "  make install-desktop  Installe l'application macOS et les outils de build"
 	@echo "  make init-db          Initialise la base SQLite"
+	@echo "  make refresh-embeddings  Pre-calcule les embeddings du profil et des projets"
 	@echo "  make test             Lance les tests"
 	@echo "  make test-fast        Tests rapides (skip integration)"
 	@echo "  make lint             Verifie le code"
 	@echo "  make format           Formate le code"
 	@echo "  make run-desktop      Lance l'application macOS en développement"
-	@echo "  make build-macos      Construit dist/Elan.app"
+	@echo "  make build      Construit dist/Elan.app"
 	@echo "  make run-cli          Lance la CLI de maintenance (elan --help)"
 	@echo "  make clean            Supprime caches et builds"
 
@@ -32,6 +33,9 @@ install-desktop: venv
 
 init-db:
 	$(BIN)/elan init-db
+
+refresh-embeddings:
+	$(BIN)/elan refresh-embeddings
 
 test:
 	$(BIN)/pytest
@@ -49,7 +53,7 @@ format:
 run-desktop:
 	$(BIN)/elan-desktop
 
-build-macos:
+build:
 	$(BIN)/python -m smartapply.desktop.build_macos
 
 run-cli:

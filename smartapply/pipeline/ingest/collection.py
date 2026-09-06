@@ -151,7 +151,10 @@ def collect_round_robin(
                     # offers further down the API feed.
                     skipped_known += 1
                     continue
-                if known_jobs.matches(raw):
+                # A known external id is safely ignorable.  A known URL is
+                # not dropped here: it may be a cross-source alias that must
+                # be persisted and linked to the canonical offer.
+                if known_jobs.matches_external_id(raw):
                     skipped_existing += 1
                     continue
                 raw_jobs.append(raw)

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections import Counter
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -706,15 +707,44 @@ def test_rank_pending_scores_without_llm_analysis() -> None:
 
     assert report.total == 2
     assert report.ranked == 2
-    assert report.shortlisted == 1
+    assert report.shortlisted == 0
     with session_scope() as s:
         jobs = s.query(Job).filter(Job.id.in_(report.ranked_ids)).all()
         assert all(job.score and job.score.final_score is not None for job in jobs)
         assert all(job.analyzed_at is None for job in jobs)
-        assert sum(job.status == JobStatus.SHORTLISTED for job in jobs) == 1
-        assert sum(job.shortlisted_at is not None for job in jobs) == 1
-        assert sum(job.status == JobStatus.FILTERED for job in jobs) == 1
+        assert sum(job.status == JobStatus.SHORTLISTED for job in jobs) == 0
+        assert sum(job.shortlisted_at is not None for job in jobs) == 0
+        assert sum(job.status == JobStatus.FILTERED for job in jobs) == 2
         assert all(job.archived_at is None for job in jobs)
+
+
+def test_automatic_shortlist_averages_matching_and_llm_scores() -> None:
+    from smartapply.pipeline.process.ranking import RankingMixin
+
+    candidates = [
+        SimpleNamespace(
+            id=1, score=SimpleNamespace(final_score=0.99), analysis=SimpleNamespace(fit_score=0.10)
+        ),
+        SimpleNamespace(
+            id=2, score=SimpleNamespace(final_score=0.98), analysis=SimpleNamespace(fit_score=0.20)
+        ),
+        SimpleNamespace(
+            id=3, score=SimpleNamespace(final_score=0.97), analysis=SimpleNamespace(fit_score=0.30)
+        ),
+        SimpleNamespace(
+            id=4, score=SimpleNamespace(final_score=0.40), analysis=SimpleNamespace(fit_score=0.99)
+        ),
+        SimpleNamespace(
+            id=5, score=SimpleNamespace(final_score=0.30), analysis=SimpleNamespace(fit_score=0.98)
+        ),
+        SimpleNamespace(
+            id=6, score=SimpleNamespace(final_score=0.20), analysis=SimpleNamespace(fit_score=0.97)
+        ),
+    ]
+
+    selected = RankingMixin._mixed_score_shortlist(candidates, 5)
+
+    assert [job.id for job in selected] == [4, 5, 3, 2, 6]
 
 
 def test_each_ranking_run_replaces_the_previous_automatic_top() -> None:
@@ -740,18 +770,49 @@ def test_each_ranking_run_replaces_the_previous_automatic_top() -> None:
     initial = pipeline.rank_pending(top_k_ranked=2, job_ids=ids)
     refreshed = pipeline.rank_pending(top_k_ranked=1)
 
-    assert initial.shortlisted == 2
-    assert refreshed.shortlisted == 1
+    assert initial.shortlisted == 0
+    assert refreshed.shortlisted == 0
     with session_scope() as session:
         jobs = session.query(Job).filter(Job.id.in_(ids)).all()
-        assert sum(job.shortlisted_at is not None for job in jobs) == 1
+        assert sum(job.shortlisted_at is not None for job in jobs) == 0
         assert all(job.archived_at is None for job in jobs)
+
+
+def test_analysis_top_k_ignores_already_analyzed_higher_scored_offers() -> None:
+    from smartapply.database import session_scope
+    from smartapply.database.models import Job
+    from smartapply.pipeline import Pipeline
+
+    pipeline = Pipeline(embeddings=MockEmbeddingsProvider(), llm=MockLLMProvider())
+    first = pipeline.ingest_text(
+        text="Machine learning, Python, PyTorch et modèles prédictifs.",
+        title="Data Scientist",
+        company="AlreadyAnalyzedCo",
+        location="Paris",
+    )
+    second = pipeline.ingest_text(
+        text="Analyse produit, Python, SQL et expérimentation.",
+        title="Data Analyst",
+        company="PendingAnalysisCo",
+        location="Paris",
+    )
+    first_id = first.job_ids[0]
+    second_id = second.job_ids[0]
+
+    pipeline.rank_pending(top_k_ranked=1, job_ids=[first_id, second_id])
+    pipeline.analyze_jobs([first_id])
+    report = pipeline.process_pending(top_k_analyze=1)
+
+    assert report.analyzed == 1
+    with session_scope() as session:
+        analyzed = session.get(Job, second_id)
+        assert analyzed is not None and analyzed.analyzed_at is not None
 
 
 def test_automatic_refresh_preserves_manually_pinned_offer() -> None:
     from smartapply.database import session_scope
-    from smartapply.database.models import Job, ShortlistOrigin
-    from smartapply.database.repository import set_shortlisted
+    from smartapply.database.models import Job, JobStatus, ShortlistOrigin
+    from smartapply.database.repository import mark_analyzed, set_shortlisted
     from smartapply.pipeline import Pipeline
 
     pipeline = Pipeline(embeddings=MockEmbeddingsProvider(), llm=MockLLMProvider())
@@ -771,6 +832,7 @@ def test_automatic_refresh_preserves_manually_pinned_offer() -> None:
     initial = pipeline.rank_pending(top_k_ranked=1, job_ids=ids)
     manual_id = next(job_id for job_id in ids if job_id not in initial.shortlisted_ids)
     with session_scope() as session:
+        mark_analyzed(session, manual_id)
         set_shortlisted(
             session,
             manual_id,
@@ -780,12 +842,14 @@ def test_automatic_refresh_preserves_manually_pinned_offer() -> None:
 
     refreshed = pipeline.rank_pending(top_k_ranked=1)
 
-    assert set(refreshed.shortlisted_ids) == set(ids)
+    assert set(refreshed.shortlisted_ids) == {manual_id}
     with session_scope() as session:
         manual = session.get(Job, manual_id)
         assert manual is not None
         assert manual.shortlist_origin == ShortlistOrigin.MANUAL
         assert manual.shortlisted_at is not None
+        assert manual.status == JobStatus.SHORTLISTED
+        assert manual.archived_at is None
 
 
 def test_filter_pending_archives_internships_before_llm() -> None:
@@ -847,6 +911,7 @@ def test_filter_pending_persists_uncertain_offer_for_semantic_ranking() -> None:
     assert report.uncertain_ids == ingested.job_ids
     ranking_report = p.rank_pending(job_ids=ingested.job_ids)
     assert ranking_report.ranked == 1
+    assert ranking_report.shortlisted == 0
     with session_scope() as session:
         job = session.get(Job, ingested.job_ids[0])
         assert job is not None

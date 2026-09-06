@@ -7,123 +7,92 @@ Button {
     property string kind: "secondary"
     property string iconText: ""
     property url iconSource
-    property int iconSize: 17
+    property bool refined: false
+    property bool quiet: false
+    property int iconSize: refined ? 14 : 16
+    property int fontPixelSize: 12
     property color accentColor: Theme.accent
+    readonly property bool iconOnly: text.length === 0
 
-    implicitHeight: 44
-    implicitWidth: Math.max(96, contentItem.implicitWidth + 34)
+    implicitHeight: Theme.controlHeight
+    implicitWidth: iconOnly ? implicitHeight : Math.max(88, contentItem.implicitWidth + 28)
     hoverEnabled: true
-    leftPadding: 17
-    rightPadding: 17
+    leftPadding: iconOnly ? 0 : 14
+    rightPadding: iconOnly ? 0 : 14
     topPadding: 0
     bottomPadding: 0
-    scale: down ? 0.972 : (hovered && enabled ? 1.012 : 1)
     activeFocusOnTab: true
     Accessible.role: Accessible.Button
     Accessible.name: text
+    scale: down && enabled ? 0.985 : 1
 
+    function foregroundColor() {
+        if (!enabled) return Theme.inkFaint
+        if (kind === "primary") return refined || quiet ? Theme.accentBright : "#FFFFFF"
+        if (kind === "success") return Theme.success
+        if (kind === "warning") return Theme.warning
+        if (kind === "danger") return Theme.danger
+        return quiet && !hovered ? Theme.inkMuted : Theme.inkSoft
+    }
+    function fillColor() {
+        if (!enabled) return Theme.surfaceMuted
+        if (kind === "primary")
+            return refined || quiet ? (hovered ? "#342B50" : "#252036") : (hovered ? "#9A89FF" : accentColor)
+        if (kind === "success") return hovered ? "#1E473B" : "#17372E"
+        if (kind === "warning") return hovered ? "#42321E" : "#302417"
+        if (kind === "danger") return hovered ? "#44232E" : "#301D25"
+        return down ? Theme.surfacePressed : hovered ? Theme.surfaceRaised : Theme.surfaceMuted
+    }
+    function strokeColor() {
+        if (visualFocus) return Theme.accentBright
+        if (!enabled) return Theme.line
+        if (kind === "primary") return refined || quiet ? Theme.accentLine : Theme.accent
+        if (kind === "success") return Theme.successLine
+        if (kind === "warning") return Theme.warningLine
+        if (kind === "danger") return Theme.dangerLine
+        return hovered ? Theme.lineStrong : Theme.line
+    }
     contentItem: Item {
         implicitWidth: buttonContent.implicitWidth
         implicitHeight: Math.max(root.iconSize, buttonLabel.implicitHeight)
-
         RowLayout {
             id: buttonContent
             anchors.centerIn: parent
-            spacing: 7
-            transform: Translate {
-                y: root.down ? 1 : 0
-                Behavior on y { NumberAnimation { duration: Theme.motionQuick; easing.type: Easing.OutCubic } }
-            }
+            spacing: root.iconOnly ? 0 : 7
             SvgIcon {
                 visible: root.iconSource.toString().length > 0
                 source: root.iconSource
                 Layout.preferredWidth: root.iconSize
                 Layout.preferredHeight: root.iconSize
-                Layout.alignment: Qt.AlignVCenter
-                color: !root.enabled ? Theme.inkFaint : (root.kind === "primary" ? "#FFFFFF" : (root.kind === "danger" ? Theme.danger : Theme.inkSoft))
+                color: root.foregroundColor()
             }
             Text {
                 visible: root.iconSource.toString().length === 0 && root.iconText.length > 0
                 text: root.iconText
-                Layout.alignment: Qt.AlignVCenter
-                color: !root.enabled ? Theme.inkFaint : (root.kind === "primary" ? "white" : (root.kind === "danger" ? Theme.danger : Theme.inkSoft))
-                font.family: Theme.fontFamily
-                font.pixelSize: 15
-                font.weight: Font.DemiBold
-                verticalAlignment: Text.AlignVCenter
+                color: root.foregroundColor()
+                font.pixelSize: root.iconSize
             }
             Text {
                 id: buttonLabel
+                visible: !root.iconOnly
                 text: root.text
-                Layout.alignment: Qt.AlignVCenter
-                color: !root.enabled ? Theme.inkFaint : (root.kind === "primary" ? "white" : (root.kind === "danger" ? Theme.danger : Theme.ink))
+                color: root.foregroundColor()
                 font.family: Theme.fontFamily
-                font.pixelSize: 12
+                font.pixelSize: root.fontPixelSize
                 font.weight: Font.DemiBold
-                font.letterSpacing: 0.05
                 verticalAlignment: Text.AlignVCenter
-                renderType: Text.NativeRendering
             }
         }
     }
-
-    background: Item {
-        Rectangle {
-            visible: root.kind === "primary" && root.enabled
-            anchors.fill: parent
-            anchors.leftMargin: 2
-            anchors.rightMargin: -2
-            anchors.topMargin: 6
-            anchors.bottomMargin: -6
-            radius: Theme.radiusMedium + 2
-            color: root.hovered ? "#6A000000" : "#52000000"
-        }
-        Rectangle {
-            visible: root.kind === "primary" && root.enabled && root.hovered
-            anchors.fill: parent
-            anchors.margins: -2
-            radius: Theme.radiusMedium + 2
-            color: "transparent"
-            border.color: "#427F6BFF"
-        }
-        Rectangle {
-            anchors.fill: parent
-            radius: Theme.radiusMedium
-            gradient: Gradient {
-                orientation: Gradient.Vertical
-                GradientStop {
-                    position: 0
-                    color: !root.enabled ? Theme.neutralSoft
-                         : root.kind === "primary" ? (root.down ? "#7566EA" : (root.hovered ? "#A194FF" : root.accentColor))
-                         : root.kind === "danger" ? (root.hovered ? "#4B2732" : Theme.dangerSoft)
-                         : (root.down ? Theme.surfacePressed : (root.hovered ? Theme.surfaceRaised : Theme.surfaceMuted))
-                    Behavior on color { ColorAnimation { duration: Theme.motionFast; easing.type: Easing.OutCubic } }
-                }
-                GradientStop {
-                    position: 1
-                    color: !root.enabled ? Theme.neutralSoft
-                         : root.kind === "primary" ? (root.down ? "#5F50D1" : (root.hovered ? "#7D6DF2" : Theme.accentDeep))
-                         : root.kind === "danger" ? Theme.dangerSoft
-                         : (root.down ? Theme.surfacePressed : Theme.surface)
-                    Behavior on color { ColorAnimation { duration: Theme.motionFast; easing.type: Easing.OutCubic } }
-                }
-            }
-            border.color: root.activeFocus ? Theme.accent
-                          : root.kind === "primary" ? (root.enabled ? root.accentColor : Theme.line)
-                          : root.kind === "danger" ? "#60313B" : (root.hovered ? Theme.lineStrong : Theme.line)
-            border.width: root.activeFocus ? 1.5 : 1
-            Behavior on border.color { ColorAnimation { duration: Theme.motionFast; easing.type: Easing.OutCubic } }
-            Rectangle {
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.leftMargin: Theme.radiusMedium
-                anchors.rightMargin: Theme.radiusMedium
-                anchors.top: parent.top
-                height: 1
-                color: root.kind === "primary" ? "#42FFFFFF" : Theme.highlight
-            }
-        }
+    background: Rectangle {
+        radius: root.refined ? 9 : Theme.radiusMedium
+        color: root.fillColor()
+        border.color: root.strokeColor()
+        border.width: root.visualFocus ? 2 : 1
+        opacity: root.quiet && !root.hovered && !root.down && !root.visualFocus ? 0 : 1
+        Behavior on color { ColorAnimation { duration: Theme.motionFast } }
+        Behavior on border.color { ColorAnimation { duration: Theme.motionFast } }
+        Behavior on opacity { NumberAnimation { duration: Theme.motionFast } }
     }
-
-    Behavior on scale { NumberAnimation { duration: Theme.motionFast; easing.type: Easing.OutCubic } }
+    Behavior on scale { NumberAnimation { duration: Theme.motionQuick } }
 }

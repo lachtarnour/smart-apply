@@ -208,6 +208,20 @@ def test_wttj_scrape_matches_requests_fails_fast_on_auth_error(mocker) -> None: 
     fetch_page.assert_called_once()
 
 
+def test_wttj_rejects_success_payload_without_data_list(mocker) -> None:  # noqa: ANN001
+    response = mocker.Mock(status_code=200)
+    response.raise_for_status.return_value = None
+    response.json.return_value = {"metadata": {"page_count": 1}}
+    mocker.patch.object(matches_api.requests, "get", return_value=response)
+
+    with pytest.raises(WTTJScraperError, match="no data list"):
+        matches_api.fetch_matches_api_page(
+            page=1,
+            cookie_header="wttj_session=abc",
+            timeout=1,
+        )
+
+
 def test_wttj_scrape_matches_requests_stops_on_missing_page(mocker) -> None:  # noqa: ANN001
     response = requests.Response()
     response.status_code = 404

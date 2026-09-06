@@ -36,6 +36,10 @@ class IngestReport:
     # Recoverable source failures (for example one unreadable WTTJ detail)
     # that did not invalidate the offers successfully collected.
     warnings: list[str] = field(default_factory=list)
+    # Probable cross-source duplicates are persisted but held for human review.
+    duplicate_review_ids: list[int] = field(default_factory=list)
+    # Certain URL matches are retained as archived source aliases.
+    aliases_created: int = 0
 
 
 @dataclass(frozen=True)

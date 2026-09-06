@@ -14,6 +14,7 @@ from typing import Any
 from smartapply.config import get_settings
 from smartapply.cv import CvAdapter, CvValidator
 from smartapply.database import session_scope
+from smartapply.database.models import Job
 from smartapply.database.repository import top_jobs_by_score
 from smartapply.dedup import Deduplicator
 from smartapply.filtering import JobFilter, ruleset_from_preferences
@@ -22,6 +23,7 @@ from smartapply.logging_setup import get_logger
 from smartapply.offers import ManualOfferInput
 from smartapply.pipeline.application_renderer import ApplicationDocumentRenderer
 from smartapply.pipeline.applier import Applier
+from smartapply.pipeline.errors import DuplicateReviewRequiredError
 from smartapply.pipeline.ingest import IngestCollection
 from smartapply.pipeline.ingestor import Ingestor, IngestReport
 from smartapply.pipeline.processor import Processor
@@ -205,6 +207,15 @@ class Pipeline:
                 "applications": [],
             }
 
+        if ingest.duplicate_review_ids:
+            job_id = int(ingest.duplicate_review_ids[0])
+            with session_scope() as session:
+                job = session.get(Job, job_id)
+                raise DuplicateReviewRequiredError(
+                    job_id,
+                    job.possible_duplicate_of_id if job is not None else None,
+                )
+
         process = self.analyze_jobs(job_ids)
         applications: list[ApplyReport] = []
         for job_id in job_ids:
@@ -260,11 +271,13 @@ class Pipeline:
         *,
         job_ids: list[int] | None = None,
         local_filter_override_ids: list[int] | None = None,
+        persist_shortlist: bool = True,
     ) -> RankingReport:
         return self._processor.rank_pending(
             top_k_ranked=top_k_ranked,
             job_ids=job_ids,
             local_filter_override_ids=local_filter_override_ids,
+            persist_shortlist=persist_shortlist,
         )
 
     def analyze_jobs(self, job_ids: list[int]) -> AnalyzeReport:

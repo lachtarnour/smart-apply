@@ -80,10 +80,13 @@ def test_sqlite_is_tuned_for_concurrent_desktop_workloads() -> None:
     assert "ix_applications_status_updated_at" in application_indexes
 
 
-def test_shortlist_backfill_preserves_existing_ranked_and_analyzed_jobs() -> None:
+def test_lifecycle_backfills_do_not_promote_analyzed_jobs() -> None:
+    from datetime import datetime, timezone
+
     from smartapply.database import backfill_shortlisted_at, session_scope
     from smartapply.database.models import Job, JobStatus, ShortlistOrigin
     from smartapply.database.repository import upsert_job
+    from smartapply.database.session import backfill_analyzed_statuses
 
     with session_scope() as session:
         shortlisted = upsert_job(
@@ -104,6 +107,16 @@ def test_shortlist_backfill_preserves_existing_ranked_and_analyzed_jobs() -> Non
             source="manual",
             status=JobStatus.ANALYZED,
         )
+        legacy_analyzed = upsert_job(
+            session,
+            external_id="backfill:legacy-analyzed",
+            title="Legacy ML Engineer",
+            company="Delta",
+            description="Python et PyTorch",
+            source="manual",
+            status=JobStatus.SCRAPED,
+        )
+        legacy_analyzed.analyzed_at = datetime.now(timezone.utc)
         ignored = upsert_job(
             session,
             external_id="backfill:filtered",
@@ -113,17 +126,82 @@ def test_shortlist_backfill_preserves_existing_ranked_and_analyzed_jobs() -> Non
             source="manual",
             status=JobStatus.FILTERED,
         )
-        ids = (shortlisted.id, analyzed.id, ignored.id)
+        ids = (shortlisted.id, analyzed.id, legacy_analyzed.id, ignored.id)
 
-    assert backfill_shortlisted_at() == 2
+    assert backfill_shortlisted_at() == 1
+    assert backfill_analyzed_statuses() == 1
 
     with session_scope() as session:
         rows = [session.get(Job, job_id) for job_id in ids]
         assert rows[0] is not None and rows[0].shortlisted_at is not None
         assert rows[0].shortlist_origin == ShortlistOrigin.AUTOMATIC
-        assert rows[1] is not None and rows[1].shortlisted_at is not None
-        assert rows[1].shortlist_origin == ShortlistOrigin.AUTOMATIC
+        assert rows[1] is not None and rows[1].shortlisted_at is None
+        assert rows[1].shortlist_origin is None
         assert rows[2] is not None and rows[2].shortlisted_at is None
+        assert rows[2].status == JobStatus.ANALYZED
+        assert rows[3] is not None and rows[3].shortlisted_at is None
+
+
+def test_unanalyzed_shortlist_markers_are_reconciled() -> None:
+    from datetime import datetime, timezone
+
+    from smartapply.database import clear_unanalyzed_shortlists, session_scope
+    from smartapply.database.models import Job, JobStatus, ShortlistOrigin
+    from smartapply.database.repository import upsert_job
+
+    now = datetime.now(timezone.utc)
+    with session_scope() as session:
+        filtered = upsert_job(
+            session,
+            external_id="repair:filtered-shortlist",
+            title="Data Scientist",
+            company="Acme",
+            description="Python et machine learning",
+            source="manual",
+            status=JobStatus.FILTERED,
+        )
+        filtered.filtered_at = now
+        filtered.shortlisted_at = now
+        filtered.shortlist_origin = ShortlistOrigin.AUTOMATIC
+
+        scraped = upsert_job(
+            session,
+            external_id="repair:scraped-shortlist",
+            title="ML Engineer",
+            company="Beta",
+            description="Python et PyTorch",
+            source="manual",
+            status=JobStatus.SHORTLISTED,
+        )
+        scraped.shortlisted_at = now
+        scraped.shortlist_origin = ShortlistOrigin.MANUAL
+
+        analyzed = upsert_job(
+            session,
+            external_id="repair:valid-shortlist",
+            title="Research Engineer",
+            company="Gamma",
+            description="Python et NLP",
+            source="manual",
+            status=JobStatus.SHORTLISTED,
+        )
+        analyzed.analyzed_at = now
+        analyzed.shortlisted_at = now
+        analyzed.shortlist_origin = ShortlistOrigin.AUTOMATIC
+        ids = (filtered.id, scraped.id, analyzed.id)
+
+    assert clear_unanalyzed_shortlists() == 2
+
+    with session_scope() as session:
+        filtered, scraped, analyzed = (session.get(Job, job_id) for job_id in ids)
+        assert filtered is not None and filtered.shortlisted_at is None
+        assert filtered.shortlist_origin is None
+        assert filtered.status == JobStatus.FILTERED
+        assert scraped is not None and scraped.shortlisted_at is None
+        assert scraped.shortlist_origin is None
+        assert scraped.status == JobStatus.SCRAPED
+        assert analyzed is not None and analyzed.shortlisted_at is not None
+        assert analyzed.shortlist_origin == ShortlistOrigin.AUTOMATIC
 
 
 def test_upsert_job_inserts_then_updates() -> None:
@@ -335,9 +413,9 @@ def test_auto_migrate_adds_missing_columns(tmp_path, monkeypatch) -> None:
 def test_rescue_archived_job_resets_state_and_pins_max_scores() -> None:
     """The macOS offers view lets the user override a wrong filter
     rejection by re-injecting the offer with maxed-out synthetic scores.
-    The repository helper must reset the archive markers, jump the job
-    to ``SHORTLISTED`` and persist a full ``components.manual_rescue``
-    audit block so the rescue stays traceable.
+    The repository helper must reset the archive markers, return the job to
+    the analysis queue and persist a full ``components.manual_rescue`` audit
+    block so the rescue stays traceable.
     """
     from datetime import datetime, timezone
 
@@ -388,16 +466,17 @@ def test_rescue_archived_job_resets_state_and_pins_max_scores() -> None:
         assert rescued is not None
         assert rescued.id == job_id
 
-    # Assert: archive cleared, status SHORTLISTED, all numeric scores at
+    # Assert: archive cleared, status FILTERED, all numeric scores at
     # 1.0 and the audit block preserves the previous rejection reasons.
     with session_scope() as s:
         job = s.get(Job, job_id)
         assert job is not None
-        assert job.status == JobStatus.SHORTLISTED
+        assert job.status == JobStatus.FILTERED
         assert job.archived_at is None
         assert job.analyzed_at is None
         assert job.filtered_at is not None
         assert job.ranked_at is not None
+        assert job.shortlisted_at is None
         # SQLite drops the tz on read — coerce to UTC before subtracting.
         filtered_at = job.filtered_at
         if filtered_at.tzinfo is None:

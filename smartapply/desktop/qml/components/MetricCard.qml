@@ -19,9 +19,9 @@ Item {
     Accessible.ignored: !interactive
     Accessible.role: Accessible.Button
     Accessible.name: root.label + " : " + root.value
-    scale: cardTap.pressed ? 0.99 : (mouse.hovered && root.interactive ? 1.008 : 1)
+    scale: cardTap.pressed ? 0.99 : 1
     transform: Translate {
-        y: mouse.hovered && root.interactive ? -2 : 0
+        y: 0
         Behavior on y { NumberAnimation { duration: 170; easing.type: Easing.OutCubic } }
     }
 
@@ -29,8 +29,8 @@ Item {
         anchors.fill: parent
         anchors.leftMargin: 1
         anchors.rightMargin: -1
-        anchors.topMargin: 8
-        anchors.bottomMargin: -8
+        anchors.topMargin: 3
+        anchors.bottomMargin: -3
         radius: Theme.radiusLarge + 4
         color: Theme.shadow
     }
@@ -43,7 +43,7 @@ Item {
             GradientStop { position: 1; color: mouse.hovered && root.interactive ? Theme.surfaceHover : Theme.surface }
         }
         border.color: root.activeFocus ? root.accent : (mouse.hovered && root.interactive ? Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.34) : Theme.line)
-        border.width: root.activeFocus ? 1.5 : 1
+        border.width: root.activeFocus ? Theme.lineWidthStrong : Theme.lineWidth
         Behavior on border.color { ColorAnimation { duration: 140 } }
 
         Rectangle {
@@ -52,7 +52,7 @@ Item {
             anchors.leftMargin: Theme.radiusLarge
             anchors.rightMargin: Theme.radiusLarge
             anchors.top: parent.top
-            height: 1
+            height: Theme.lineWidth
             color: Theme.highlight
         }
     }

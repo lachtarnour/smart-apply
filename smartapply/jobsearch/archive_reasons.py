@@ -48,9 +48,7 @@ def decisive_rejection_reasons(reasons: Iterable[object]) -> list[str]:
         if not value:
             continue
         prefix = value.split(":", 1)[0]
-        if prefix in _NON_DECISIVE_REASON_PREFIXES or prefix.startswith(
-            "experience_structured_"
-        ):
+        if prefix in _NON_DECISIVE_REASON_PREFIXES or prefix.startswith("experience_structured_"):
             continue
         decisive.append(value)
     return decisive
@@ -110,8 +108,10 @@ def _archive_reason_label(reason: str) -> str:
             f"Famille de poste hors cible : {detail or 'non reconnue'}",
         )
     if code in {"seniority_in_title", "seniority_blocked"}:
-        return f"Niveau de séniorité trop élevé : {detail}" if detail else (
-            "Niveau de séniorité trop élevé"
+        return (
+            f"Niveau de séniorité trop élevé : {detail}"
+            if detail
+            else ("Niveau de séniorité trop élevé")
         )
     if code == "seniority_or_leadership_in_description":
         return "Niveau senior ou responsabilités managériales au-dessus du profil recherché"
