@@ -1,10 +1,11 @@
 # Démo vidéo Élan
 
-La vidéo finale est dans `output/demo/Elan-demo.mp4` (1080p, environ 52 secondes).
+La vidéo finale est dans `output/demo/Elan-demo.mp4` (1080p, environ 48 secondes).
 Elle présente l’application native sans aucune piste audio, avec des encadrés
 en points courts, des zones surlignées et un curseur animé.
 La copie `output/demo/Elan-demo-sans-audio.mp4` contient cette même version muette.
-Elle se termine sur la lettre générée, sans écran de conclusion.
+Elle commence directement sur l’accueil et se termine sur la lettre générée.
+Les annotations décrivent les actions et les résultats, sans slogan ni écran de conclusion.
 Aucun bouton de visite guidée n’est ajouté à l’application.
 
 ## Le scénario
@@ -68,32 +69,14 @@ La capture nécessite Chrome/Chromium ou WeasyPrint fonctionnel pour les PDF.
 
 ## Refaire le montage
 
-Les commandes ci-dessous recréent le montage narré historique. Pour obtenir
-la version finale muette, supprimer ensuite toutes les pistes audio, sans
-réencoder l’image :
-
 ```sh
-ffmpeg -i output/demo/Elan-demo.mp4 -map 0:v:0 -c:v copy -an -movflags +faststart output/demo/Elan-demo-sans-audio.mp4
+.venv/bin/pip install --target data/demo-video-deps Pillow PyMuPDF imageio-ffmpeg
+PYTHONPATH="$PWD/data/demo-video-deps" .venv/bin/python tools/demo/render.py
 ```
 
-```sh
-.venv/bin/pip install --target data/demo-video-deps Pillow PyMuPDF imageio-ffmpeg edge-tts
-PYTHONPATH="$PWD/data/demo-video-deps" .venv/bin/python tools/demo/narration.py
-PYTHONPATH="$PWD/data/demo-video-deps" .venv/bin/python tools/demo/render.py --audio-dir output/demo/narration-claire
-```
-
-La narration utilise maintenant la voix française **Denise Neural**, avec son
-débit naturel (`+0%`), via le service vocal Microsoft Edge. Seules les 14 phrases
-de narration sont transmises : la base et le profil restent locaux. Le script
-`narration.py` ne lit aucun identifiant et conserve les clips en cache ; ses
-options `--voice` et `--rate` permettent d’ajuster le locuteur et le rythme.
-Le service et ses paramètres sont utilisés via [edge-tts](https://github.com/rany2/edge-tts).
-
-Le montage utilise les clips WAV locaux, raccourcit les silences excessifs et
-normalise le volume de la voix, sans accélérer la parole.
-Chrome doit pouvoir s’exécuter pour la création initiale des PDF. Les anciennes
-voix macOS restent disponibles dans `render.py` sans `--audio-dir`, mais ne
-servent pas à la version avec la voix Denise.
+Le montage est muet par défaut : aucune génération vocale ni piste audio.
+Les 11 séquences de l’application durent 3,5 secondes chacune, puis les deux PDF sont affichés 4,5 secondes chacun.
+Chrome doit pouvoir s’exécuter pour la création initiale des PDF.
 
 `render.py --preview-only` produit les images de contrôle sans encoder la vidéo.
 Les textes, le rythme et les zones sélectionnées se modifient dans `SCENES`
@@ -108,4 +91,4 @@ et les sous-titres français au format SRT. `montage/` contient les intermédiai
 - CV et lettre : un PDF d’une page chacun, texte extrait et rendu inspecté.
 - Boutons CV et Lettre : ouverture de chacun des fichiers attendus vérifiée.
 - SQLite : contrôle d’intégrité réussi pour les quatre états.
-- MP4 final : décodage complet réussi ; 1920 × 1080, 24 images/s, 51,5 secondes ; aucune piste audio.
+- MP4 final : décodage complet réussi ; 1920 × 1080, 24 images/s, 47,5 secondes ; aucune piste audio.

@@ -1,6 +1,6 @@
-"""Edit native captures into a narrated, captioned 1080p MP4.
+"""Edit native captures into a silent, annotated 1080p MP4.
 
-Requires Pillow, PyMuPDF, imageio-ffmpeg and a macOS French voice.
+Requires Pillow, PyMuPDF and imageio-ffmpeg. Narration is optional.
 All spotlights and explanation cards are composited here, never in the app.
 """
 
@@ -47,17 +47,8 @@ def wrapped(draw, value, face, width):
 SCENES = [
     dict(
         shot="01-home",
-        chapter="Bienvenue",
-        title="Votre recherche,\nun seul espace.",
-        intro=True,
-        body="Trouver des offres.\nPréparer ses candidatures.",
-        narration="Élan. Votre recherche d’emploi, centralisée.",
-        min_duration=2.5,
-    ),
-    dict(
-        shot="01-home",
         chapter="01 / Accueil",
-        title="Tout commence ici",
+        title="Suivi des candidatures",
         pos=(440, 430),
         body="• Offres à analyser\n• Candidatures prêtes ou envoyées",
         narration="Suivez vos offres et vos candidatures.",
@@ -65,7 +56,7 @@ SCENES = [
     dict(
         shot="02-search",
         chapter="02 / Rechercher",
-        title="Une recherche ciblée",
+        title="Paramètres de recherche",
         pos=(510, 620),
         body="• Poste, ville et source\n• Limite : 3 annonces",
         narration="Choisissez vos critères. Limitez à trois annonces.",
@@ -73,7 +64,7 @@ SCENES = [
     dict(
         shot="03-fetch",
         chapter="02 / Récupérer",
-        title="Les offres arrivent",
+        title="Récupérer 3 annonces",
         pos=(510, 745),
         focus=[250, 85, 1310, 305],
         body="• Récupération des annonces\n• Enregistrement et filtrage",
@@ -82,10 +73,10 @@ SCENES = [
     dict(
         shot="04-duplicates",
         chapter="03 / Repérer les doublons",
-        title="Deux doublons repérés",
+        title="2 doublons à vérifier",
         pos=(860, 745),
         focus=[250, 95, 385, 315],
-        body="• 2 annonces déjà connues\n• Comparaison entre sources",
+        body="• 2 correspondances détectées\n• Vérification entre sources",
         narration="Deux doublons détectés. Comparez les sources.",
     ),
     dict(
@@ -100,16 +91,16 @@ SCENES = [
     dict(
         shot="06-second-duplicate",
         chapter="03 / Traiter le second",
-        title="Traiter le second",
+        title="Résoudre le second doublon",
         pos=(240, 655),
         focus=[680, 155, 860, 525],
-        body="• Confirmez aussi le second\n• Offres distinctes : garder les deux",
+        body="• « Même offre » : regrouper\n• « Offres différentes » : séparer",
         narration="Confirmez le second doublon. Gardez séparément les postes distincts.",
     ),
     dict(
         shot="07-resolved",
         chapter="03 / Terminé",
-        title="La liste est nettoyée",
+        title="Doublons traités",
         pos=(630, 675),
         focus=[650, 350, 500, 200],
         body="• 0 doublon en attente\n• 3 offres distinctes",
@@ -118,7 +109,7 @@ SCENES = [
     dict(
         shot="08-offers",
         chapter="04 / Explorer une offre",
-        title="Tout le détail du poste",
+        title="Consulter l’offre",
         pos=(360, 605),
         focus=[932, 28, 643, 325],
         body="• Description du poste\n• Analyse selon votre profil",
@@ -127,16 +118,16 @@ SCENES = [
     dict(
         shot="09-analysis",
         chapter="04 / Comprendre le résultat",
-        title="Un résultat expliqué",
+        title="Résultat de l’analyse",
         pos=(360, 545),
         focus=[932, 28, 643, 350],
         body="• Points de correspondance\n• Éléments à vérifier",
-        narration="Repérez vos atouts et les points à vérifier.",
+        narration="Vérifiez les correspondances et les écarts avec votre profil.",
     ),
     dict(
         shot="10-generation",
         chapter="05 / Créer le dossier",
-        title="Un clic pour les documents",
+        title="Générer le CV et la lettre",
         pos=(370, 550),
         focus=[932, 780, 642, 94],
         body="• CV adapté au poste\n• Lettre de motivation",
@@ -145,7 +136,7 @@ SCENES = [
     dict(
         shot="11-documents",
         chapter="05 / Dossier prêt",
-        title="Documents disponibles",
+        title="Ouvrir les documents",
         pos=(370, 550),
         focus=[932, 780, 642, 94],
         body="• CV et lettre en PDF\n• Accès depuis l’offre",
@@ -154,16 +145,16 @@ SCENES = [
     dict(
         pdf="cv_pdf",
         chapter="06 / Le CV généré",
-        title="Un CV adapté\nau poste",
-        body="• Titre ciblé\n• Compétences pertinentes\n• Expériences du profil",
+        title="CV généré",
+        body="• Intitulé du poste\n• Compétences sélectionnées\n• Expériences du profil",
         narration="Le CV met en avant les compétences pertinentes.",
         min_duration=4.5,
     ),
     dict(
         pdf="motivation_letter_pdf",
         chapter="06 / La lettre générée",
-        title="Une lettre\ncontextualisée",
-        body="• Parcours relié aux missions\n• Lettre prête à relire",
+        title="Lettre de\nmotivation",
+        body="• Parcours relié aux missions\n• Relecture avant envoi",
         narration="La lettre relie votre parcours aux missions.",
         min_duration=4.5,
     ),
@@ -175,6 +166,7 @@ def main():
     parser.add_argument("--runtime", type=Path, default=REPO / "data/demo")
     parser.add_argument("--output", type=Path, default=REPO / "output/demo")
     parser.add_argument("--preview-only", action="store_true")
+    parser.add_argument("--narrated", action="store_true", help="Explicitly enable narration")
     parser.add_argument(
         "--audio-dir", type=Path, help="Use prepared 01.wav, 02.wav… narration clips"
     )
@@ -224,7 +216,7 @@ def main():
             for j, line in enumerate(lines):
                 ld.text((145, 465 + j * 43), line, font=font(30), fill="#BDB4CF")
             ld.rounded_rectangle((145, 700, 565, 750), radius=25, fill="#2B2244")
-            ld.text((170, 708), "PDF réellement généré par Élan", font=font(22), fill="#CCB8FF")
+            ld.text((170, 708), "Document PDF · 1 page", font=font(22), fill="#CCB8FF")
         else:
             shot = manifest[scene["shot"]]
             native = (
@@ -273,7 +265,7 @@ def main():
                 )
                 ld.rounded_rectangle((cx, cy, cx + cardw, cy + cardh), radius=23, fill="#FAF9FC")
                 ld.ellipse((cx + 28, cy + 28, cx + 66, cy + 66), fill=GOLD)
-                count = str(i)
+                count = str(i + 1)
                 ld.text(
                     (cx + 47 - ld.textlength(count, font=font(21, True)) / 2, cy + 31),
                     count,
@@ -288,6 +280,10 @@ def main():
         preview = Image.alpha_composite(base.convert("RGBA"), layer).convert("RGB")
         preview.save(work / f"{i + 1:02}-preview.jpg", quality=94)
         if args.preview_only:
+            continue
+        if not args.narrated:
+            duration = max(scene.get("min_duration", 3.5), 3.5)
+            durations.append(duration)
             continue
         speech = work / f"{i + 1:02}.txt"
         speech_config = work / f"{i + 1:02}-speech.json"
@@ -360,14 +356,15 @@ def main():
     if args.preview_only:
         return
     narration = work / "narration.wav"
-    with wave.open(str(narration), "wb") as joined:
-        joined.setnchannels(1)
-        joined.setsampwidth(2)
-        joined.setframerate(48000)
-        for data, duration in audio_paths:
-            lead = b"\x00" * int(0.18 * 48000) * 2
-            padding = b"\x00" * (int(round(duration * 48000)) * 2 - len(data) - len(lead))
-            joined.writeframes(lead + data + padding)
+    if args.narrated:
+        with wave.open(str(narration), "wb") as joined:
+            joined.setnchannels(1)
+            joined.setsampwidth(2)
+            joined.setframerate(48000)
+            for data, duration in audio_paths:
+                lead = b"\x00" * int(0.18 * 48000) * 2
+                padding = b"\x00" * (int(round(duration * 48000)) * 2 - len(data) - len(lead))
+                joined.writeframes(lead + data + padding)
     target = output / "Elan-demo.mp4"
     command = [
         ffmpeg,
@@ -384,8 +381,7 @@ def main():
         str(FPS),
         "-i",
         "pipe:0",
-        "-i",
-        str(narration),
+        *(["-i", str(narration)] if args.narrated else []),
         "-c:v",
         "libx264",
         "-preset",
@@ -394,14 +390,11 @@ def main():
         "19",
         "-pix_fmt",
         "yuv420p",
-        "-af",
-        "loudnorm=I=-16:TP=-1.5:LRA=7",
-        "-ar",
-        "48000",
-        "-c:a",
-        "aac",
-        "-b:a",
-        "160k",
+        *(
+            ["-af", "loudnorm=I=-16:TP=-1.5:LRA=7", "-ar", "48000", "-c:a", "aac", "-b:a", "160k"]
+            if args.narrated
+            else ["-an"]
+        ),
         "-movflags",
         "+faststart",
         "-shortest",
