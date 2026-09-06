@@ -17,10 +17,6 @@ Find relevant roles, assess your fit, prepare tailored CVs and cover letters, an
 
 https://github.com/user-attachments/assets/b357b04e-eba4-49aa-a6ed-851d0a94e167
 
-<p align="center">
-  <img src="docs/screenshots/jobs.png" alt="Élan offers workspace with ranked roles, profile fit, review points, and application documents" width="1000">
-</p>
-
 ## What it does
 
 - **Find opportunities** across France Travail, LinkedIn, Welcome to the Jungle, and Google Jobs, or add an offer manually.
@@ -29,22 +25,6 @@ https://github.com/user-attachments/assets/b357b04e-eba4-49aa-a6ed-851d0a94e167
 - **Track progress** with application statuses, documents, and a dashboard of recent activity.
 
 Profile data and application history are stored locally. Connected providers process the data needed for search and AI features. You review documents and submit applications yourself.
-
-<details>
-<summary><strong>Explore the interface</strong></summary>
-
-<table>
-  <tr>
-    <td width="50%"><strong>Dashboard</strong><br><a href="docs/screenshots/dashboard.png"><img src="docs/screenshots/dashboard.png" alt="Application counts, daily activity, and recent applications"></a></td>
-    <td width="50%"><strong>Search</strong><br><a href="docs/screenshots/search.png"><img src="docs/screenshots/search.png" alt="Job criteria and source selection"></a></td>
-  </tr>
-  <tr>
-    <td width="50%"><strong>Duplicate review</strong><br><a href="docs/screenshots/duplicates.png"><img src="docs/screenshots/duplicates.png" alt="Side-by-side comparison of suspected duplicate offers"></a></td>
-    <td width="50%"><strong>Manual entry</strong><br><a href="docs/screenshots/manual.png"><img src="docs/screenshots/manual.png" alt="Form for adding an offer and creating an application"></a></td>
-  </tr>
-</table>
-
-</details>
 
 ## Getting started
 
