@@ -70,7 +70,7 @@ The first build provisions the runtime under `~/Library/Application Support/Elan
 
 ## Adapt the profile and matching rules
 
-Élan is designed to be adapted. The repository publishes a safe example profile, while the deterministic matching rules are tuned for the original use case. When adapting the project to another candidate, country, role family, or hiring policy, update both the profile data and the static filters.
+Élan is primarily designed for AI Engineer profiles seeking employment. Using it for another role or field requires adapting the profile data, search role families, and static matching rules, including changes to the source code. The repository publishes a safe example profile; review the files below for your target role, country, and experience level.
 
 ### Profile files
 
