@@ -11,6 +11,12 @@ Find relevant roles, assess your fit, prepare tailored CVs and cover letters, an
 [![MIT License](https://img.shields.io/badge/License-MIT-55bd92)](LICENSE)
 [![CI](https://github.com/lachtarnour/elan-career/actions/workflows/ci.yml/badge.svg)](https://github.com/lachtarnour/elan-career/actions/workflows/ci.yml)
 
+## Demo
+
+45 seconds · silent · French annotations. Fictional data with simulated collection and AI responses.
+
+https://github.com/user-attachments/assets/b357b04e-eba4-49aa-a6ed-851d0a94e167
+
 <p align="center">
   <img src="docs/screenshots/jobs.png" alt="Élan offers workspace with ranked roles, profile fit, review points, and application documents" width="1000">
 </p>
