@@ -3,6 +3,7 @@
 from smartapply.dedup.deduplicator import (
     Deduplicator,
     DedupReport,
+    DuplicateCandidate,
     JobLike,
     normalize_company,
     normalize_title,
@@ -10,6 +11,7 @@ from smartapply.dedup.deduplicator import (
 
 __all__ = [
     "DedupReport",
+    "DuplicateCandidate",
     "Deduplicator",
     "JobLike",
     "normalize_company",

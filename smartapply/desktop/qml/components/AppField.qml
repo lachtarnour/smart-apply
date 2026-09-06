@@ -6,14 +6,16 @@ TextField {
     property string iconText: ""
     property url iconSource
 
-    implicitHeight: 48
+    implicitHeight: Theme.controlHeight
     color: Theme.ink
     placeholderTextColor: Theme.inkMuted
     selectionColor: "#6556B98A"
     selectedTextColor: Theme.ink
-    font.pixelSize: 13
+    font.pixelSize: Theme.bodySize
     leftPadding: (iconSource.toString().length > 0 || iconText.length > 0) ? 43 : 15
     rightPadding: 15
+    selectByMouse: true
+    Accessible.name: placeholderText
 
     background: Rectangle {
         radius: Theme.radiusMedium
@@ -31,7 +33,7 @@ TextField {
             }
         }
         border.color: root.activeFocus ? Theme.accent : (fieldHover.hovered ? Theme.lineStrong : Theme.line)
-        border.width: root.activeFocus ? 1.5 : 1
+        border.width: root.activeFocus ? Theme.lineWidthStrong : Theme.lineWidth
         Rectangle {
             visible: root.activeFocus
             anchors.fill: parent

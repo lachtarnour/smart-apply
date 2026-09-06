@@ -55,6 +55,10 @@ def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     os.environ.setdefault("QT_QUICK_CONTROLS_STYLE", "Basic")
     os.environ.setdefault("QSG_RENDER_LOOP", "threaded")
+    # Keep the native macOS GPU path for smooth Qt Quick compositing.
+    # The software backend remains selected explicitly for smoke tests below.
+    if not args.smoke_test:
+        os.environ.setdefault("QSG_RHI_BACKEND", "metal")
     if args.smoke_test:
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
         os.environ.setdefault("QT_QUICK_BACKEND", "software")

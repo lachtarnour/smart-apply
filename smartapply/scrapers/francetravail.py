@@ -20,7 +20,7 @@ import requests
 from smartapply.config import get_settings
 from smartapply.logging_setup import get_logger
 from smartapply.offers import RawJob, make_external_id
-from smartapply.scrapers.base import Scraper, ScraperConfigError
+from smartapply.scrapers.base import Scraper, ScraperConfigError, ScraperError
 from smartapply.scrapers.francetravail_experience import (
     _extract_experience,
     _format_experience_section,
@@ -219,6 +219,7 @@ class FranceTravailScraper(Scraper):
         headers: dict[str, str],
         stop_requested: Callable[[], bool] | None = None,
     ) -> dict[str, Any]:
+        request_started = time.monotonic()
         logger.info(
             "France Travail request start: q=%r range=%s timeout=%ss",
             params.get("motsCles"),
@@ -239,20 +240,70 @@ class FranceTravailScraper(Scraper):
         )
         if response.status_code == 204:
             logger.info(
-                "France Travail request done: q=%r range=%s status=204 results=0",
+                "France Travail request done: q=%r range=%s status=204 results=0 elapsed=%.1fs",
                 params.get("motsCles"),
                 params.get("range"),
+                time.monotonic() - request_started,
             )
             return {}
-        response.raise_for_status()
-        payload = response.json()
-        results = payload.get("resultats") if isinstance(payload, dict) else None
+        try:
+            response.raise_for_status()
+            payload = response.json()
+        except (requests.RequestException, ValueError) as exc:
+            logger.error(
+                "France Travail response invalid: q=%r range=%s status=%s elapsed=%.1fs error=%s",
+                params.get("motsCles"),
+                params.get("range"),
+                response.status_code,
+                time.monotonic() - request_started,
+                exc,
+                exc_info=True,
+            )
+            raise
+        if not isinstance(payload, dict):
+            exc = ScraperError("France Travail response invalid: expected a JSON object")
+            logger.error(
+                "France Travail response invalid: q=%r range=%s status=%s elapsed=%.1fs error=%s",
+                params.get("motsCles"),
+                params.get("range"),
+                response.status_code,
+                time.monotonic() - request_started,
+                exc,
+                exc_info=True,
+            )
+            raise exc
+        if payload.get("error"):
+            detail = payload.get("error")
+            exc = ScraperError(f"France Travail returned an API error: {str(detail)[:500]}")
+            logger.error(
+                "France Travail API error: q=%r range=%s status=%s elapsed=%.1fs error=%s",
+                params.get("motsCles"),
+                params.get("range"),
+                response.status_code,
+                time.monotonic() - request_started,
+                exc,
+            )
+            raise exc
+        results = payload.get("resultats")
+        if not isinstance(results, list):
+            exc = ScraperError("France Travail response invalid: missing resultats list")
+            logger.error(
+                "France Travail response invalid: q=%r range=%s status=%s elapsed=%.1fs error=%s",
+                params.get("motsCles"),
+                params.get("range"),
+                response.status_code,
+                time.monotonic() - request_started,
+                exc,
+                exc_info=True,
+            )
+            raise exc
         logger.info(
-            "France Travail request done: q=%r range=%s status=%s results=%s",
+            "France Travail request done: q=%r range=%s status=%s results=%s elapsed=%.1fs",
             params.get("motsCles"),
             params.get("range"),
             response.status_code,
-            len(results) if isinstance(results, list) else "?",
+            len(results),
+            time.monotonic() - request_started,
         )
         return payload
 
@@ -338,7 +389,13 @@ class FranceTravailScraper(Scraper):
                 )
                 return
             except requests.RequestException as e:
-                logger.error("France Travail request failed: %s", e)
+                logger.error(
+                    "France Travail request failed: q=%r range=%s error=%s",
+                    params.get("motsCles"),
+                    params.get("range"),
+                    e,
+                    exc_info=True,
+                )
                 if _should_stop(stop_requested):
                     logger.warning(
                         "France Travail search stopped after request failure: q=%r yielded=%s",
@@ -390,9 +447,6 @@ class FranceTravailScraper(Scraper):
         if not title:
             return None
 
-        ext_id = raw.get("id") or ""
-        external_id = make_external_id(self.name, ext_id, title, company)
-
         lieu_travail = raw.get("lieuTravail") or {}
         location = lieu_travail.get("libelle")
 
@@ -440,6 +494,16 @@ class FranceTravailScraper(Scraper):
                 published = None
 
         application_url = raw.get("origineOffre", {}).get("urlOrigine")
+        ext_id = raw.get("id") or ""
+        # France Travail's offer id is the durable identity.  Titles and
+        # company labels can be corrected by the source between fetches and
+        # must not create a second job row.
+        if ext_id:
+            external_id = make_external_id(self.name, str(ext_id))
+        elif application_url:
+            external_id = make_external_id(self.name, application_url)
+        else:
+            external_id = make_external_id(self.name, title, company, location or "")
 
         source_data = dict(raw)
         if experience:

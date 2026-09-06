@@ -6,10 +6,10 @@ from collections.abc import Sequence
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from smartapply.database.models import Job, JobScore, JobStatus, ShortlistOrigin
+from smartapply.database.models import Job, JobDuplicateStatus, JobScore, JobStatus, ShortlistOrigin
 
 
 def upsert_job(session: Session, *, external_id: str, **fields: Any) -> Job:
@@ -71,6 +71,12 @@ def list_pending_processing(session: Session) -> Sequence[Job]:
         select(Job)
         .where(Job.archived_at.is_(None))
         .where(Job.analyzed_at.is_(None))
+        .where(
+            or_(
+                Job.duplicate_review_status.is_(None),
+                Job.duplicate_review_status != JobDuplicateStatus.PENDING,
+            )
+        )
         .order_by(Job.scraped_at.desc())
     )
     return session.execute(stmt).scalars().all()
@@ -97,10 +103,18 @@ def set_shortlisted(
 ) -> Job | None:
     """Persist a Top selection as the offer's canonical status."""
     job = session.get(Job, job_id)
-    if job is None or job.archived_at is not None:
+    if (
+        job is None
+        or job.archived_at is not None
+        or job.duplicate_review_status == JobDuplicateStatus.PENDING
+    ):
         return None
 
     if selected:
+        # A Top selection is eligible for CV/letter generation only after
+        # the offer analysis has completed. Manual callers must analyze first.
+        if job.analyzed_at is None:
+            return None
         now = datetime.now(timezone.utc)
         job.shortlisted_at = job.shortlisted_at or now
         if origin == ShortlistOrigin.MANUAL or job.shortlist_origin != ShortlistOrigin.MANUAL:
@@ -115,6 +129,9 @@ def set_shortlisted(
     job.shortlisted_at = None
     job.shortlist_origin = None
     if job.status == JobStatus.SHORTLISTED:
+        # Removing an offer from the generation Top selection returns it to
+        # the correct previous workflow state. Analyzed offers must remain
+        # visibly analyzed so the dashboard and status filter stay aligned.
         job.status = JobStatus.ANALYZED if job.analyzed_at is not None else JobStatus.FILTERED
     return job
 
@@ -130,6 +147,11 @@ def mark_archived(session: Session, job_id: int) -> None:
     job = session.get(Job, job_id)
     if job is not None:
         job.archived_at = datetime.now(timezone.utc)
+        # Archiving removes the offer from Top sélection as well. Keeping the
+        # old marker here makes an archived offer look shortlisted to any
+        # consumer that reads the raw lifecycle fields.
+        job.shortlisted_at = None
+        job.shortlist_origin = None
         job.status = JobStatus.ARCHIVED
 
 
@@ -139,7 +161,7 @@ def rescue_archived_job(
     *,
     justification: str | None = None,
 ) -> Job | None:
-    """Re-inject a previously archived job into the workflow at top rank."""
+    """Re-inject an archived job into the retained, analyzable queue."""
     from smartapply.database.repository.scores import set_score
 
     job = session.get(Job, job_id)
@@ -160,9 +182,9 @@ def rescue_archived_job(
     job.analyzed_at = None
     job.filtered_at = now
     job.ranked_at = now
-    job.shortlisted_at = now
-    job.shortlist_origin = ShortlistOrigin.MANUAL
-    job.status = JobStatus.SHORTLISTED
+    job.shortlisted_at = None
+    job.shortlist_origin = None
+    job.status = JobStatus.FILTERED
 
     audit: dict[str, Any] = {
         "manual_rescue": True,

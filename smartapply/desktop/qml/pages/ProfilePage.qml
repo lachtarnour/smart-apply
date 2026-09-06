@@ -6,129 +6,133 @@ import "../components"
 Item {
     id: root
     signal navigateRequested(string route)
-
+    function preferenceLabel(value) {
+        var labels = {remote: "À distance", hybrid: "Hybride", onsite: "Sur site", "Full-time": "Temps plein", "Part-time": "Temps partiel"}
+        return labels[value] || value
+    }
     Flickable {
         anchors.fill: parent
         contentWidth: width
-        contentHeight: content.implicitHeight + 56
+        contentHeight: content.implicitHeight + 12
         clip: true
         boundsBehavior: Flickable.StopAtBounds
         ScrollBar.vertical: AppScrollBar { }
         ColumnLayout {
             id: content
-            width: parent.width - 12
-            spacing: 18
+            width: Math.min(parent.width - Theme.scrollGutter, 1320)
+            x: (parent.width - Theme.scrollGutter - width) / 2
+            spacing: Theme.pageGap
             PageHeader {
                 Layout.fillWidth: true
                 title: "Profil"
-                AppButton { text: "Dossier du profil"; iconSource: Theme.icon("folder"); onClicked: AppBridge.openProfileFolder() }
+                AppButton { text: "Ouvrir le dossier"; iconSource: Theme.icon("folder"); onClicked: AppBridge.openProfileFolder() }
             }
-            Rectangle {
+            Surface {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 225
-                radius: 26
-                gradient: Gradient {
-                    orientation: Gradient.Horizontal
-                    GradientStop { position: 0; color: "#181520" }
-                    GradientStop { position: 0.58; color: "#201A30" }
-                    GradientStop { position: 1; color: "#30264A" }
-                }
-                border.color: "#4B435E"
-                clip: true
-                Rectangle { anchors.left: parent.left; anchors.right: parent.right; anchors.leftMargin: 26; anchors.rightMargin: 26; anchors.top: parent.top; height: 1; color: "#30FFFFFF" }
-                Rectangle { width: 320; height: 320; radius: 160; x: parent.width - 190; y: -135; color: "#28735CFF" }
-                Rectangle { width: 150; height: 150; radius: 75; x: parent.width - 370; y: 155; color: "#1B9079FF" }
+                surfaceEndColor: "#211B30"
+                strokeColor: Theme.accentLine
+                padding: 26
                 RowLayout {
-                    anchors.fill: parent
-                    anchors.margins: 28
+                    Layout.fillWidth: true
                     spacing: 22
                     Rectangle {
-                        Layout.preferredWidth: 88; Layout.preferredHeight: 88; radius: 28
-                        gradient: Gradient {
-                            GradientStop { position: 0; color: Theme.accentBright }
-                            GradientStop { position: 0.48; color: Theme.accent }
-                            GradientStop { position: 1; color: Theme.accentDeep }
-                        }
-                        border.color: "#5AFFFFFF"
-                        Rectangle { anchors.fill: parent; anchors.margins: -4; radius: 32; color: "transparent"; border.color: "#207C65FF" }
-                        Text { anchors.centerIn: parent; text: AppBridge.profile.initials || "É"; color: "white"; font.family: Theme.fontFamily; font.pixelSize: 27; font.weight: Font.Bold }
+                        Layout.preferredWidth: 66
+                        Layout.preferredHeight: 66
+                        Layout.alignment: Qt.AlignTop
+                        radius: 20
+                        color: Theme.accentSoft
+                        border.color: Theme.accentLine
+                        Text { anchors.centerIn: parent; text: AppBridge.profile.initials || "É"; color: Theme.accentBright; font.pixelSize: 23; font.weight: Font.DemiBold }
                     }
                     ColumnLayout {
-                        Layout.fillWidth: true; spacing: 6
-                        Text { text: AppBridge.profile.name || "Votre profil"; color: "white"; font.family: Theme.fontFamily; font.pixelSize: 29; font.weight: Font.Bold; font.letterSpacing: -0.6; renderType: Text.NativeRendering }
-                        Text { text: (AppBridge.profile.title || "") + ((AppBridge.profile.location || "") ? "  ·  " + AppBridge.profile.location : ""); color: "#CBC7D7"; font.pixelSize: 14 }
-                        Text { text: AppBridge.profile.email || ""; color: Theme.accentBright; font.pixelSize: 12 }
-                        Item { Layout.preferredHeight: 2 }
-                        Text { Layout.fillWidth: true; Layout.maximumWidth: 700; text: AppBridge.profile.summary || ""; color: "#AAA7B5"; font.pixelSize: 12; wrapMode: Text.WordWrap; lineHeight: 1.2; maximumLineCount: 3; elide: Text.ElideRight }
-                    }
-                    ColumnLayout {
-                        Text { text: String(AppBridge.profile.experiences || 0); color: "white"; font.pixelSize: 30; font.weight: Font.Bold; Layout.alignment: Qt.AlignHCenter }
-                        Text { text: "EXPÉRIENCES"; color: "#8F8B9A"; font.pixelSize: 9; font.letterSpacing: 0.8 }
-                    }
-                    Rectangle { Layout.preferredWidth: 1; Layout.preferredHeight: 46; color: "#3D3A48" }
-                    ColumnLayout {
-                        Text { text: String(AppBridge.profile.projects || 0); color: "white"; font.pixelSize: 30; font.weight: Font.Bold; Layout.alignment: Qt.AlignHCenter }
-                        Text { text: "PROJETS"; color: "#8F8B9A"; font.pixelSize: 9; font.letterSpacing: 0.8 }
-                    }
-                }
-            }
-            GridLayout {
-                Layout.fillWidth: true
-                columns: 5
-                columnSpacing: 16; rowSpacing: 16
-                Surface {
-                    Layout.columnSpan: 2
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 360
-                    surfaceEndColor: "#1C1828"
-                    SectionTitle { title: "Critères de recherche" }
-                    FormLabel { text: "POSTES" }
-                    Flow {
-                        Layout.fillWidth: true; spacing: 7
-                        Repeater { model: AppBridge.profile.target_roles || []; delegate: Pill { required property var modelData; text: modelData; tone: "accent"; compact: true } }
-                    }
-                    FormLabel { text: "CONTRATS & TÉLÉTRAVAIL" }
-                    Flow {
-                        Layout.fillWidth: true; spacing: 7
-                        Repeater { model: (AppBridge.profile.contracts || []).concat(AppBridge.profile.remote_policies || []); delegate: Pill { required property var modelData; text: modelData; compact: true } }
-                    }
-                }
-                Surface {
-                    Layout.columnSpan: 3
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 360
-                    surfaceEndColor: "#1C1828"
-                    SectionTitle {
-                        title: "Compétences"
-                        caption: (AppBridge.profile.skill_categories || []).reduce(function(total, category) { return total + category.skills.length }, 0) + " compétences · " + (AppBridge.profile.skill_categories || []).length + " domaines"
-                    }
-                    Flickable {
                         Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        contentWidth: width
-                        contentHeight: skillsContent.implicitHeight
-                        clip: true
-                        boundsBehavior: Flickable.StopAtBounds
-                        ScrollBar.vertical: AppScrollBar { }
-                        ColumnLayout {
-                            id: skillsContent
-                            width: parent.width
-                            spacing: 12
-                            Repeater {
-                                model: AppBridge.profile.skill_categories || []
-                                delegate: ColumnLayout {
-                                    required property var modelData
-                                    Layout.fillWidth: true
-                                    spacing: 6
-                                    Text { text: modelData.name; color: Theme.inkSoft; font.pixelSize: 12; font.weight: Font.DemiBold }
-                                    Flow {
-                                        Layout.fillWidth: true; spacing: 6
-                                        Repeater { model: modelData.skills; delegate: Pill { required property var modelData; text: modelData; compact: true } }
-                                    }
-                                }
+                        spacing: 8
+                        Text { Layout.fillWidth: true; text: AppBridge.profile.name || "Votre profil"; color: Theme.ink; font.pixelSize: 25; font.weight: Font.Bold; wrapMode: Text.WordWrap }
+                        Text { Layout.fillWidth: true; text: [AppBridge.profile.title, AppBridge.profile.location].filter(function(value) { return Boolean(value) }).join(" · "); color: Theme.inkSoft; font.pixelSize: 14; wrapMode: Text.WordWrap }
+                        Text { Layout.fillWidth: true; text: AppBridge.profile.email || ""; visible: text.length > 0; color: Theme.accentBright; font.pixelSize: 13; wrapMode: Text.WrapAnywhere }
+                        Text {
+                            Layout.fillWidth: true
+                            Layout.topMargin: 6
+                            visible: text.length > 0
+                            text: AppBridge.profile.summary || ""
+                            color: Theme.inkMuted
+                            font.pixelSize: 13
+                            wrapMode: Text.WordWrap
+                            lineHeight: 1.35
+                        }
+                    }
+                    ColumnLayout {
+                        Layout.alignment: Qt.AlignTop
+                        Layout.preferredWidth: 120
+                        spacing: 12
+                        Repeater {
+                            model: [
+                                {count: AppBridge.profile.experiences || 0, label: "Expériences"},
+                                {count: AppBridge.profile.projects || 0, label: "Projets"}
+                            ]
+                            delegate: RowLayout {
+                                required property var modelData
+                                Layout.fillWidth: true
+                                Text { text: modelData.count; color: Theme.ink; font.pixelSize: 20; font.weight: Font.DemiBold }
+                                Text { Layout.fillWidth: true; text: modelData.label; color: Theme.inkMuted; font.pixelSize: 12 }
                             }
                         }
                     }
+                }
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.sectionGap
+                Surface {
+                    Layout.fillWidth: true
+                    Layout.preferredWidth: 2
+                    Layout.alignment: Qt.AlignTop
+                    SectionTitle { title: "Critères de recherche" }
+                    FormLabel { text: "POSTES" }
+                    Flow {
+                        id: rolesFlow
+                        Layout.fillWidth: true
+                        spacing: 7
+                        Repeater {
+                            model: AppBridge.profile.target_roles || []
+                            delegate: Pill { required property var modelData; text: modelData; tone: "accent"; compact: true; width: Math.min(implicitWidth, rolesFlow.width) }
+                        }
+                    }
+                    Text { visible: (AppBridge.profile.target_roles || []).length === 0; text: "Aucun poste renseigné"; color: Theme.inkMuted; font.pixelSize: 13 }
+                    FormLabel { text: "CONTRATS ET TÉLÉTRAVAIL"; Layout.topMargin: 8 }
+                    Flow {
+                        id: preferencesFlow
+                        Layout.fillWidth: true
+                        spacing: 7
+                        Repeater {
+                            model: (AppBridge.profile.contracts || []).concat(AppBridge.profile.remote_policies || [])
+                            delegate: Pill { required property var modelData; text: root.preferenceLabel(modelData); compact: true; width: Math.min(implicitWidth, preferencesFlow.width) }
+                        }
+                    }
+                }
+                Surface {
+                    Layout.fillWidth: true
+                    Layout.preferredWidth: 3
+                    Layout.alignment: Qt.AlignTop
+                    SectionTitle {
+                        title: "Compétences"
+                    }
+                    Repeater {
+                        model: AppBridge.profile.skill_categories || []
+                        delegate: ColumnLayout {
+                            required property var modelData
+                            Layout.fillWidth: true
+                            spacing: 9
+                            Text { Layout.fillWidth: true; text: modelData.name; color: Theme.inkSoft; font.pixelSize: 13; font.weight: Font.DemiBold; wrapMode: Text.WordWrap }
+                            Flow {
+                                id: skillsFlow
+                                Layout.fillWidth: true
+                                spacing: 6
+                                Repeater { model: modelData.skills; delegate: Pill { required property var modelData; text: modelData; compact: true; width: Math.min(implicitWidth, skillsFlow.width) } }
+                            }
+                        }
+                    }
+                    Text { visible: (AppBridge.profile.skill_categories || []).length === 0; text: "Aucune compétence renseignée"; color: Theme.inkMuted; font.pixelSize: 13 }
                 }
             }
         }

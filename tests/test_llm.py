@@ -45,6 +45,7 @@ def test_job_analysis_schema_round_trip() -> None:
         ],
     )
     raw = a.model_dump_json()
+    assert '"fit_score":0.5' in raw
     assert "Data Scientist" in raw
     assert "clinical AI products" in raw
     assert "Paris" in raw

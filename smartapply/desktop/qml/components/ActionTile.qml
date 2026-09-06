@@ -30,7 +30,7 @@ Button {
             radius: 13
             color: Qt.rgba(root.accent.r, root.accent.g, root.accent.b, root.hovered ? 0.16 : 0.1)
             border.color: Qt.rgba(root.accent.r, root.accent.g, root.accent.b, root.hovered ? 0.26 : 0.14)
-            SvgIcon { anchors.centerIn: parent; source: root.iconSource; color: root.accent; width: 17; height: 17 }
+            SvgIcon { anchors.centerIn: parent; source: root.iconSource; color: root.accent; width: 19; height: 19 }
         }
 
         ColumnLayout {
@@ -44,6 +44,7 @@ Button {
                 font.pixelSize: 13
                 font.weight: Font.DemiBold
                 elide: Text.ElideRight
+                renderType: Text.NativeRendering
             }
             Text {
                 Layout.fillWidth: true
@@ -51,6 +52,7 @@ Button {
                 color: Theme.inkMuted
                 font.pixelSize: 11
                 elide: Text.ElideRight
+                renderType: Text.NativeRendering
             }
         }
 
@@ -60,9 +62,9 @@ Button {
             Layout.preferredHeight: 24
             radius: 8
             color: root.hovered ? Theme.accentSoft : Theme.neutralSoft
-            Text { id: badgeText; anchors.centerIn: parent; text: root.badge; color: root.hovered ? Theme.accentDark : Theme.inkMuted; font.pixelSize: 9; font.weight: Font.DemiBold }
+            Text { id: badgeText; anchors.centerIn: parent; text: root.badge; color: root.hovered ? Theme.accentDark : Theme.inkMuted; font.pixelSize: 10; font.weight: Font.DemiBold; renderType: Text.NativeRendering }
         }
-        SvgIcon { source: Theme.icon("chevron-right"); color: root.hovered ? Theme.accent : Theme.inkFaint; Layout.preferredWidth: 14; Layout.preferredHeight: 14 }
+        SvgIcon { source: Theme.icon("chevron-right"); color: root.hovered ? Theme.accent : Theme.inkFaint; Layout.preferredWidth: 16; Layout.preferredHeight: 16 }
     }
 
     background: Rectangle {
@@ -73,9 +75,9 @@ Button {
             GradientStop { position: 1; color: root.down ? Theme.surfacePressed : Theme.surface }
         }
         border.color: root.activeFocus ? Theme.accent : (root.hovered ? Theme.accentLine : Theme.line)
-        border.width: root.activeFocus ? 1.5 : 1
+        border.width: root.activeFocus ? Theme.lineWidthStrong : Theme.lineWidth
         Behavior on border.color { ColorAnimation { duration: 130 } }
-        Rectangle { anchors.left: parent.left; anchors.right: parent.right; anchors.leftMargin: 14; anchors.rightMargin: 14; anchors.top: parent.top; height: 1; color: Theme.highlight }
+        Rectangle { anchors.left: parent.left; anchors.right: parent.right; anchors.leftMargin: 14; anchors.rightMargin: 14; anchors.top: parent.top; height: Theme.lineWidth; color: Theme.highlight }
     }
 
     Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }

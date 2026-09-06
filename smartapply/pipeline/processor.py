@@ -53,9 +53,10 @@ class Processor(AnalysisMixin, LocalFilterMixin, RankingMixin, DeduplicationMixi
             top_k_ranked=top_k_analyze,
             job_ids=job_ids,
             local_filter_override_ids=local_filter_override_ids,
+            persist_shortlist=False,
         )
         with session_scope() as s:
-            shortlisted_jobs = list(
+            analysis_candidates = list(
                 s.query(Job)
                 .filter(
                     Job.id.in_(ranking.shortlisted_ids),
@@ -64,14 +65,14 @@ class Processor(AnalysisMixin, LocalFilterMixin, RankingMixin, DeduplicationMixi
                 .all()
             )
 
-        to_analyze = [j for j in shortlisted_jobs if j.analyzed_at is None]
+        to_analyze = [job for job in analysis_candidates if job.analyzed_at is None]
         analyzed, analysis_errors = self._analyze_in_parallel(to_analyze)
 
         return ProcessReport(
             total=ranking.total,
             kept_after_filter=ranking.kept_after_filter,
             duplicates_removed=ranking.duplicates_removed,
-            top_ranked=len(shortlisted_jobs),
+            top_ranked=len(analysis_candidates),
             analyzed=analyzed,
             analysis_errors=analysis_errors,
         )

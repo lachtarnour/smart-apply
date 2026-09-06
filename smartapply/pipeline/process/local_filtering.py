@@ -11,13 +11,53 @@ from smartapply.database.repository import (
     set_score,
     update_status,
 )
-from smartapply.filtering.types import FilterDisposition
+from smartapply.filtering.types import FilterDisposition, FilterResult
 from smartapply.pipeline.process.audit import _rejection_audit_components
 from smartapply.pipeline.reports import LocalFilterReport
 
 
 class LocalFilterMixin:
     """Apply deterministic filters and persist rejection audit data."""
+
+    @staticmethod
+    def _persist_filter_result(
+        session,
+        job: Job,
+        result: FilterResult,
+        *,
+        force_keep: bool = False,
+        update_pipeline_status: bool = False,
+    ) -> bool:
+        """Persist one filter decision and return whether the job was kept."""
+        reasons = list(result.reasons)
+        kept = result.kept or force_keep
+        if force_keep and not result.kept:
+            reasons.append("Manual override: kept by user")
+
+        if kept:
+            components = {
+                "reasons": reasons,
+                "filter_disposition": (
+                    result.disposition.value if result.disposition is not None else "rejected"
+                ),
+            }
+        else:
+            components = _rejection_audit_components("local_filter", reasons)
+            components["filter_disposition"] = "rejected"
+
+        set_score(
+            session,
+            job.id,
+            rule_based_score=result.score,
+            components=components,
+        )
+        if kept:
+            mark_filtered(session, job.id)
+            if update_pipeline_status:
+                update_status(session, job.id, JobStatus.FILTERED)
+        else:
+            mark_archived(session, job.id)
+        return kept
 
     def _apply_local_filter(
         self,
@@ -29,32 +69,14 @@ class LocalFilterMixin:
         kept: list[Job] = []
         override_ids = override_ids or set()
         for job in jobs:
-            res = self.filter.evaluate(job)
-            reasons = list(res.reasons)
-            force_keep = job.id in override_ids
-            if force_keep and not res.kept:
-                reasons.append("Manual override: kept by user")
-            components = {
-                "reasons": reasons,
-                "filter_disposition": (
-                    res.disposition.value if res.disposition is not None else "rejected"
-                ),
-            }
-            if not (res.kept or force_keep):
-                components = _rejection_audit_components("local_filter", reasons)
-                components["filter_disposition"] = "rejected"
-            set_score(
+            if self._persist_filter_result(
                 session,
-                job.id,
-                rule_based_score=res.score,
-                components=components,
-            )
-            if res.kept or force_keep:
+                job,
+                self.filter.evaluate(job),
+                force_keep=job.id in override_ids,
+                update_pipeline_status=True,
+            ):
                 kept.append(job)
-                mark_filtered(session, job.id)
-                update_status(session, job.id, JobStatus.FILTERED)
-            else:
-                mark_archived(session, job.id)
         return kept
 
     def filter_pending(self, *, job_ids: list[int] | None = None) -> LocalFilterReport:
@@ -89,32 +111,12 @@ class LocalFilterMixin:
 
             for job in unique_jobs:
                 res = self.filter.evaluate(job)
-                components = {
-                    "reasons": res.reasons,
-                    "filter_disposition": (
-                        res.disposition.value if res.disposition is not None else "rejected"
-                    ),
-                }
-                if not res.kept:
-                    components = _rejection_audit_components(
-                        "local_filter",
-                        list(res.reasons),
-                    )
-                    components["filter_disposition"] = "rejected"
-                set_score(
-                    s,
-                    job.id,
-                    rule_based_score=res.score,
-                    components=components,
-                )
-                if res.kept:
+                if self._persist_filter_result(s, job, res):
                     kept_ids.append(job.id)
                     if res.disposition is FilterDisposition.UNCERTAIN:
                         uncertain_ids.append(job.id)
-                    mark_filtered(s, job.id)
                 else:
                     rejected_ids.append(job.id)
-                    mark_archived(s, job.id)
 
             return LocalFilterReport(
                 total=len(pending),

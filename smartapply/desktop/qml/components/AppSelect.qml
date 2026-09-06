@@ -3,25 +3,31 @@ import QtQuick.Controls
 
 ComboBox {
     id: root
-    implicitHeight: 48
+    property int fontPixelSize: 13
+    property int indicatorSize: 16
+    property int indicatorMargin: 15
+    property bool emphasized: false
+    implicitHeight: Theme.controlHeight
     implicitWidth: 180
     hoverEnabled: true
+    Accessible.name: displayText
     leftPadding: 15
     rightPadding: 42
 
     contentItem: Text {
         text: root.displayText
         color: Theme.ink
-        font.pixelSize: 13
+        font.pixelSize: root.fontPixelSize
         verticalAlignment: Text.AlignVCenter
         elide: Text.ElideRight
+        renderType: Text.NativeRendering
     }
 
     indicator: SvgIcon {
         source: Theme.icon("chevron-right")
-        color: root.activeFocus ? Theme.accent : Theme.inkMuted
-        width: 16; height: 16
-        x: root.width - width - 15
+        color: root.visualFocus || root.emphasized ? Theme.accentBright : Theme.inkMuted
+        width: root.indicatorSize; height: root.indicatorSize
+        x: root.width - width - root.indicatorMargin
         y: (root.height - height) / 2
         rotation: root.popup.visible ? -90 : 90
         Behavior on rotation { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
@@ -42,8 +48,11 @@ ComboBox {
                 Behavior on color { ColorAnimation { duration: Theme.motionFast; easing.type: Easing.OutCubic } }
             }
         }
-        border.color: root.activeFocus ? Theme.accent : (root.hovered ? Theme.lineStrong : Theme.line)
-        border.width: root.activeFocus ? 1.5 : 1
+        border.color: root.activeFocus ? Theme.accent
+            : root.hovered ? Theme.lineStrong
+            : root.emphasized ? Theme.accentLine
+            : Theme.line
+        border.width: root.activeFocus ? Theme.lineWidthStrong : Theme.lineWidth
         Behavior on border.color { ColorAnimation { duration: Theme.motionFast; easing.type: Easing.OutCubic } }
     }
 
@@ -77,10 +86,11 @@ ComboBox {
         contentItem: Text {
             text: root.textAt(index)
             color: option.highlighted ? Theme.accentDark : Theme.inkSoft
-            font.pixelSize: 12
+            font.pixelSize: root.fontPixelSize
             font.weight: option.highlighted ? Font.DemiBold : Font.Normal
             verticalAlignment: Text.AlignVCenter
             leftPadding: 7
+            renderType: Text.NativeRendering
         }
         background: Rectangle { radius: 9; color: option.highlighted ? Theme.accentSoft : "transparent" }
     }

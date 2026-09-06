@@ -8,7 +8,7 @@ from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import Property, QObject, QThreadPool, QUrl, Signal, Slot
+from PySide6.QtCore import Property, QObject, QThreadPool, QTimer, QUrl, Signal, Slot
 from PySide6.QtGui import QDesktopServices
 
 from smartapply.database.models import JobStatus
@@ -41,6 +41,8 @@ def _tone(status: str) -> str:
         return "danger"
     if status == JobStatus.ARCHIVED:
         return "warning"
+    if status == JobStatus.DUPLICATE_REVIEW:
+        return "warning"
     if status == JobStatus.READY_FOR_FORM_SUBMISSION:
         return "accent"
     if status == JobStatus.SHORTLISTED:
@@ -65,6 +67,8 @@ def _enrich_rows(rows: list[Any]) -> list[dict[str, Any]]:
             item["tone"] = "accent"
         score = item.get("score")
         item["score_text"] = "—" if score is None else f"{float(score):.0%}"
+        llm_score = item.get("llm_score")
+        item["llm_score_text"] = "—" if llm_score is None else f"{float(llm_score):.0%}"
         item["filter_disposition_label"] = _filter_disposition_label(
             str(item.get("filter_disposition") or "")
         )
@@ -79,14 +83,15 @@ class DesktopBridge(QObject):
 
     dashboardChanged = Signal()
     shortlistChanged = Signal()
-    topKChanged = Signal()
+    analysisTopKChanged = Signal()
+    shortlistTopKChanged = Signal()
     jobsChanged = Signal()
     currentJobChanged = Signal()
-    applicationsChanged = Signal()
-    currentApplicationChanged = Signal()
     profileChanged = Signal()
     diagnosticsChanged = Signal()
     busyChanged = Signal()
+    jobsLoadingChanged = Signal()
+    jobDetailLoadingChanged = Signal()
     activityChanged = Signal()
     toastRequested = Signal(str, str, str)
     navigationRequested = Signal(str, int)
@@ -98,23 +103,30 @@ class DesktopBridge(QObject):
         self.service.initialize()
         self._thread_pool = QThreadPool.globalInstance()
         self._workers: set[TaskWorker] = set()
+        self._read_workers: set[TaskWorker] = set()
+        self._read_tokens: dict[str, int] = {}
         self._active_worker: TaskWorker | None = None
         self._diagnostics_worker: TaskWorker | None = None
         self._dashboard: dict[str, Any] = {}
         self._shortlist: dict[str, Any] = {"total": 0, "ready_to_generate": 0}
-        self._top_k = self.service.top_k()
+        self._analysis_top_k = self.service.analysis_top_k()
+        self._shortlist_top_k = self.service.shortlist_top_k()
         self._jobs: list[dict[str, Any]] = []
         self._current_job: dict[str, Any] = {}
-        self._applications: list[dict[str, Any]] = []
-        self._current_application: dict[str, Any] = {}
+        self._selected_job_id = 0
         self._profile: dict[str, Any] = {}
         self._diagnostics: dict[str, Any] = {}
         self._busy = False
         self._busy_label = ""
+        self._workflow_refresh_timer = QTimer(self)
+        self._workflow_refresh_timer.setInterval(600)
+        self._workflow_refresh_timer.timeout.connect(self._refresh_workflow)
+        self._jobs_loading = False
+        self._job_detail_loading = False
         self._job_search = ""
-        self._job_status = ""
-        self._application_search = ""
-        self._application_status = ""
+        self._job_status = JobStatus.SCRAPED
+        self._job_sort_key = "score"
+        self._job_sort_ascending = False
         self._activity: dict[str, Any] = {
             "title": "",
             "message": "",
@@ -136,17 +148,31 @@ class DesktopBridge(QObject):
     def shortlist(self) -> dict[str, Any]:
         return self._shortlist
 
-    @Property(int, notify=topKChanged)
-    def topK(self) -> int:  # noqa: N802
-        return self._top_k
+    @Property(int, notify=analysisTopKChanged)
+    def analysisTopK(self) -> int:  # noqa: N802
+        return self._analysis_top_k
 
     @Slot(int)
-    def setTopK(self, value: int) -> None:  # noqa: N802
-        normalized = self.service.set_top_k(value)
-        if normalized == self._top_k:
-            return
-        self._top_k = normalized
-        self.topKChanged.emit()
+    def setAnalysisTopK(self, value: int) -> int:  # noqa: N802
+        normalized = self.service.set_analysis_top_k(value)
+        if normalized == self._analysis_top_k:
+            return normalized
+        self._analysis_top_k = normalized
+        self.analysisTopKChanged.emit()
+        return normalized
+
+    @Property(int, notify=shortlistTopKChanged)
+    def shortlistTopK(self) -> int:  # noqa: N802
+        return self._shortlist_top_k
+
+    @Slot(int)
+    def setShortlistTopK(self, value: int) -> int:  # noqa: N802
+        normalized = self.service.set_shortlist_top_k(value)
+        if normalized == self._shortlist_top_k:
+            return normalized
+        self._shortlist_top_k = normalized
+        self.shortlistTopKChanged.emit()
+        return normalized
 
     @Property("QVariantList", notify=jobsChanged)
     def jobs(self) -> list[dict[str, Any]]:
@@ -155,14 +181,6 @@ class DesktopBridge(QObject):
     @Property("QVariantMap", notify=currentJobChanged)
     def currentJob(self) -> dict[str, Any]:  # noqa: N802 - Qt property name
         return self._current_job
-
-    @Property("QVariantList", notify=applicationsChanged)
-    def applications(self) -> list[dict[str, Any]]:
-        return self._applications
-
-    @Property("QVariantMap", notify=currentApplicationChanged)
-    def currentApplication(self) -> dict[str, Any]:  # noqa: N802
-        return self._current_application
 
     @Property("QVariantMap", notify=profileChanged)
     def profile(self) -> dict[str, Any]:
@@ -175,6 +193,14 @@ class DesktopBridge(QObject):
     @Property(bool, notify=busyChanged)
     def busy(self) -> bool:
         return self._busy
+
+    @Property(bool, notify=jobsLoadingChanged)
+    def jobsLoading(self) -> bool:  # noqa: N802
+        return self._jobs_loading
+
+    @Property(bool, notify=jobDetailLoadingChanged)
+    def jobDetailLoading(self) -> bool:  # noqa: N802
+        return self._job_detail_loading
 
     @Property(str, notify=busyChanged)
     def busyLabel(self) -> str:  # noqa: N802
@@ -189,12 +215,6 @@ class DesktopBridge(QObject):
         return self._activity
 
     @Property("QVariantList", constant=True)
-    def applicationStatuses(self) -> list[dict[str, str]]:  # noqa: N802
-        return [
-            {"value": value, "label": label} for value, label in self.service.application_statuses()
-        ]
-
-    @Property("QVariantList", constant=True)
     def jobStatuses(self) -> list[dict[str, str]]:  # noqa: N802
         return [{"value": value, "label": label} for value, label in self.service.job_statuses()]
 
@@ -202,115 +222,144 @@ class DesktopBridge(QObject):
     def refreshAll(self) -> None:  # noqa: N802
         self.refreshDashboard()
         self.refreshShortlist()
-        self.loadJobs("", "")
-        self.loadApplications("", "")
+        self.loadJobs("", JobStatus.SCRAPED)
         self.refreshProfile()
         self.refreshDiagnostics()
 
     @Slot()
     def refreshDashboard(self) -> None:  # noqa: N802
-        try:
-            snapshot = self.service.dashboard()
-            dashboard = _plain(snapshot)
-            dashboard["recent"] = _enrich_rows(list(snapshot.recent))
-            total = max(int(dashboard.get("jobs", 0)), 1)
-            dashboard["analysis_progress"] = min(1.0, int(dashboard.get("analyzed", 0)) / total)
-            dashboard["ready_progress"] = min(1.0, int(dashboard.get("ready", 0)) / total)
-            dashboard["sent_progress"] = min(1.0, int(dashboard.get("sent", 0)) / total)
-            self._dashboard = dashboard
-            self.dashboardChanged.emit()
-        except Exception as exc:
-            self._error("Accueil indisponible", exc)
+        self._start_read(
+            "dashboard",
+            self.service.dashboard,
+            on_success=self._dashboard_loaded,
+        )
+
+    def _dashboard_loaded(self, snapshot: Any) -> None:
+        dashboard = _plain(snapshot)
+        dashboard["recent"] = _enrich_rows(list(snapshot.recent))
+        total = max(int(dashboard.get("jobs", 0)), 1)
+        dashboard["analysis_progress"] = min(1.0, int(dashboard.get("analyzed", 0)) / total)
+        dashboard["ready_progress"] = min(1.0, int(dashboard.get("ready", 0)) / total)
+        dashboard["sent_progress"] = min(1.0, int(dashboard.get("sent", 0)) / total)
+        self._dashboard = dashboard
+        self.dashboardChanged.emit()
 
     @Slot()
     def refreshShortlist(self) -> None:  # noqa: N802
-        try:
-            self._shortlist = _plain(self.service.shortlist_summary())
-            self.shortlistChanged.emit()
-        except Exception as exc:
-            self._error("Top sélection indisponible", exc)
+        self._start_read(
+            "shortlist",
+            self.service.shortlist_summary,
+            on_success=self._shortlist_loaded,
+        )
 
-    @Slot(str, str)
-    def loadJobs(self, search: str = "", status: str = "") -> None:  # noqa: N802
-        try:
-            self._job_search = search
-            self._job_status = status
-            rows = self.service.list_jobs(search=search, status=status or None)
-            self._jobs = _enrich_rows(rows)
-            self.jobsChanged.emit()
-            visible_ids = {int(row["id"]) for row in self._jobs}
-            current_id = int(self._current_job.get("id") or 0)
-            if self._jobs and current_id not in visible_ids:
-                self.selectJob(int(self._jobs[0]["id"]))
-            elif not self._jobs:
-                self._current_job = {}
-                self.currentJobChanged.emit()
-        except Exception as exc:
-            self._error("Offres indisponibles", exc)
+    def _shortlist_loaded(self, summary: Any) -> None:
+        self._shortlist = _plain(summary)
+        self.shortlistChanged.emit()
+
+    @Slot(str, str, str, bool)
+    def loadJobs(
+        self,
+        search: str = "",
+        status: str = "",
+        sort_key: str = "score",
+        sort_ascending: bool = False,
+    ) -> None:  # noqa: N802
+        self._job_search = search
+        self._job_status = status
+        self._job_sort_key = sort_key
+        self._job_sort_ascending = sort_ascending
+        if not self._jobs_loading:
+            self._jobs_loading = True
+            self.jobsLoadingChanged.emit()
+        self._start_read(
+            "jobs",
+            self.service.list_jobs,
+            search=search,
+            status=status or None,
+            sort_key=sort_key,
+            sort_ascending=sort_ascending,
+            on_success=self._jobs_loaded,
+            on_finished=self._jobs_read_finished,
+        )
+
+    @Slot()
+    def refreshJobs(self) -> None:  # noqa: N802
+        """Refresh offers without resetting the current page state."""
+        self.loadJobs(
+            self._job_search,
+            self._job_status or JobStatus.SCRAPED,
+            self._job_sort_key,
+            self._job_sort_ascending,
+        )
+
+    def _jobs_loaded(self, rows: list[Any]) -> None:
+        self._jobs = _enrich_rows(rows)
+        self.jobsChanged.emit()
+        visible_ids = {int(row["id"]) for row in self._jobs}
+        current_id = self._selected_job_id or int(self._current_job.get("id") or 0)
+        if self._jobs and current_id not in visible_ids:
+            self.selectJob(int(self._jobs[0]["id"]))
+        elif not self._jobs:
+            self._current_job = {}
+            self.currentJobChanged.emit()
+
+    def _jobs_read_finished(self) -> None:
+        if self._jobs_loading:
+            self._jobs_loading = False
+            self.jobsLoadingChanged.emit()
 
     @Slot(int)
     def selectJob(self, job_id: int) -> None:  # noqa: N802
-        try:
-            detail = self.service.get_job(job_id)
-            self._current_job = _plain(detail) if detail else {}
-            if self._current_job:
-                self._current_job["tone"] = _tone(str(self._current_job.get("status", "")))
-                score = self._current_job.get("score")
-                self._current_job["score_text"] = "—" if score is None else f"{float(score):.0%}"
-            self.currentJobChanged.emit()
-        except Exception as exc:
-            self._error("Offre indisponible", exc)
+        self._selected_job_id = job_id
+        if not self._job_detail_loading:
+            self._job_detail_loading = True
+            self.jobDetailLoadingChanged.emit()
+        self._start_read(
+            "job_detail",
+            self.service.get_job,
+            job_id,
+            on_success=self._job_loaded,
+            on_finished=self._job_detail_read_finished,
+        )
 
-    @Slot(str, str)
-    def loadApplications(self, search: str = "", status: str = "") -> None:  # noqa: N802
-        try:
-            self._application_search = search
-            self._application_status = status
-            rows = self.service.list_applications(search=search, status=status or None)
-            self._applications = _enrich_rows(rows)
-            self.applicationsChanged.emit()
-            visible_ids = {int(row["id"]) for row in self._applications}
-            current_id = int(self._current_application.get("id") or 0)
-            if self._applications and current_id not in visible_ids:
-                self.selectApplication(int(self._applications[0]["id"]))
-            elif not self._applications:
-                self._current_application = {}
-                self.currentApplicationChanged.emit()
-        except Exception as exc:
-            self._error("Candidatures indisponibles", exc)
+    def _job_loaded(self, detail: Any) -> None:
+        self._current_job = _plain(detail) if detail else {}
+        if self._current_job:
+            self._current_job["tone"] = _tone(str(self._current_job.get("status", "")))
+            score = self._current_job.get("score")
+            self._current_job["score_text"] = "—" if score is None else f"{float(score):.0%}"
+            llm_score = self._current_job.get("llm_score")
+            self._current_job["llm_score_text"] = (
+                "—" if llm_score is None else f"{float(llm_score):.0%}"
+            )
+            application = self._current_job.get("application")
+            if isinstance(application, dict):
+                application["tone"] = _tone(str(application.get("status", "")))
+        self.currentJobChanged.emit()
 
-    @Slot(int)
-    def selectApplication(self, application_id: int) -> None:  # noqa: N802
-        try:
-            detail = self.service.get_application(application_id)
-            self._current_application = _plain(detail) if detail else {}
-            if self._current_application:
-                self._current_application["tone"] = _tone(
-                    str(self._current_application.get("status", ""))
-                )
-                self._current_application["output_directory"] = detail.output_directory
-                self._current_application["folder_identifier"] = (
-                    Path(detail.output_directory).name if detail.output_directory else ""
-                )
-            self.currentApplicationChanged.emit()
-        except Exception as exc:
-            self._error("Candidature indisponible", exc)
+    def _job_detail_read_finished(self) -> None:
+        if self._job_detail_loading:
+            self._job_detail_loading = False
+            self.jobDetailLoadingChanged.emit()
 
     @Slot()
     def refreshProfile(self) -> None:  # noqa: N802
-        try:
-            profile = _plain(self.service.profile())
-            profile["initials"] = (
-                "".join(part[0].upper() for part in str(profile.get("name", "")).split()[:2]) or "É"
-            )
-            profile["skill_categories"] = [
-                {"name": name, "skills": skills}
-                for name, skills in profile.get("skill_categories", [])
-            ]
-            self._profile = profile
-            self.profileChanged.emit()
-        except Exception as exc:
-            self._error("Profil indisponible", exc)
+        self._start_read(
+            "profile",
+            self.service.profile,
+            on_success=self._profile_loaded,
+        )
+
+    def _profile_loaded(self, value: Any) -> None:
+        profile = _plain(value)
+        profile["initials"] = (
+            "".join(part[0].upper() for part in str(profile.get("name", "")).split()[:2]) or "É"
+        )
+        profile["skill_categories"] = [
+            {"name": name, "skills": skills} for name, skills in profile.get("skill_categories", [])
+        ]
+        self._profile = profile
+        self.profileChanged.emit()
 
     @Slot()
     def refreshDiagnostics(self) -> None:  # noqa: N802
@@ -449,18 +498,18 @@ class DesktopBridge(QObject):
 
     @Slot(int)
     def processPending(self, top_k: int) -> None:  # noqa: N802
-        self.setTopK(top_k)
+        normalized = self.setAnalysisTopK(top_k)
         self._run(
             "Analyse en cours",
             self.service.process_pending,
             on_success=self._process_done,
-            top_k=top_k,
+            top_k=normalized,
         )
 
     @Slot(int)
     def updateShortlist(self, top_k: int) -> None:  # noqa: N802
         """Apply Top-K to already ranked offers and refresh the offer table."""
-        normalized = self.setTopK(top_k)
+        normalized = self.setShortlistTopK(top_k)
         self._run(
             "Mise à jour de la Top sélection",
             self.service.update_shortlist,
@@ -469,8 +518,12 @@ class DesktopBridge(QObject):
         )
 
     def _shortlist_updated(self, report: dict[str, Any]) -> None:
-        self._refresh_workflow()
         count = int(report.get("shortlisted", 0))
+        # Update this state before the asynchronous table refresh. Otherwise
+        # the generation button can briefly keep the previous Top K count.
+        self._shortlist = {"total": count, "ready_to_generate": count}
+        self.shortlistChanged.emit()
+        self._refresh_workflow()
         message = _count_text(count, "offre dans la Top sélection", "offres dans la Top sélection")
         self._set_activity("Top sélection mise à jour", message, "success")
         self.toastRequested.emit("Top sélection mise à jour", message, "success")
@@ -551,7 +604,7 @@ class DesktopBridge(QObject):
             )
             return
         self._run(
-            "Création de la Top sélection",
+            "Génération des candidatures de la Top sélection",
             self.service.generate_shortlisted_applications,
             on_success=self._bulk_generation_done,
         )
@@ -587,9 +640,13 @@ class DesktopBridge(QObject):
 
     def _generation_done(self, report: dict[str, Any]) -> None:
         self._refresh_workflow()
-        application_id = int(report.get("application_id") or 0)
-        if application_id:
-            self.selectApplication(application_id)
+        if report.get("existing"):
+            message = "Le CV et la lettre sont disponibles dans ce dossier."
+            self._set_activity("Candidature existante", message, "neutral")
+            self.toastRequested.emit("Candidature existante", message, "neutral")
+            self.openApplication(int(report["application_id"]))
+            return
+        job_id = int(report.get("job_id") or 0)
         warnings = list(report.get("validation_warnings") or [])
         errors = list(report.get("validation_errors") or [])
         issues = [*warnings, *errors]
@@ -600,7 +657,9 @@ class DesktopBridge(QObject):
             kind = "warning"
         self._set_activity("Candidature créée", message, kind)
         self.toastRequested.emit("Candidature créée", message, kind)
-        self.navigationRequested.emit("applications", application_id)
+        if job_id:
+            self.selectJob(job_id)
+        self.navigationRequested.emit("jobs", job_id)
 
     @staticmethod
     def _failure_details(errors: list[Any]) -> str:
@@ -629,6 +688,37 @@ class DesktopBridge(QObject):
         except Exception as exc:
             self._error("Archivage impossible", exc)
 
+    @Slot(int)
+    def markJobSent(self, job_id: int) -> None:  # noqa: N802
+        try:
+            if not self.service.mark_job_sent(job_id):
+                self.toastRequested.emit(
+                    "Envoi impossible",
+                    "Créez d’abord la candidature.",
+                    "warning",
+                )
+                return
+            self._refresh_workflow()
+            self.selectJob(job_id)
+            self.toastRequested.emit("Offre marquée comme envoyée", "", "success")
+        except Exception as exc:
+            self._error("Mise à jour impossible", exc)
+
+    @Slot(int)
+    def archiveApplication(self, application_id: int) -> None:  # noqa: N802
+        try:
+            if not self.service.archive_application(application_id):
+                self.toastRequested.emit(
+                    "Archivage impossible", "Cette candidature n’est plus disponible.", "warning"
+                )
+                return
+            self._current_job = {}
+            self.currentJobChanged.emit()
+            self._refresh_workflow()
+            self.toastRequested.emit("Candidature archivée", "", "neutral")
+        except Exception as exc:
+            self._error("Archivage impossible", exc)
+
     @Slot(int, bool)
     def setJobShortlisted(self, job_id: int, selected: bool) -> None:  # noqa: N802
         try:
@@ -645,6 +735,33 @@ class DesktopBridge(QObject):
             self.toastRequested.emit(title, "", "success" if selected else "neutral")
         except Exception as exc:
             self._error("Top sélection indisponible", exc)
+
+    @Slot(int, bool)
+    def resolveDuplicate(self, job_id: int, same_offer: bool) -> None:  # noqa: N802
+        """Persist the user's duplicate decision for one pending offer."""
+        self._run(
+            "Validation du doublon",
+            self.service.resolve_duplicate,
+            job_id,
+            same_offer=same_offer,
+            on_success=lambda resolved: self._duplicate_resolved(job_id, same_offer, resolved),
+        )
+
+    def _duplicate_resolved(self, job_id: int, same_offer: bool, resolved: bool) -> None:
+        if not resolved:
+            self.toastRequested.emit(
+                "Doublon déjà traité",
+                "Cette décision n’est plus en attente.",
+                "warning",
+            )
+            return
+        self._refresh_workflow()
+        self.selectJob(job_id)
+        self.toastRequested.emit(
+            "Offre regroupée" if same_offer else "Offres conservées séparément",
+            "La décision a été enregistrée.",
+            "success",
+        )
 
     @Slot("QVariantList")
     def labelJobsAsTop(self, job_ids: list[Any]) -> None:  # noqa: N802
@@ -719,8 +836,19 @@ class DesktopBridge(QObject):
 
     @Slot(int)
     def openApplication(self, application_id: int) -> None:  # noqa: N802
-        self.selectApplication(application_id)
-        self.navigationRequested.emit("applications", application_id)
+        self._start_read(
+            "open_application",
+            self.service.get_application,
+            application_id,
+            on_success=self._application_opened_in_jobs,
+        )
+
+    def _application_opened_in_jobs(self, detail: Any) -> None:
+        if detail is None:
+            self._error("Candidature indisponible", ValueError("Candidature introuvable"))
+            return
+        self.navigationRequested.emit(f"jobs?status={detail.status}", int(detail.job_id))
+        self.selectJob(int(detail.job_id))
 
     @Slot(int, str, str, bool)
     def updateApplication(  # noqa: N802
@@ -738,10 +866,19 @@ class DesktopBridge(QObject):
                 form_submitted=form_submitted,
             )
             self._refresh_workflow()
-            self.selectApplication(application_id)
+            self._start_read(
+                "application_after_update",
+                self.service.get_application,
+                application_id,
+                on_success=self._application_updated_in_jobs,
+            )
             self.toastRequested.emit("Suivi enregistré", "", "success")
         except Exception as exc:
             self._error("Mise à jour impossible", exc)
+
+    def _application_updated_in_jobs(self, detail: Any) -> None:
+        if detail is not None:
+            self.selectJob(int(detail.job_id))
 
     @Slot(str, str, str, str, str)
     def createManualApplication(  # noqa: N802
@@ -831,6 +968,7 @@ class DesktopBridge(QObject):
         self._busy = True
         self._busy_label = label
         self.busyChanged.emit()
+        self._workflow_refresh_timer.start()
         worker = TaskWorker(
             fn,
             *args,
@@ -845,6 +983,36 @@ class DesktopBridge(QObject):
             worker.signals.result.connect(on_success)
         worker.signals.error.connect(self._task_error)
         worker.signals.finished.connect(lambda: self._task_finished(worker))
+        self._thread_pool.start(worker)
+
+    def _start_read(
+        self,
+        key: str,
+        fn: Callable[..., Any],
+        *args: Any,
+        on_success: Callable[[Any], None],
+        on_finished: Callable[[], None] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        """Run a read-only UI operation without blocking or toggling busy state."""
+        token = self._read_tokens.get(key, 0) + 1
+        self._read_tokens[key] = token
+        worker = TaskWorker(fn, *args, **kwargs)
+        self._read_workers.add(worker)
+
+        def apply_result(value: Any) -> None:
+            if self._read_tokens.get(key) == token:
+                on_success(value)
+
+        worker.signals.result.connect(apply_result)
+        worker.signals.error.connect(self._task_error)
+
+        def finish() -> None:
+            self._read_workers.discard(worker)
+            if self._read_tokens.get(key) == token and on_finished:
+                on_finished()
+
+        worker.signals.finished.connect(finish)
         self._thread_pool.start(worker)
 
     @Slot(str)
@@ -864,6 +1032,8 @@ class DesktopBridge(QObject):
         self._workers.discard(worker)
         if self._active_worker is worker:
             self._active_worker = None
+        if self._workflow_refresh_timer.isActive():
+            self._workflow_refresh_timer.stop()
         self._busy = False
         self._busy_label = ""
         self.busyChanged.emit()
@@ -897,8 +1067,12 @@ class DesktopBridge(QObject):
     def _refresh_workflow(self) -> None:
         self.refreshDashboard()
         self.refreshShortlist()
-        self.loadJobs(self._job_search, self._job_status)
-        self.loadApplications(self._application_search, self._application_status)
+        self.loadJobs(
+            self._job_search,
+            self._job_status,
+            self._job_sort_key,
+            self._job_sort_ascending,
+        )
 
     @staticmethod
     def _job_ids(values: list[Any]) -> list[int]:

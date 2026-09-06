@@ -1,27 +1,36 @@
 # Élan
 
 <p align="center">
-  <strong>A focused workspace for a smarter job search.</strong><br>
-  Discover relevant opportunities, understand your fit, tailor your documents, and track every application from one native macOS app.
+  <strong>Open-source macOS job-search assistant for a more focused job search.</strong><br>
+  Find relevant opportunities, understand your fit, tailor your documents, and track every application from one native macOS app.
 </p>
 
 <p align="center">
-  <a href="https://github.com/lachtarnour/smart-apply/stargazers"><img src="https://img.shields.io/github/stars/lachtarnour/smart-apply?style=flat&color=7c5cff" alt="GitHub stars"></a>
-  <a href="https://github.com/lachtarnour/smart-apply/network/members"><img src="https://img.shields.io/github/forks/lachtarnour/smart-apply?style=flat&color=55bd92" alt="GitHub forks"></a>
+  <a href="https://github.com/lachtarnour/elan-career/stargazers"><img src="https://img.shields.io/github/stars/lachtarnour/elan-career?style=flat&color=7c5cff" alt="GitHub stars"></a>
+  <a href="https://github.com/lachtarnour/elan-career/network/members"><img src="https://img.shields.io/github/forks/lachtarnour/elan-career?style=flat&color=55bd92" alt="GitHub forks"></a>
+  <a href="https://github.com/lachtarnour/elan-career/releases"><img src="https://img.shields.io/github/v/release/lachtarnour/elan-career?display_name=tag&style=flat&color=9b8cff" alt="Latest release"></a>
   <img src="https://img.shields.io/badge/macOS-13%2B-111017?logo=apple&logoColor=white" alt="macOS 13+"><br>
   <img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/License-MIT-55bd92" alt="MIT License">
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/dashboard.png" alt="Élan dashboard showing application progress and recent applications" width="1000">
+  <img src="docs/screenshots/dashboard.png" alt="Élan dark dashboard with offer counts, applications sent per day, and recent applications" width="1000">
 </p>
 
-<p align="center"><em>One place to see what needs attention next.</em></p>
+<p align="center"><em>Accueil — offer counts, daily application activity, and recent applications at a glance.</em></p>
+
+<p align="center">
+  <a href="#features">Features</a> ·
+  <a href="#interface">Interface</a> ·
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#adapt-élan-to-another-profile-or-project">Customize</a> ·
+  <a href="#contributing">Contribute</a>
+</p>
 
 ## Overview
 
-Job boards provide volume, but not enough context. Élan turns a scattered job search into a structured workflow:
+Élan is an open-source macOS application that turns a scattered job search into a structured, review-first workflow:
 
 ```text
 Discover → Filter → Rank → Review → Tailor documents → Track applications
@@ -35,27 +44,56 @@ It collects opportunities from several sources, removes duplicates, evaluates fi
 - **Local and bilingual filtering** — relevance, location, seniority, contract type, and language rules run locally before ranking.
 - **Explainable matching** — alignment scores and review points help prioritize opportunities without making decisions for you.
 - **Grounded documents** — tailored CVs and motivation letters are checked against the source profile before they are saved.
-- **Application tracking** — statuses, follow-up dates, review points, documents, and next actions stay together.
+- **Unified offers workspace** — ranked opportunities, application statuses, fit explanations, documents, and tracking actions stay together in a split view.
+- **Manual offer entry** — add a job title, company, and description to create an application for an opportunity found elsewhere.
+- **Review-first email workflow** — Gmail integration prepares drafts for manual review; Élan never sends applications automatically.
 - **Local-first storage** — profile data, SQLite database, cache, and generated documents remain on your Mac by default.
+
+## Product boundaries
+
+Élan helps you find, evaluate, prepare, and organize applications. It does not automatically apply to jobs, make hiring decisions, or send emails without your review. External providers are optional, and the published profile is a mock profile with placeholder data.
 
 ## Interface
 
-The screenshots below show the current desktop interface, in the order a user typically moves through the product.
+The redesigned desktop interface uses a dark background, violet accents, rounded panels, and a persistent sidebar. Green highlights profile alignment and sent statuses; amber draws attention to review points and archive actions.
+
+The sidebar connects **Accueil**, **Recherche**, **Doublons**, **Offres**, and **Ajouter une offre**, with **Profil** and **Réglages** at the bottom. The dashboard above brings together offer counts, offers awaiting analysis, ready applications, sent applications, a daily activity chart, and recent applications.
+
+### Search — Recherche
+
+Choose job titles, location, publication date, and the number of results per source. Select sources in the adjacent panel, then use the summary bar to review collected offers and launch analysis.
 
 <p align="center">
-  <img src="docs/screenshots/search.png" alt="Élan search screen with job title, location, freshness, and source filters" width="1000">
+  <img src="docs/screenshots/search.png" alt="Élan search screen with job criteria, selectable sources, result limits, and analysis controls" width="1000">
 </p>
-<p align="center"><em>1. Search across several job sources with one set of criteria.</em></p>
+<p align="center"><em>Search criteria and source selection side by side, with analysis controls below.</em></p>
+
+### Compare duplicates — Doublons
+
+Review suspected duplicates from the list on the left. Compare the recent offer with the known offer side by side, including their similarity score, locations, sources, and descriptions, then choose **Même offre** or **Offres différentes**.
 
 <p align="center">
-  <img src="docs/screenshots/jobs.png" alt="Élan jobs screen with ranked opportunities and fit explanations" width="1000">
+  <img src="docs/screenshots/duplicates.png" alt="Élan duplicate review screen with suspected matches, side-by-side offer comparison, similarity scores, and same or different offer actions" width="1000">
 </p>
-<p align="center"><em>2. Review ranked opportunities, scores, statuses, and fit explanations.</em></p>
+<p align="center"><em>Compare suspected duplicates and decide whether they represent the same opportunity.</em></p>
+
+### Review and track — Offres
+
+Filter offers by status, compare AI and match scores, and select opportunities in the table on the left. The detail panel on the right displays profile alignment, points to verify, and the full job description. Shortlisting and document generation are available from the toolbar; CVs, letters, folders, archiving, and marking an application as sent are accessible from the selected offer.
 
 <p align="center">
-  <img src="docs/screenshots/applications.png" alt="Élan application tracking screen with status and review points" width="1000">
+  <img src="docs/screenshots/jobs.png" alt="Élan offers split view with a ranked table, profile alignment, review points, job description, and application actions" width="1000">
 </p>
-<p align="center"><em>3. Prepare, review, and follow up on each application.</em></p>
+<p align="center"><em>Ranked offers and application details share one workspace.</em></p>
+
+### Add an opportunity — Ajouter une offre
+
+Create an application from an offer found outside the connected sources. The form groups the job title, company, location, and original link above a full-width description field, with reset and creation actions at the bottom.
+
+<p align="center">
+  <img src="docs/screenshots/manual.png" alt="Élan manual offer form with job title, company, location, original link, description, and application creation action" width="1000">
+</p>
+<p align="center"><em>Bring an opportunity into Élan from a single form.</em></p>
 
 ## Quick start
 
@@ -67,8 +105,8 @@ The screenshots below show the current desktop interface, in the order a user ty
 ### Install and run
 
 ```bash
-git clone https://github.com/lachtarnour/smart-apply.git
-cd smart-apply
+git clone https://github.com/lachtarnour/elan-career.git
+cd elan-career
 
 cp .env.example .env
 make install-desktop
@@ -79,7 +117,7 @@ make run-desktop
 To build the standalone macOS application:
 
 ```bash
-make build-macos
+make build
 open dist/Elan.app
 ```
 
@@ -198,7 +236,7 @@ smartapply/
 ```bash
 make lint
 make test-fast
-make build-macos
+make build
 ```
 
 The maintenance CLI is available for diagnostics:

@@ -6,6 +6,10 @@ ScrollView {
     property alias text: field.text
     property alias placeholderText: field.placeholderText
     property bool readOnly: false
+    readonly property bool editing: field.activeFocus
+    contentWidth: availableWidth
+    ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+    property int fontPixelSize: 13
     clip: true
     ScrollBar.vertical: AppScrollBar { }
     background: Rectangle {
@@ -24,7 +28,7 @@ ScrollView {
             }
         }
         border.color: field.activeFocus ? Theme.accent : (areaHover.hovered ? Theme.lineStrong : Theme.line)
-        border.width: field.activeFocus ? 1.5 : 1
+        border.width: field.activeFocus ? Theme.lineWidthStrong : Theme.lineWidth
         Behavior on border.color { ColorAnimation { duration: Theme.motionFast; easing.type: Easing.OutCubic } }
         Rectangle {
             visible: field.activeFocus
@@ -43,8 +47,11 @@ ScrollView {
         placeholderTextColor: Theme.inkMuted
         selectionColor: "#6556B98A"
         wrapMode: TextArea.Wrap
-        font.pixelSize: 13
+        font.pixelSize: root.fontPixelSize
         padding: 14
+        rightPadding: 14 + Theme.scrollGutter
+        selectByMouse: true
+        Accessible.name: root.placeholderText
         background: null
     }
 }

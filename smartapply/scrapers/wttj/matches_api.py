@@ -133,6 +133,11 @@ def fetch_matches_api_page(
         raise WTTJScraperError("WTTJ API did not return JSON for jobs-matches.") from exc
     if not isinstance(payload, dict):
         raise WTTJScraperError("Unexpected WTTJ jobs-matches API payload.")
+    if payload.get("error"):
+        detail = payload.get("error")
+        raise WTTJScraperError(f"WTTJ jobs-matches API returned an error: {str(detail)[:500]}")
+    if not isinstance(payload.get("data"), list):
+        raise WTTJScraperError("WTTJ jobs-matches API response has no data list.")
     return payload
 
 

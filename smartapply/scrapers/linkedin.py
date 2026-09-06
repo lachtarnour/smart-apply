@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import time
 from collections.abc import Callable, Iterator
 from datetime import datetime
 from typing import Any
@@ -116,10 +117,12 @@ class LinkedInJobsScraper(Scraper):
         token: str | None = None,
         *,
         url: str = APIFY_LINKEDIN_JOBS_URL,
+        timeout: int | None = None,
     ):
         settings = get_settings()
         self.token = token or settings.apify_token
         self.url = url
+        self.timeout = timeout if timeout is not None else settings.linkedin_timeout
         self.default_contract_type = _csv_list(settings.linkedin_contract_type)
         self.default_experience_level = _csv_list(settings.linkedin_experience_level)
         self.default_remote = _csv_list(settings.linkedin_remote)
@@ -141,7 +144,7 @@ class LinkedInJobsScraper(Scraper):
             self.url,
             headers={"Authorization": f"Bearer {self.token}"},
             json=payload,
-            timeout=300,
+            timeout=self.timeout,
         )
         if _is_non_retryable_apify_response(response):
             raise ScraperConfigError(_apify_http_error_message(response))
@@ -232,13 +235,41 @@ class LinkedInJobsScraper(Scraper):
                 }
             )
             self.last_payloads.append(dict(payload))
-            logger.info("LinkedIn Apify request payload: %s", payload)
+            request_started = time.monotonic()
+            logger.info(
+                "LinkedIn Apify request start: q=%r experience=%s limit=%s timeout=%ss",
+                payload.get("title"),
+                payload.get("experienceLevel"),
+                payload.get("limit"),
+                self.timeout,
+            )
 
             try:
                 items = self._fetch(payload)
-            except requests.RequestException as e:
-                logger.error("LinkedIn Apify request failed: %s", _request_error_summary(e))
+            except Exception as e:
+                elapsed = time.monotonic() - request_started
+                detail = (
+                    _request_error_summary(e)
+                    if isinstance(e, requests.RequestException)
+                    else _redact_secrets(_text(e))
+                )
+                logger.error(
+                    "LinkedIn Apify request failed: q=%r experience=%s elapsed=%.1fs error=%s",
+                    payload.get("title"),
+                    payload.get("experienceLevel"),
+                    elapsed,
+                    detail,
+                    exc_info=True,
+                )
                 raise
+
+            logger.info(
+                "LinkedIn Apify request done: q=%r experience=%s items=%d elapsed=%.1fs",
+                payload.get("title"),
+                payload.get("experienceLevel"),
+                len(items),
+                time.monotonic() - request_started,
+            )
 
             skipped_experience_mismatch = 0
             for raw in items:

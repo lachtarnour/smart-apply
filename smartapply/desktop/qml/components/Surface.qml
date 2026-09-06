@@ -4,12 +4,12 @@ import QtQuick.Layouts
 Item {
     id: root
     property alias content: body.data
-    property int padding: 22
+    property int padding: Theme.cardPadding
     property color surfaceColor: Theme.surface
     property color surfaceEndColor: surfaceColor
     property color strokeColor: Theme.line
     property int radiusValue: Theme.radiusLarge
-    property bool elevated: true
+    property bool elevated: false
     property bool luminous: false
     default property alias contentData: body.data
 
@@ -32,7 +32,7 @@ Item {
         radius: root.radiusValue + 3
         color: "transparent"
         border.color: "#245F4BFF"
-        border.width: 1
+        border.width: Theme.lineWidth
     }
     Rectangle {
         anchors.fill: parent
@@ -43,7 +43,7 @@ Item {
             GradientStop { position: 1; color: root.surfaceEndColor }
         }
         border.color: root.strokeColor
-        border.width: 1
+        border.width: Theme.lineWidth
 
         Rectangle {
             anchors.left: parent.left
@@ -51,8 +51,8 @@ Item {
             anchors.leftMargin: root.radiusValue
             anchors.rightMargin: root.radiusValue
             anchors.top: parent.top
-            height: 1
-            color: Theme.highlight
+            height: Theme.lineWidth
+            color: root.strokeColor.a > 0 ? Theme.highlight : "transparent"
         }
     }
 

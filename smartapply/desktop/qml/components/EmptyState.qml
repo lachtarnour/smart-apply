@@ -8,7 +8,8 @@ ColumnLayout {
     property string title: ""
     property string message: ""
     spacing: 10
-    implicitWidth: Math.max(240, titleLabel.implicitWidth, messageLabel.visible ? messageLabel.implicitWidth : 0)
+    width: parent ? Math.max(0, Math.min(360, parent.width - 32)) : 320
+    implicitWidth: 320
     Layout.alignment: Qt.AlignHCenter | Qt.AlignVCenter
     Item {
         Layout.alignment: Qt.AlignHCenter
@@ -43,6 +44,7 @@ ColumnLayout {
         Layout.fillWidth: true
         Layout.alignment: Qt.AlignHCenter
         horizontalAlignment: Text.AlignHCenter
+        wrapMode: Text.WordWrap
         text: root.title
         color: Theme.ink
         font.pixelSize: 17

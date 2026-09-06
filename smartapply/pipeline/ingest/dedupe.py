@@ -31,8 +31,13 @@ class _KnownJobIndex:
         )
 
     def matches(self, raw: RawJob) -> bool:
-        if raw.external_id and raw.external_id in self.external_ids:
-            return True
+        """Return whether the raw job is known by id or normalized URL."""
+        return self.matches_external_id(raw) or self.matches_application_url(raw)
+
+    def matches_external_id(self, raw: RawJob) -> bool:
+        return bool(raw.external_id and raw.external_id in self.external_ids)
+
+    def matches_application_url(self, raw: RawJob) -> bool:
         url_key = _normalize_application_url(raw.application_url)
         return bool(url_key and url_key in self.application_urls)
 

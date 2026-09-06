@@ -5,41 +5,17 @@ from __future__ import annotations
 from datetime import timezone
 
 from smartapply.database.models import Job
-from smartapply.database.repository import mark_archived, set_score
-from smartapply.pipeline.process.audit import _rejection_audit_components
 
 
 class DeduplicationMixin:
-    """Mark duplicate jobs while preserving the best active root."""
+    """Keep fuzzy duplicate decisions in the explicit human-review queue."""
 
     def _mark_duplicates(self, session, pending: list[Job]) -> set[int]:
-        report = self.deduplicator.deduplicate(pending)
-        duplicate_ids: set[int] = set()
-        for group in report.duplicate_groups:
-            root = self._dedup_root(group)
-            for duplicate in group:
-                if duplicate.id == root.id:
-                    continue
-                duplicate_ids.add(int(duplicate.id))
-                reasons = [
-                    f"duplicate_of:{root.id}",
-                    f"duplicate_reference:{root.company} — {root.title}",
-                ]
-                previous_components = (
-                    dict(duplicate.score.components)
-                    if duplicate.score is not None and duplicate.score.components
-                    else {}
-                )
-                set_score(
-                    session,
-                    duplicate.id,
-                    components={
-                        **previous_components,
-                        **_rejection_audit_components("deduplication", reasons),
-                    },
-                )
-                mark_archived(session, duplicate.id)
-        return duplicate_ids
+        # Fuzzy similarity is deliberately review-only.  The ingestion phase
+        # has already handled exact technical identities (source ID/direct
+        # offer URL); silently archiving a fuzzy match here could hide a real
+        # second opening and make the user submit the wrong offer.
+        return set()
 
     @staticmethod
     def _dedup_root(group: list[Job]) -> Job:

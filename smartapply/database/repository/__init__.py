@@ -2,11 +2,22 @@
 
 from smartapply.database.repository.analyses import set_analysis
 from smartapply.database.repository.applications import (
+    clear_shortlist_for_sent_applications,
     create_or_get_application,
     list_applications,
     update_application_tracking,
 )
 from smartapply.database.repository.documents import add_document, upsert_document
+from smartapply.database.repository.duplicates import (
+    application_for_duplicate_group,
+    application_ids_for_confirmed_groups,
+    canonical_job,
+    confirm_duplicate,
+    duplicate_group_ids,
+    pending_duplicate_for_group,
+    pending_duplicate_job,
+    reject_duplicate,
+)
 from smartapply.database.repository.jobs import (
     get_job_by_external_id,
     get_known_external_ids,
@@ -33,11 +44,17 @@ from smartapply.database.repository.scores import set_score, top_jobs_by_score
 
 __all__ = [
     "add_document",
+    "application_for_duplicate_group",
+    "application_ids_for_confirmed_groups",
     "cache_get",
     "cache_set",
     "create_or_get_application",
+    "canonical_job",
+    "confirm_duplicate",
+    "clear_shortlist_for_sent_applications",
     "get_job_by_external_id",
     "get_known_external_ids",
+    "duplicate_group_ids",
     "list_applications",
     "list_jobs",
     "list_known_jobs",
@@ -47,7 +64,10 @@ __all__ = [
     "mark_filtered",
     "mark_ranked",
     "purge_expired_cache",
+    "pending_duplicate_job",
+    "pending_duplicate_for_group",
     "record_usage",
+    "reject_duplicate",
     "rescue_archived_job",
     "set_shortlisted",
     "set_analysis",

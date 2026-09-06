@@ -32,8 +32,10 @@ class CvBlockSelector:
         return f"{exp.title} at {exp.company}: {bullets}"
 
     @staticmethod
-    def _project_text(p: Project) -> str:
-        return f"{p.name}: {p.description}"
+    def project_text(p: Project) -> str:
+        """Return the canonical text used to embed a profile project."""
+        keywords = ", ".join(p.keywords)
+        return f"{p.name}: {p.description}\nKeywords: {keywords}"
 
     @staticmethod
     def _analysis_text(analysis: JobAnalysis) -> str:
@@ -56,7 +58,7 @@ class CvBlockSelector:
         # separate request for every static profile block.
         texts = [self._analysis_text(analysis)]
         texts.extend(self._experience_text(exp) for exp in profile.experiences)
-        texts.extend(self._project_text(project) for project in profile.projects)
+        texts.extend(self.project_text(project) for project in profile.projects)
         vectors = self.embeddings.embed(texts)
         analysis_vec = vectors[0]
         experience_offset = 1

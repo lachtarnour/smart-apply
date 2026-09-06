@@ -5,6 +5,7 @@ Documentation: https://serpapi.com/google-jobs-api
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable, Iterator
 from typing import Any
 
@@ -339,15 +340,74 @@ class SerpApiGoogleJobsScraper(Scraper):
             page_params = dict(params)
             if next_token:
                 page_params["next_page_token"] = next_token
+            request_started = time.monotonic()
+            logger.info(
+                "SerpApi request start: q=%r page=%s timeout=%ss",
+                params.get("q"),
+                pages_fetched + 1,
+                30,
+            )
             try:
                 payload = self._fetch(page_params)
             except requests.RequestException as e:
                 summary = _request_error_summary(e)
-                logger.error("SerpApi request failed: %s", summary)
+                logger.error(
+                    "SerpApi request failed: q=%r page=%s elapsed=%.1fs error=%s",
+                    params.get("q"),
+                    pages_fetched + 1,
+                    time.monotonic() - request_started,
+                    summary,
+                    exc_info=True,
+                )
                 raise ScraperError(f"SerpAPI request failed: {summary}") from e
+            except Exception as exc:
+                logger.error(
+                    "SerpApi response invalid: q=%r page=%s elapsed=%.1fs error=%s",
+                    params.get("q"),
+                    pages_fetched + 1,
+                    time.monotonic() - request_started,
+                    exc,
+                    exc_info=True,
+                )
+                raise ScraperError(f"SerpAPI response invalid: {exc}") from exc
+
+            if not isinstance(payload, dict):
+                exc = ScraperError("SerpAPI response invalid: expected a JSON object")
+                logger.error(
+                    "SerpApi response invalid: q=%r page=%s elapsed=%.1fs error=%s",
+                    params.get("q"),
+                    pages_fetched + 1,
+                    time.monotonic() - request_started,
+                    exc,
+                    exc_info=True,
+                )
+                raise exc
+            api_error = payload.get("error")
+            if api_error:
+                detail = (
+                    str(api_error.get("message") or api_error.get("type") or api_error)
+                    if isinstance(api_error, dict)
+                    else str(api_error)
+                )
+                exc = ScraperError(f"SerpAPI returned an API error: {detail[:500]}")
+                logger.error(
+                    "SerpApi API error: q=%r page=%s elapsed=%.1fs error=%s",
+                    params.get("q"),
+                    pages_fetched + 1,
+                    time.monotonic() - request_started,
+                    exc,
+                )
+                raise exc
 
             pages_fetched += 1
             jobs = payload.get("jobs_results") or []
+            logger.info(
+                "SerpApi request done: q=%r page=%s jobs=%d elapsed=%.1fs",
+                params.get("q"),
+                pages_fetched,
+                len(jobs) if isinstance(jobs, list) else 0,
+                time.monotonic() - request_started,
+            )
             pagination = payload.get("serpapi_pagination") or {}
             next_token = pagination.get("next_page_token")
             if not jobs:
@@ -393,13 +453,20 @@ class SerpApiGoogleJobsScraper(Scraper):
         if not app_url:
             app_url = raw.get("share_link")
 
-        ext_parts = [
-            raw.get("job_id") or app_url or "",
-            title,
-            company,
-            raw.get("location") or "",
-        ]
-        external_id = make_external_id(self.name, *ext_parts)
+        # Google Jobs exposes a stable ``job_id``.  Do not mix mutable labels
+        # into the identity when it is available: a title/company refresh
+        # must update the same persisted offer.
+        if raw.get("job_id"):
+            external_id = make_external_id(self.name, str(raw["job_id"]))
+        elif app_url:
+            external_id = make_external_id(self.name, app_url)
+        else:
+            external_id = make_external_id(
+                self.name,
+                title,
+                company,
+                raw.get("location") or "",
+            )
 
         extensions = raw.get("detected_extensions") or {}
         contract_type = self._normalize_contract(extensions.get("schedule_type"))

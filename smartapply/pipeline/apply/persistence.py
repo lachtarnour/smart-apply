@@ -9,14 +9,17 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from smartapply.database import session_scope
-from smartapply.database.models import Application, Job, JobStatus
+from smartapply.database.models import Application, Job, JobDuplicateStatus, JobStatus
 from smartapply.database.repository import (
+    application_for_duplicate_group,
+    canonical_job,
     create_or_get_application,
+    pending_duplicate_for_group,
     update_status,
     upsert_document,
 )
 from smartapply.llm import MotivationLetter
-from smartapply.pipeline.errors import ApplicationAlreadyExistsError
+from smartapply.pipeline.errors import ApplicationAlreadyExistsError, DuplicateReviewRequiredError
 from smartapply.pipeline.reports import ApplyReport
 
 _STALE_RESERVATION_AFTER = timedelta(minutes=30)
@@ -48,9 +51,37 @@ class ApplicationPersistenceMixin:
     ) -> bool:
         try:
             with session_scope() as session:
+                job = session.get(Job, report.job_id)
+                if job is None:
+                    raise ValueError(f"Offre introuvable: {report.job_id}")
+                if job.duplicate_review_status == JobDuplicateStatus.PENDING:
+                    raise DuplicateReviewRequiredError(
+                        report.job_id,
+                        job.possible_duplicate_of_id,
+                    )
+
+                root = canonical_job(session, report.job_id)
+                if root is None:
+                    raise ValueError(f"Offre introuvable: {report.job_id}")
+                if int(root.id) != int(report.job_id):
+                    report.job_id = int(root.id)
+                pending = pending_duplicate_for_group(session, report.job_id)
+                if pending is not None:
+                    raise DuplicateReviewRequiredError(
+                        pending.id,
+                        pending.possible_duplicate_of_id,
+                    )
+
                 existing = session.execute(
                     select(Application).where(Application.job_id == report.job_id)
                 ).scalar_one_or_none()
+                group_application = application_for_duplicate_group(session, report.job_id)
+                if group_application is not None and group_application.job_id != report.job_id:
+                    raise ApplicationAlreadyExistsError(
+                        report.job_id,
+                        group_application.id,
+                    )
+                existing = existing or group_application
                 if existing is not None:
                     if not force_regenerate:
                         if not reservation_is_stale(existing):

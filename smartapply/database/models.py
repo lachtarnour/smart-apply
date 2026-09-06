@@ -30,6 +30,16 @@ class JobStatus:
     QUALITY_REJECTED = "quality_rejected"
     READY_FOR_FORM_SUBMISSION = "ready_for_form_submission"
     ARCHIVED = "archived"
+    DUPLICATE_REVIEW = "duplicate_review"
+
+
+class JobDuplicateStatus:
+    """Human-review state for offers that may represent the same posting."""
+
+    NONE = "none"
+    PENDING = "pending"
+    CONFIRMED = "confirmed"
+    REJECTED = "rejected"
 
 
 class ShortlistOrigin:
@@ -72,6 +82,20 @@ class Job(Base):
     apply_options: Mapped[Any | None] = mapped_column(JSON, nullable=True)
     source: Mapped[str] = mapped_column(String(50), index=True)
     source_data: Mapped[Any | None] = mapped_column(JSON, nullable=True)
+    # A source listing can be kept as an alias of another persisted offer
+    # after a duplicate is confirmed.  Pending matches deliberately keep a
+    # null canonical_job_id until the user decides.
+    canonical_job_id: Mapped[int | None] = mapped_column(
+        ForeignKey("jobs.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    possible_duplicate_of_id: Mapped[int | None] = mapped_column(
+        ForeignKey("jobs.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    duplicate_review_status: Mapped[str | None] = mapped_column(
+        String(20), nullable=True, default=JobDuplicateStatus.NONE, index=True
+    )
+    duplicate_match_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    duplicate_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     published_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     scraped_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, index=True
@@ -88,9 +112,7 @@ class Job(Base):
     shortlisted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, index=True
     )
-    shortlist_origin: Mapped[str | None] = mapped_column(
-        String(20), nullable=True, index=True
-    )
+    shortlist_origin: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
     analyzed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, index=True
     )
@@ -143,6 +165,7 @@ class JobAnalysis(Base):
     match_reasons: Mapped[Any | None] = mapped_column(JSON, nullable=True)
     risks: Mapped[Any | None] = mapped_column(JSON, nullable=True)
     cv_keywords_to_include: Mapped[Any | None] = mapped_column(JSON, nullable=True)
+    fit_score: Mapped[float | None] = mapped_column(Float, nullable=True, index=True)
     raw_response: Mapped[Any | None] = mapped_column(JSON, nullable=True)
     model_used: Mapped[str | None] = mapped_column(String(100), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)

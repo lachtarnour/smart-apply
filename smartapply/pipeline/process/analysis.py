@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from sqlalchemy import or_
+
 from smartapply.database import session_scope
-from smartapply.database.models import Job, JobStatus
+from smartapply.database.models import Job, JobDuplicateStatus, JobStatus
 from smartapply.database.repository import (
     mark_analyzed,
     set_analysis,
@@ -73,7 +75,16 @@ class AnalysisMixin:
 
         with session_scope() as s:
             jobs = (
-                s.query(Job).filter(Job.id.in_(unique_ids)).filter(Job.archived_at.is_(None)).all()
+                s.query(Job)
+                .filter(Job.id.in_(unique_ids))
+                .filter(Job.archived_at.is_(None))
+                .filter(
+                    or_(
+                        Job.duplicate_review_status.is_(None),
+                        Job.duplicate_review_status != JobDuplicateStatus.PENDING,
+                    )
+                )
+                .all()
             )
             found_ids = {int(job.id) for job in jobs}
             to_analyze = [job for job in jobs if job.analyzed_at is None]
@@ -111,6 +122,7 @@ class AnalysisMixin:
             set_analysis(
                 s,
                 job.id,
+                fit_score=analysis.fit_score,
                 role_type=analysis.role_type,
                 seniority=analysis.seniority,
                 domain=analysis.domain,

@@ -35,7 +35,7 @@ Button {
         radius: 13
         color: root.selected ? "#29263D" : (root.hovered ? "#211F31" : "transparent")
         border.color: root.selected ? "#3C3857" : "transparent"
-        border.width: 1
+        border.width: Theme.lineWidth
         Rectangle {
             visible: root.selected
             width: 3

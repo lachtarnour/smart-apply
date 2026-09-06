@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import datetime, timezone
 from typing import Any
 
 from smartapply.database import session_scope
-from smartapply.database.models import JobStatus
+from smartapply.database.models import JobDuplicateStatus, JobStatus
 from smartapply.database.repository import (
     get_job_by_external_id,
     get_known_external_ids,
     list_known_jobs,
     upsert_job,
 )
+from smartapply.dedup import Deduplicator, DuplicateCandidate
 from smartapply.logging_setup import get_logger
 from smartapply.offers import ManualOfferInput, RawJob
 from smartapply.parsing import clean_description
@@ -170,20 +172,81 @@ class Ingestor:
         updated_pending = 0
         skipped_processed = 0
         skipped_existing = 0
+        duplicate_review_ids: list[int] = []
+        aliases_created = 0
         with session_scope() as s:
             known_jobs = list(list_known_jobs(s))
-            known_index = _KnownJobIndex.from_jobs(known_jobs)
+            dedup_reference_jobs: list[Any] = list(known_jobs)
             for raw in raws:
                 existing = get_job_by_external_id(s, raw.external_id)
                 existing_status = existing.status if existing is not None else None
+                if existing is not None and existing.canonical_job_id is not None:
+                    # An already confirmed alias is source history, not a
+                    # second candidate. Refresh its source payload in place
+                    # and leave the canonical job/application untouched.
+                    upsert_job(
+                        s,
+                        external_id=existing.external_id,
+                        title=raw.title,
+                        company=raw.company,
+                        location=raw.location,
+                        contract_type=raw.contract_type,
+                        remote_policy=raw.remote_policy,
+                        description=raw.description,
+                        cleaned_description=clean_description(raw.description),
+                        application_url=raw.application_url,
+                        apply_options=raw.apply_options,
+                        source=raw.source,
+                        source_data=raw.source_data,
+                        published_date=raw.published_date,
+                    )
+                    skipped_existing += 1
+                    continue
                 if existing is None:
                     matching_existing = _matching_known_job(raw, known_jobs)
                     if matching_existing is not None and source == "manual":
                         existing = matching_existing
                         existing_status = existing.status
-                    elif source != "manual" and known_index.matches(raw):
-                        skipped_existing += 1
-                        continue
+                    elif source != "manual":
+                        exact_url_job = _matching_exact_offer_url(raw, known_jobs)
+                        if exact_url_job is not None:
+                            root = _canonical_job(exact_url_job, known_jobs)
+                            alias = upsert_job(
+                                s,
+                                external_id=raw.external_id,
+                                title=raw.title,
+                                company=raw.company,
+                                location=raw.location,
+                                contract_type=raw.contract_type,
+                                remote_policy=raw.remote_policy,
+                                description=raw.description,
+                                cleaned_description=clean_description(raw.description),
+                                application_url=raw.application_url,
+                                apply_options=raw.apply_options,
+                                source=raw.source,
+                                source_data=raw.source_data,
+                                published_date=raw.published_date,
+                            )
+                            alias.canonical_job_id = root.id
+                            alias.possible_duplicate_of_id = None
+                            alias.duplicate_review_status = JobDuplicateStatus.CONFIRMED
+                            alias.duplicate_match_type = "exact_url"
+                            alias.duplicate_confidence = 1.0
+                            alias.archived_at = alias.archived_at or datetime.now(timezone.utc)
+                            alias.status = JobStatus.ARCHIVED
+                            aliases_created += 1
+                            skipped_existing += 1
+                            known_jobs.append(alias)
+                            dedup_reference_jobs.append(alias)
+                            continue
+                # Cross-source fuzzy duplicates must be rejected before the
+                # upsert. A probable match is persisted for human review;
+                # it must not silently become a second candidate.
+                probable = (
+                    self._find_probable_duplicate(raw, dedup_reference_jobs)
+                    if existing is None
+                    else None
+                )
                 job = upsert_job(
                     s,
                     external_id=(
@@ -202,6 +265,21 @@ class Ingestor:
                     source_data=raw.source_data,
                     published_date=raw.published_date,
                 )
+                if probable is not None:
+                    candidate = _canonical_job(probable.job, known_jobs)
+                    job.possible_duplicate_of_id = candidate.id
+                    job.canonical_job_id = None
+                    job.duplicate_review_status = JobDuplicateStatus.PENDING
+                    job.duplicate_match_type = probable.match_type
+                    job.duplicate_confidence = probable.confidence
+                    job.filtered_at = None
+                    job.ranked_at = None
+                    job.analyzed_at = None
+                    job.shortlisted_at = None
+                    job.shortlist_origin = None
+                    job.archived_at = None
+                    job.status = JobStatus.SCRAPED
+                    duplicate_review_ids.append(int(job.id))
                 if source == "manual" and existing_status is not None:
                     # Manual one-shot submissions are explicit user intent:
                     # reuse the existing row, but analyze the freshly pasted
@@ -218,8 +296,8 @@ class Ingestor:
                     job_ids.append(job.id)
                 elif source == "manual":
                     job_ids.append(job.id)
-                else:
-                    skipped_processed += 1
+                if existing_status is None:
+                    dedup_reference_jobs.append(job)
         return IngestReport(
             source=source,
             fetched=len(raws),
@@ -233,9 +311,19 @@ class Ingestor:
             skipped_known_during_collect=collect_skipped_known,
             hit_raw_seen_cap=hit_raw_seen_cap,
             cancelled=cancelled,
+            duplicate_review_ids=duplicate_review_ids,
+            aliases_created=aliases_created,
             search_audit=search_audit or [],
             warnings=warnings or [],
         )
+
+    @staticmethod
+    def _find_probable_duplicate(
+        raw: RawJob,
+        known_jobs: list[Any],
+    ) -> DuplicateCandidate | None:
+        """Return a review candidate without merging or archiving it."""
+        return Deduplicator().find_probable_duplicate(raw, known_jobs)
 
 
 __all__ = [
@@ -273,6 +361,63 @@ def _matching_known_job(raw: RawJob, known_jobs) -> object | None:  # noqa: ANN0
 
 
 def _same_offer_label(left: str | None, right: str | None) -> bool:
-    return " ".join((left or "").casefold().split()) == " ".join(
-        (right or "").casefold().split()
+    return " ".join((left or "").casefold().split()) == " ".join((right or "").casefold().split())
+
+
+def _matching_exact_offer_url(raw: RawJob, known_jobs: list[Any]) -> object | None:
+    """Match only a direct offer URL, never a shared search/landing page."""
+    raw_url = _normalize_application_url(raw.application_url)
+    if not raw_url or not _is_direct_offer_url(raw.application_url):
+        return None
+    matches = [
+        job
+        for job in known_jobs
+        if raw_url == _normalize_application_url(getattr(job, "application_url", None))
+    ]
+    return min(matches, key=_job_identity_priority) if matches else None
+
+
+def _is_direct_offer_url(url: str | None) -> bool:
+    value = (url or "").strip().lower()
+    if not value:
+        return False
+    from urllib.parse import urlsplit
+
+    path = urlsplit(value if "://" in value else f"https://{value}").path.rstrip("/")
+    if "/offres/recherche/detail/" in path:
+        return True
+    return any(marker in path for marker in ("/jobs/", "/job/", "/vacancies/", "/vacancy/", "/offers/"))
+
+
+def _canonical_job(job: Any, known_jobs: list[Any]) -> Any:
+    """Follow confirmed aliases while keeping malformed legacy chains safe."""
+    by_id = {int(item.id): item for item in known_jobs if getattr(item, "id", None) is not None}
+    current = job
+    seen: set[int] = set()
+    while getattr(current, "canonical_job_id", None) is not None:
+        current_id = int(current.id)
+        if current_id in seen:
+            break
+        seen.add(current_id)
+        next_job = by_id.get(int(current.canonical_job_id))
+        if next_job is None:
+            break
+        current = next_job
+    return current
+
+
+def _job_identity_priority(job: Any) -> tuple[int, int, float, int]:
+    """Prefer the row carrying the existing application/workflow history."""
+    scraped_at = getattr(job, "scraped_at", None)
+    if scraped_at is None:
+        timestamp = float("inf")
+    else:
+        if getattr(scraped_at, "tzinfo", None) is None:
+            scraped_at = scraped_at.replace(tzinfo=timezone.utc)
+        timestamp = scraped_at.timestamp()
+    return (
+        0 if getattr(job, "application", None) is not None else 1,
+        0 if getattr(job, "analyzed_at", None) is not None else 1,
+        timestamp,
+        int(getattr(job, "id", 0)),
     )

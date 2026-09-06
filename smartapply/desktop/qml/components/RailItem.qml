@@ -10,15 +10,14 @@ Button {
     property bool expanded: false
     property string compactText: text
 
-    implicitWidth: expanded ? 184 : 58
-    implicitHeight: expanded ? 46 : 56
+    implicitWidth: expanded ? 184 : 62
+    implicitHeight: expanded ? 48 : 58
     hoverEnabled: true
     padding: 0
-    scale: down ? 0.975 : (hovered ? 1.008 : 1)
-
-    ToolTip.visible: hovered && !expanded
-    ToolTip.text: text
-    ToolTip.delay: 500
+    scale: down ? 0.985 : 1
+    activeFocusOnTab: true
+    Accessible.name: text
+    Accessible.role: Accessible.Button
 
     contentItem: Item {
         RowLayout {
@@ -29,8 +28,8 @@ Button {
             spacing: 11
 
             SvgIcon {
-                Layout.preferredWidth: 18
-                Layout.preferredHeight: 18
+                Layout.preferredWidth: 20
+                Layout.preferredHeight: 20
                 visible: root.iconSource.toString().length > 0
                 source: root.iconSource
                 color: root.selected ? Theme.accentBright : (root.hovered ? Theme.inkSoft : Theme.inkMuted)
@@ -39,7 +38,7 @@ Button {
                 Layout.fillWidth: true
                 text: root.text
                 color: root.selected ? Theme.ink : (root.hovered ? Theme.inkSoft : Theme.inkMuted)
-                font.pixelSize: 12
+                font.pixelSize: 13
                 font.weight: root.selected ? Font.DemiBold : Font.Medium
                 elide: Text.ElideRight
             }
@@ -54,17 +53,18 @@ Button {
                 visible: root.iconSource.toString().length > 0
                 source: root.iconSource
                 color: root.selected ? Theme.accentBright : (root.hovered ? Theme.inkSoft : Theme.inkFaint)
-                width: 19; height: 19
+                width: 21; height: 21
             }
             Text {
                 anchors.horizontalCenter: parent.horizontalCenter
-                width: Math.max(48, root.width - 4)
+                width: Math.max(50, root.width - 4)
                 text: root.compactText
                 color: root.selected ? Theme.ink : (root.hovered ? Theme.inkSoft : Theme.inkFaint)
-                font.pixelSize: 9
+                font.pixelSize: 10
                 font.weight: root.selected ? Font.DemiBold : Font.Medium
                 horizontalAlignment: Text.AlignHCenter
                 elide: Text.ElideRight
+                renderType: Text.NativeRendering
             }
         }
     }
@@ -85,17 +85,17 @@ Button {
                 orientation: Gradient.Horizontal
                 GradientStop {
                     position: 0
-                    color: root.selected ? "#312947" : (root.hovered ? Theme.surfaceMuted : "transparent")
+                    color: root.selected ? "#3C315D" : (root.hovered ? Theme.surfaceMuted : "transparent")
                     Behavior on color { ColorAnimation { duration: Theme.motionFast; easing.type: Easing.OutCubic } }
                 }
                 GradientStop {
                     position: 1
-                    color: root.selected ? "#24212F" : (root.hovered ? "#17161E" : "transparent")
+                    color: root.selected ? "#2C2744" : (root.hovered ? "#17161E" : "transparent")
                     Behavior on color { ColorAnimation { duration: Theme.motionFast; easing.type: Easing.OutCubic } }
                 }
             }
-            border.color: root.selected ? Theme.accentLine : (root.hovered ? Theme.line : "transparent")
-            border.width: 1
+            border.color: root.visualFocus ? Theme.accentBright : root.selected ? Theme.accentLine : (root.hovered ? Theme.line : "transparent")
+            border.width: Theme.lineWidth
             Behavior on border.color { ColorAnimation { duration: Theme.motionFast; easing.type: Easing.OutCubic } }
             Rectangle {
                 visible: root.selected
@@ -110,8 +110,8 @@ Button {
         }
         Rectangle {
             visible: root.selected
-            width: 3
-            height: root.expanded ? 18 : 20
+            width: 4
+            height: root.expanded ? 20 : 22
             radius: 2
             anchors.left: parent.left
             anchors.verticalCenter: parent.verticalCenter

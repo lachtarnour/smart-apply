@@ -10,298 +10,26 @@ Item {
     readonly property int jobCount: Number(AppBridge.dashboard.jobs || 0)
     readonly property int pendingCount: Number(AppBridge.dashboard.pending || 0)
     readonly property int readyCount: Number(AppBridge.dashboard.ready || 0)
-    readonly property int reviewCount: Number(AppBridge.dashboard.review || 0)
     readonly property int sentCount: Number(AppBridge.dashboard.sent || 0)
-    readonly property int applicationCount: readyCount + reviewCount + sentCount
-
-    function focusRoute() {
-        if (readyCount > 0 || reviewCount > 0) return "applications"
-        if (pendingCount > 0) return "jobs"
-        if (jobCount > 0) return "jobs"
-        return "search"
-    }
-
-    function focusLabel() {
-        if (readyCount > 0) return readyCount + " CANDIDATURE" + (readyCount === 1 ? " À RELIRE" : "S À RELIRE")
-        if (reviewCount > 0) return reviewCount + " CANDIDATURE" + (reviewCount === 1 ? " À COMPLÉTER" : "S À COMPLÉTER")
-        if (pendingCount > 0) return pendingCount + " OFFRE" + (pendingCount === 1 ? " À ANALYSER" : "S À ANALYSER")
-        if (sentCount > 0) return sentCount + " CANDIDATURE" + (sentCount === 1 ? " ENVOYÉE" : "S ENVOYÉES")
-        if (jobCount > 0) return jobCount + " OFFRE" + (jobCount === 1 ? " ENREGISTRÉE" : "S ENREGISTRÉES")
-        return "COMMENCER"
-    }
-
-    function focusTitle() {
-        if (readyCount > 0) return "Documents à relire"
-        if (reviewCount > 0) return "Candidatures à compléter"
-        if (pendingCount > 0) return "Offres à analyser"
-        if (sentCount > 0) return "Candidatures envoyées"
-        if (jobCount > 0) return "Offres à sélectionner"
-        return "Commencez votre recherche"
-    }
-
-    function focusButton() {
-        if (readyCount > 0 || reviewCount > 0) return "Candidatures"
-        if (pendingCount > 0 || jobCount > 0) return "Offres"
-        return "Rechercher"
-    }
-
-    function journeyStep() {
-        if (sentCount > 0) return 3
-        if (readyCount > 0 || reviewCount > 0) return 2
-        if (jobCount > 0) return 1
-        return 0
-    }
 
     Flickable {
         anchors.fill: parent
+        z: 1
         contentWidth: width
-        contentHeight: content.implicitHeight + 30
+        contentHeight: content.implicitHeight + 12
         clip: true
         boundsBehavior: Flickable.StopAtBounds
         ScrollBar.vertical: AppScrollBar { }
 
         ColumnLayout {
             id: content
-            width: parent.width - 12
-            spacing: 17
+            width: Math.min(1320, parent.width - Theme.scrollGutter)
+            x: (parent.width - Theme.scrollGutter - width) / 2
+            spacing: Theme.pageGap
 
             PageHeader {
                 Layout.fillWidth: true
-                title: "Aujourd’hui"
-                AppButton {
-                    text: "Nouvelle recherche"
-                    iconSource: Theme.icon("plus")
-                    kind: "primary"
-                    onClicked: root.navigateRequested("search")
-                }
-            }
-
-            Rectangle {
-                id: hero
-                Layout.fillWidth: true
-                Layout.preferredHeight: 264
-                radius: 28
-                clip: true
-                border.color: "#4B435F"
-                border.width: 1
-                gradient: Gradient {
-                    orientation: Gradient.Horizontal
-                    GradientStop { position: 0.0; color: "#15131C" }
-                    GradientStop { position: 0.52; color: "#1D1928" }
-                    GradientStop { position: 1.0; color: "#30264C" }
-                }
-
-                Rectangle {
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.leftMargin: 28
-                    anchors.rightMargin: 28
-                    anchors.top: parent.top
-                    height: 1
-                    color: "#2FFFFFFF"
-                }
-
-                Canvas {
-                    anchors.fill: parent
-                    opacity: 0.24
-                    onPaint: {
-                        var ctx = getContext("2d")
-                        ctx.clearRect(0, 0, width, height)
-                        ctx.fillStyle = "#BEB3DC"
-                        for (var x = width * 0.43; x < width; x += 28) {
-                            for (var y = 18; y < height; y += 28) {
-                                ctx.beginPath()
-                                ctx.arc(x, y, 0.8, 0, Math.PI * 2)
-                                ctx.fill()
-                            }
-                        }
-                    }
-                }
-
-                Rectangle {
-                    width: 470; height: 470; radius: 235
-                    x: hero.width - 300; y: -295
-                    color: "#24715BFF"
-                    SequentialAnimation on opacity {
-                        running: root.parent ? root.parent.visible : root.visible
-                        loops: Animation.Infinite
-                        NumberAnimation { from: 0.64; to: 1; duration: 3200; easing.type: Easing.InOutSine }
-                        NumberAnimation { from: 1; to: 0.64; duration: 3200; easing.type: Easing.InOutSine }
-                    }
-                }
-                Rectangle {
-                    width: 300; height: 300; radius: 150
-                    x: hero.width - 650; y: 175
-                    color: "#187B65FF"
-                }
-                Rectangle {
-                    width: 190; height: 190; radius: 95
-                    x: hero.width - 150; y: 155
-                    color: "#1A9E88FF"
-                }
-
-                RowLayout {
-                    anchors.fill: parent
-                    anchors.leftMargin: 30
-                    anchors.rightMargin: 24
-                    anchors.topMargin: 24
-                    anchors.bottomMargin: 24
-                    spacing: 26
-
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        Layout.maximumWidth: 690
-                        spacing: 9
-
-                        RowLayout {
-                            spacing: 9
-                            Rectangle {
-                                Layout.preferredWidth: 8; Layout.preferredHeight: 8; radius: 4
-                                color: root.readyCount > 0 || root.reviewCount > 0 ? "#F1B35A" : "#4AD1A3"
-                                SequentialAnimation on opacity {
-                                    running: root.parent ? root.parent.visible : root.visible
-                                    loops: Animation.Infinite
-                                    NumberAnimation { from: 1; to: 0.45; duration: 900; easing.type: Easing.InOutSine }
-                                    NumberAnimation { from: 0.45; to: 1; duration: 900; easing.type: Easing.InOutSine }
-                                }
-                            }
-                            Text {
-                                text: root.focusLabel()
-                                color: root.readyCount > 0 || root.reviewCount > 0 ? "#EAC38B" : "#A9A7B2"
-                                font.pixelSize: 9
-                                font.weight: Font.Bold
-                                font.letterSpacing: 1.2
-                            }
-                        }
-
-                        Text {
-                            Layout.fillWidth: true
-                            text: root.focusTitle()
-                            color: Theme.ink
-                            font.family: Theme.fontFamily
-                            font.pixelSize: 32
-                            font.weight: Font.Bold
-                            font.letterSpacing: -0.9
-                            lineHeight: 1.02
-                            renderType: Text.NativeRendering
-                            wrapMode: Text.WordWrap
-                        }
-                        Item { Layout.fillHeight: true }
-                        RowLayout {
-                            spacing: 9
-                            AppButton {
-                                text: root.focusButton()
-                                iconSource: Theme.icon("arrow-up-right")
-                                kind: "primary"
-                                accentColor: Theme.accent
-                                onClicked: root.navigateRequested(root.focusRoute())
-                            }
-                            AppButton {
-                                visible: root.jobCount > 0
-                                text: root.focusRoute() === "applications" ? "Offres" : "Candidatures"
-                                iconSource: Theme.icon(root.focusRoute() === "applications" ? "briefcase" : "files")
-                                onClicked: root.navigateRequested(root.focusRoute() === "applications" ? "jobs" : "applications")
-                            }
-                        }
-                    }
-
-                    Rectangle {
-                        Layout.preferredWidth: Math.min(360, hero.width * 0.33)
-                        Layout.fillHeight: true
-                        radius: 22
-                        gradient: Gradient {
-                            orientation: Gradient.Vertical
-                            GradientStop { position: 0; color: "#C9201B32" }
-                            GradientStop { position: 1; color: "#B812101B" }
-                        }
-                        border.color: "#665986"
-
-                        Rectangle {
-                            anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top
-                            anchors.leftMargin: 20; anchors.rightMargin: 20
-                            height: 1; color: "#30FFFFFF"
-                        }
-
-                        ColumnLayout {
-                            anchors.fill: parent
-                            anchors.margins: 18
-                            spacing: 8
-
-                            RowLayout {
-                                Layout.fillWidth: true
-                                Text { Layout.fillWidth: true; text: "Progression"; color: "#F3F1F7"; font.pixelSize: 13; font.weight: Font.DemiBold }
-                            }
-
-                            Repeater {
-                                model: [
-                                    {title: "Recherche"},
-                                    {title: "Sélection"},
-                                    {title: "Documents"},
-                                    {title: "Suivi"}
-                                ]
-                                delegate: Item {
-                                    id: stageRow
-                                    required property var modelData
-                                    required property int index
-                                    Layout.fillWidth: true
-                                    Layout.preferredHeight: 35
-                                    readonly property bool active: index === root.journeyStep()
-                                    readonly property bool complete: index < root.journeyStep()
-
-                                    Rectangle {
-                                        visible: index < 3
-                                        x: 12; y: 24
-                                        width: 1; height: 20
-                                        color: stageRow.complete ? "#6558D8" : "#373440"
-                                    }
-                                    Rectangle {
-                                        x: 0; y: 1
-                                        width: 25; height: 25; radius: 8
-                                        gradient: Gradient {
-                                            orientation: Gradient.Vertical
-                                            GradientStop { position: 0; color: stageRow.active ? Theme.accent : (stageRow.complete ? "#393252" : "#292630") }
-                                            GradientStop { position: 1; color: stageRow.active ? Theme.accentDeep : (stageRow.complete ? "#28233C" : "#201F26") }
-                                        }
-                                        border.color: stageRow.active ? Theme.accentBright : (stageRow.complete ? Theme.accentLine : Theme.lineStrong)
-                                        SvgIcon {
-                                            anchors.centerIn: parent
-                                            visible: stageRow.complete
-                                            source: Theme.icon("check")
-                                            color: "#A99FFF"
-                                            width: 12; height: 12
-                                        }
-                                        Text {
-                                            anchors.centerIn: parent
-                                            visible: !stageRow.complete
-                                            text: index + 1
-                                            color: stageRow.active ? "white" : "#777480"
-                                            font.pixelSize: 9
-                                            font.weight: Font.Bold
-                                        }
-                                    }
-                                    Text {
-                                        x: 37; y: 6
-                                        width: parent.width - 110
-                                        text: modelData.title
-                                        color: stageRow.active ? "#F5F3F8" : "#B1AEB8"
-                                        font.pixelSize: 11
-                                        font.weight: stageRow.active ? Font.DemiBold : Font.Medium
-                                        elide: Text.ElideRight
-                                    }
-                                    Rectangle {
-                                        visible: stageRow.active
-                                        anchors.right: parent.right
-                                        y: 3
-                                        width: 68; height: 21; radius: 7
-                                        color: Theme.accentSoft
-                                        border.color: Theme.accentLine
-                                        Text { anchors.centerIn: parent; text: "EN COURS"; color: Theme.accentBright; font.pixelSize: 7; font.weight: Font.Bold; font.letterSpacing: 0.7 }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+                title: "Accueil"
             }
 
             RowLayout {
@@ -316,7 +44,7 @@ Item {
                     iconSource: Theme.icon("search")
                     progress: AppBridge.dashboard.analysis_progress || 0
                     interactive: true
-                    onActivated: root.navigateRequested("jobs")
+                    onActivated: root.navigateRequested("jobs?status=scraped")
                 }
                 MetricCard {
                     Layout.fillWidth: true
@@ -326,17 +54,17 @@ Item {
                     iconSource: Theme.icon("briefcase")
                     progress: Math.min(1, root.pendingCount / Math.max(1, root.jobCount))
                     interactive: true
-                    onActivated: root.navigateRequested("jobs")
+                    onActivated: root.navigateRequested("search")
                 }
                 MetricCard {
                     Layout.fillWidth: true
-                    label: "À relire"
+                    label: "Prêtes"
                     value: String(root.readyCount)
                     accent: Theme.success
                     iconSource: Theme.icon("check")
                     progress: AppBridge.dashboard.ready_progress || 0
                     interactive: true
-                    onActivated: root.navigateRequested("applications")
+                    onActivated: root.navigateRequested("jobs?status=ready_for_form_submission")
                 }
                 MetricCard {
                     Layout.fillWidth: true
@@ -346,7 +74,169 @@ Item {
                     iconSource: Theme.icon("arrow-up-right")
                     progress: AppBridge.dashboard.sent_progress || 0
                     interactive: true
-                    onActivated: root.navigateRequested("applications")
+                    onActivated: root.navigateRequested("jobs?status=sent")
+                }
+            }
+
+            SectionTitle {
+                title: "Envois par jour"
+            }
+            Item {
+                id: dailyProgress
+                Layout.fillWidth: true
+                Layout.preferredHeight: 236
+                property var chartPoints: AppBridge.dashboard.sent_by_day || []
+
+                function chartMax() {
+                    var maximum = 1
+                    var points = chartPoints || []
+                    for (var i = 0; i < points.length; ++i)
+                        maximum = Math.max(maximum, Number(points[i].count || 0))
+                    var step = maximum <= 20 ? 5 : maximum <= 100 ? 25 : 50
+                    return Math.ceil(maximum / step) * step
+                }
+
+                onChartPointsChanged: plot.requestPaint()
+                onWidthChanged: plot.requestPaint()
+                onHeightChanged: plot.requestPaint()
+
+                Item {
+                    id: chartArea
+                    anchors.fill: parent
+
+                    Canvas {
+                        id: plot
+                        anchors.fill: parent
+
+                        onPaint: {
+                            var ctx = getContext("2d")
+                            ctx.clearRect(0, 0, width, height)
+
+                            var points = dailyProgress.chartPoints || []
+                            var left = 34
+                            var right = 14
+                            var top = 17
+                            var bottom = 29
+                            var plotWidth = Math.max(1, width - left - right)
+                            var plotHeight = Math.max(1, height - top - bottom)
+                            var maximum = dailyProgress.chartMax()
+                            var visibleCount = points.length
+                            var hasData = false
+                            for (var dataIndex = 0; dataIndex < points.length; ++dataIndex) {
+                                if (Number(points[dataIndex].count || 0) > 0) {
+                                    hasData = true
+                                    break
+                                }
+                            }
+
+                            ctx.font = "10px sans-serif"
+                            ctx.fillStyle = Qt.rgba(0.69, 0.66, 0.75, 0.72)
+                            ctx.textAlign = "right"
+
+                            // Keep the reading frame quiet and regular so the
+                            // curve stays legible without adding visual noise.
+                            ctx.lineWidth = 1
+                            for (var guideIndex = 0; guideIndex < 5; ++guideIndex) {
+                                var guideRatio = guideIndex / 4
+                                var guideY = top + plotHeight * (1 - guideRatio)
+                                ctx.strokeStyle = guideIndex === 0
+                                    ? Qt.rgba(0.55, 0.50, 0.75, 0.24)
+                                    : Qt.rgba(0.55, 0.50, 0.75, 0.12)
+                                ctx.beginPath()
+                                ctx.moveTo(left, guideY)
+                                ctx.lineTo(width - right, guideY)
+                                ctx.stroke()
+                            }
+
+                            var levels = [0, maximum / 2, maximum]
+                            for (var levelIndex = 0; levelIndex < levels.length; ++levelIndex) {
+                                var level = levels[levelIndex]
+                                if (level > maximum) continue
+                                var levelY = top + plotHeight - (level / maximum) * plotHeight
+                                ctx.fillText(String(level), left - 9, levelY + 3)
+                                ctx.strokeStyle = Qt.rgba(0.55, 0.50, 0.75, 0.52)
+                                ctx.beginPath()
+                                ctx.moveTo(left - 5, levelY)
+                                ctx.lineTo(left, levelY)
+                                ctx.stroke()
+                            }
+
+                            if (points.length > 0 && hasData) {
+                                var coordinates = []
+                                for (var i = 0; i < points.length; ++i) {
+                                    var value = Math.max(0, Number(points[i].count || 0))
+                                    var x = points.length === 1
+                                        ? left + plotWidth / 2
+                                        : left + plotWidth * i / (points.length - 1)
+                                    var y = top + plotHeight - (value / maximum) * plotHeight
+                                    coordinates.push({x: x, y: y, value: value})
+                                }
+
+                                ctx.beginPath()
+                                ctx.moveTo(coordinates[0].x, coordinates[0].y)
+                                for (var lineIndex = 0; lineIndex < visibleCount - 1; ++lineIndex) {
+                                    var first = coordinates[Math.max(0, lineIndex - 1)]
+                                    var start = coordinates[lineIndex]
+                                    var end = coordinates[lineIndex + 1]
+                                    var last = coordinates[Math.min(visibleCount - 1, lineIndex + 2)]
+                                    var minY = Math.min(start.y, end.y)
+                                    var maxY = Math.max(start.y, end.y)
+                                    var controlOneY = Math.max(minY, Math.min(maxY, start.y + (end.y - first.y) / 6))
+                                    var controlTwoY = Math.max(minY, Math.min(maxY, end.y - (last.y - start.y) / 6))
+                                    var controlOffset = (end.x - start.x) / 3
+                                    ctx.bezierCurveTo(
+                                        start.x + controlOffset, controlOneY,
+                                        end.x - controlOffset, controlTwoY,
+                                        end.x, end.y
+                                    )
+                                }
+                                ctx.lineWidth = 2.4
+                                ctx.lineJoin = "round"
+                                ctx.lineCap = "round"
+                                ctx.strokeStyle = "#B9AEFF"
+                                ctx.stroke()
+
+                                for (var dotIndex = 0; dotIndex < visibleCount; ++dotIndex) {
+                                    var point = coordinates[dotIndex]
+                                    ctx.beginPath()
+                                    var pointRadius = dotIndex === visibleCount - 1 ? 4 : (dotIndex === 0 ? 3.5 : 2.2)
+                                    ctx.arc(point.x, point.y, pointRadius, 0, Math.PI * 2)
+                                    ctx.fillStyle = dotIndex === visibleCount - 1 ? "#E0DCFF" : (point.value === 0 ? "#716A8C" : "#8E7CFF")
+                                    ctx.fill()
+                                    if (dotIndex === visibleCount - 1 && visibleCount === coordinates.length) {
+                                        ctx.beginPath()
+                                        ctx.arc(point.x, point.y, 8, 0, Math.PI * 2)
+                                        ctx.strokeStyle = Qt.rgba(0.66, 0.62, 1.0, 0.28)
+                                        ctx.lineWidth = 1
+                                        ctx.stroke()
+                                    }
+                                }
+
+                                ctx.fillStyle = Qt.rgba(0.69, 0.66, 0.75, 0.72)
+                                ctx.textAlign = "center"
+                                var labelStep = points.length > 10 ? 3 : 2
+                                for (var labelIndex = 0; labelIndex < points.length; labelIndex += labelStep)
+                                    ctx.fillText(points[labelIndex].label, coordinates[labelIndex].x, height - 5)
+                                if (points.length > 1 && (points.length - 1) % labelStep !== 0)
+                                    ctx.fillText(points[points.length - 1].label, coordinates[points.length - 1].x, height - 5)
+                            }
+                        }
+                    }
+
+                    Text {
+                        visible: {
+                            var points = dailyProgress.chartPoints || []
+                            if (points.length === 0) return true
+                            for (var i = 0; i < points.length; ++i)
+                                if (Number(points[i].count || 0) > 0) return false
+                            return true
+                        }
+                        anchors.centerIn: parent
+                        text: "Aucune candidature envoyée"
+                        color: Theme.inkFaint
+                        font.pixelSize: 11
+                        font.weight: Font.Medium
+                    }
                 }
             }
 
@@ -362,7 +252,7 @@ Item {
                     Layout.fillWidth: true
                     Layout.preferredHeight: (AppBridge.dashboard.recent || []).length > 0 ? 258 : 238
                     padding: 18
-                    surfaceEndColor: "#1C1828"
+                    surfaceEndColor: Theme.surface
 
                     SectionTitle {
                         title: "Candidatures récentes"
@@ -370,7 +260,7 @@ Item {
                             text: "Toutes"
                             implicitHeight: 36
                             iconSource: Theme.icon("chevron-right")
-                            onClicked: root.navigateRequested("applications")
+                            onClicked: root.navigateRequested("jobs")
                         }
                     }
 
@@ -415,18 +305,23 @@ Item {
                                             Layout.fillWidth: true
                                             spacing: 1
                                             Text { Layout.fillWidth: true; text: modelData.company; color: Theme.ink; font.pixelSize: 12; font.weight: Font.DemiBold; elide: Text.ElideRight }
-                                            Text { Layout.fillWidth: true; text: modelData.title; color: Theme.inkMuted; font.pixelSize: 10; elide: Text.ElideRight }
+                                            Text { Layout.fillWidth: true; text: modelData.title; color: Theme.inkMuted; font.pixelSize: 12; elide: Text.ElideRight }
                                         }
                                         Pill { text: modelData.status_label; tone: modelData.tone; compact: true }
-                                        Text { text: modelData.updated_at; color: Theme.inkFaint; font.pixelSize: 9 }
+                                        Text { text: modelData.updated_at; color: Theme.inkFaint; font.pixelSize: 11 }
                                         SvgIcon { source: Theme.icon("chevron-right"); color: recentHover.hovered ? Theme.accent : Theme.inkFaint; Layout.preferredWidth: 14; Layout.preferredHeight: 14 }
                                     }
 
+                                    activeFocusOnTab: true
+                                    Accessible.role: Accessible.Button
+                                    Accessible.name: modelData.company + " — " + modelData.title
+                                    Accessible.onPressAction: AppBridge.openApplication(modelData.id)
+                                    Keys.onReturnPressed: AppBridge.openApplication(modelData.id)
+                                    Keys.onSpacePressed: AppBridge.openApplication(modelData.id)
                                     HoverHandler { id: recentHover; cursorShape: Qt.PointingHandCursor }
                                     TapHandler {
                                         onTapped: {
-                                            AppBridge.selectApplication(modelData.id)
-                                            root.navigateRequested("applications")
+                                            AppBridge.openApplication(modelData.id)
                                         }
                                     }
                                     Behavior on color { ColorAnimation { duration: 130 } }
@@ -439,6 +334,7 @@ Item {
                 }
 
             }
+
         }
     }
 }

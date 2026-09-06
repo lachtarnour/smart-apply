@@ -23,6 +23,7 @@ Item {
         case "user": return "M15.5 8 A3.5 3.5 0 1 1 8.5 8 A3.5 3.5 0 0 1 15.5 8 M5 20 Q5.7 14 12 14 Q18.3 14 19 20"
         case "settings": return "M15 12 A3 3 0 1 1 9 12 A3 3 0 0 1 15 12 M19.4 15 Q19 16 19.8 17 L17 19.8 Q16 19 15 19.4 Q14 19.8 14 21 L14 21.2 L10 21.2 L10 21 Q10 19.8 9 19.4 Q8 19 7 19.8 L4.2 17 Q5 16 4.6 15 Q4.2 14 3 14 L2.8 14 L2.8 10 L3 10 Q4.2 10 4.6 9 Q5 8 4.2 7 L7 4.2 Q8 5 9 4.6 Q10 4.2 10 3 L10 2.8 L14 2.8 L14 3 Q14 4.2 15 4.6 Q16 5 17 4.2 L19.8 7 Q19 8 19.4 9 Q19.8 10 21 10 L21.2 10 L21.2 14 L21 14 Q19.8 14 19.4 15"
         case "command": return "M9 7 L9 5.5 A2.5 2.5 0 1 0 6.5 8 L18 8 M15 17 L15 18.5 A2.5 2.5 0 1 0 17.5 16 L6 16 M7 9 L7 15 M17 9 L17 15"
+        case "chevron-left": return "M15 5 L8 12 L15 19"
         case "chevron-right": return "M9 5 L16 12 L9 19"
         case "arrow-up-right": return "M6 18 L18 6 M8 6 L18 6 L18 16"
         case "check": return "M5 12.5 L9.2 16.7 L19 7"
@@ -40,19 +41,38 @@ Item {
 
     implicitWidth: 20
     implicitHeight: 20
+    readonly property bool softwareRenderer: GraphicsInfo.api === GraphicsInfo.Software
     opacity: iconOpacity
 
     Behavior on color { ColorAnimation { duration: Theme.motionFast; easing.type: Easing.OutCubic } }
     Behavior on iconOpacity { NumberAnimation { duration: Theme.motionFast; easing.type: Easing.OutCubic } }
 
+    // SVG images use the same paths and colours without depending on the
+    // Shape renderer's software clipping and teardown behaviour.
+    Image {
+        anchors.fill: parent
+        visible: root.softwareRenderer
+        source: root.softwareRenderer ? "data:image/svg+xml;utf8," + encodeURIComponent(
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="' + root.pathData
+            + '" fill="none" stroke="' + root.color + '" stroke-width="2.35" stroke-linecap="round" stroke-linejoin="round"/></svg>') : ""
+        sourceSize.width: Math.ceil(width * Screen.devicePixelRatio)
+        sourceSize.height: Math.ceil(height * Screen.devicePixelRatio)
+        smooth: true
+    }
+
     Shape {
+        id: iconShape
+        visible: !root.softwareRenderer
         width: 24
         height: 24
         anchors.centerIn: parent
         scale: Math.min(root.width / 24, root.height / 24)
+        // CurveRenderer keeps small curved strokes clean after the icon is
+        // fitted into compact controls such as the navigation rail.
+        preferredRendererType: Shape.CurveRenderer
         ShapePath {
             strokeColor: root.color
-            strokeWidth: 1.8
+            strokeWidth: 2.35
             fillColor: "transparent"
             capStyle: ShapePath.RoundCap
             joinStyle: ShapePath.RoundJoin
