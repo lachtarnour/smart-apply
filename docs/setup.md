@@ -114,6 +114,19 @@ Recommended order:
 make test-fast
 ```
 
+### CV template and writing style
+
+The CV content comes from your profile. Presentation is configured separately for each export format:
+
+| What to customize | Where to edit |
+| --- | --- |
+| HTML/PDF layout, colors, typography, margins, and section order | [`smartapply/cv/templates/cv.html.j2`](../smartapply/cv/templates/cv.html.j2), using HTML/CSS and preserving the Jinja variables |
+| DOCX fonts, colors, and text sizes | `template_style.json` in your private profile; see the [example settings](../smartapply/profile/mock_profile/template_style.json) |
+| DOCX structure, margins, and section order | [`smartapply/cv/docx_generator.py`](../smartapply/cv/docx_generator.py) |
+| Writing tone, instructions, and length limits | `style_guide.json` in your private profile; see the [example settings](../smartapply/profile/mock_profile/style_guide.json) |
+
+`template_style.json` applies to DOCX output; HTML/PDF styling lives in the HTML template. After changing source templates or static filters, restart the source app or rebuild the packaged app with `make build`. Generate a sample application and review the exported CV before using it.
+
 ## Development
 
 ```bash

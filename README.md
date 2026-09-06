@@ -56,6 +56,14 @@ make run-desktop
 
 The guide also covers running with mock providers and building a standalone macOS app. Source credentials are configured separately for each [connector](docs/sources/README.md).
 
+## Make it your own
+
+Default filters are tuned for data/AI roles and junior-to-mid experience. Before using Élan for your own search:
+
+1. **Profile information** — Copy the [example profile](smartapply/profile/mock_profile/) into your private profile directory, following the [setup guide](docs/setup.md#configure-a-profile). Replace the identity, experience, skills, projects, and education with your own information, then set your search preferences in `preferences.json`.
+2. **Static filters** — Review [filter rules](smartapply/filtering/rules.py) and [search role families](smartapply/pipeline/ingest/role_families.py) for your target roles, exclusions, and seniority. Changing your profile does not automatically update these rules; the [matching guide](docs/setup.md#matching-rules) also covers contract and location filters.
+3. **CV template** — Edit [the HTML/CSS template](smartapply/cv/templates/cv.html.j2) for HTML/PDF layout, or `template_style.json` in your private profile for DOCX fonts and colors. See [CV customization](docs/setup.md#cv-template-and-writing-style) for layout and writing options.
+
 ## Development
 
 ```bash
