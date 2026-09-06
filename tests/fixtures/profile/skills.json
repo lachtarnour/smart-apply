@@ -1,0 +1,292 @@
+{
+  "categories": [
+    {
+      "id": "ml_ai",
+      "name": "Ml Ai",
+      "skills": [
+        "PyTorch",
+        "TensorFlow",
+        "Scikit-learn",
+        "NLP",
+        "Transformers",
+        "Hugging Face",
+        "Fine-tuning",
+        "Time-series modeling",
+        "Anomaly detection"
+      ]
+    },
+    {
+      "id": "generative_agentic_ai",
+      "name": "Generative Agentic Ai",
+      "skills": [
+        "RAG",
+        "FAISS",
+        "Vector search",
+        "LangChain",
+        "BM25",
+        "Reranking"
+      ]
+    },
+    {
+      "id": "data_analysis",
+      "name": "Data Analysis",
+      "skills": [
+        "Python",
+        "SQL",
+        "R",
+        "Pandas",
+        "NumPy",
+        "SciPy",
+        "Statistical analysis",
+        "Forecasting",
+        "Streamlit",
+        "Clinical Trial Reporting"
+      ]
+    },
+    {
+      "id": "data_infra",
+      "name": "Data Infra",
+      "skills": [
+        "Docker",
+        "Git",
+        "AWS",
+        "Flask",
+        "FastAPI",
+        "Spark",
+        "PySpark",
+        "CI/CD",
+        "Grafana"
+      ]
+    },
+    {
+      "id": "stats_signal",
+      "name": "Stats Signal",
+      "skills": [
+        "Time-series analysis",
+        "Optimization",
+        "Mathematical Optimization",
+        "Linear Programming",
+        "Mixed-Integer Programming",
+        "Monte Carlo methods",
+        "Markov chains"
+      ]
+    },
+    {
+      "id": "computer_vision",
+      "name": "Computer Vision",
+      "skills": [
+        "OpenCV",
+        "Facial analysis",
+        "RetinaFace",
+        "FaceNet"
+      ]
+    },
+    {
+      "id": "speech_audio",
+      "name": "Speech Audio",
+      "skills": [
+        "Whisper",
+        "Pyannote",
+        "OpenSMILE"
+      ]
+    }
+  ],
+  "core": {
+    "ml_ai": [
+      "PyTorch",
+      "Scikit-learn"
+    ],
+    "data_analysis": [
+      "Python",
+      "SQL"
+    ]
+  },
+  "profiles": [
+    {
+      "id": "mixed",
+      "name": "Mixed",
+      "description": "Fictional test preset for mixed.",
+      "category_skills": {
+        "ml_ai": [
+          "PyTorch",
+          "Scikit-learn",
+          "NLP"
+        ],
+        "data_analysis": [
+          "Python",
+          "SQL",
+          "Pandas"
+        ]
+      }
+    },
+    {
+      "id": "llm",
+      "name": "Llm",
+      "description": "Fictional test preset for llm.",
+      "category_skills": {
+        "ml_ai": [
+          "NLP",
+          "Transformers",
+          "Hugging Face"
+        ],
+        "generative_agentic_ai": [
+          "RAG",
+          "FAISS",
+          "Vector search"
+        ]
+      }
+    },
+    {
+      "id": "machine_learning",
+      "name": "Machine Learning",
+      "description": "Fictional test preset for machine learning.",
+      "category_skills": {
+        "ml_ai": [
+          "PyTorch",
+          "TensorFlow",
+          "Scikit-learn"
+        ],
+        "data_infra": [
+          "Docker",
+          "FastAPI"
+        ]
+      }
+    },
+    {
+      "id": "reinforcement_learning",
+      "name": "Reinforcement Learning",
+      "description": "Fictional test preset for reinforcement learning.",
+      "category_skills": {
+        "ml_ai": [
+          "PyTorch"
+        ],
+        "stats_signal": [
+          "Markov chains"
+        ]
+      }
+    },
+    {
+      "id": "data_analyst",
+      "name": "Data Analyst",
+      "description": "Fictional test preset for data analyst.",
+      "category_skills": {
+        "data_analysis": [
+          "Python",
+          "SQL",
+          "Pandas",
+          "Streamlit"
+        ],
+        "stats_signal": [
+          "Time-series analysis"
+        ]
+      }
+    },
+    {
+      "id": "time_series",
+      "name": "Time Series",
+      "description": "Fictional test preset for time series.",
+      "category_skills": {
+        "stats_signal": [
+          "Time-series analysis"
+        ],
+        "ml_ai": [
+          "Time-series modeling"
+        ]
+      }
+    },
+    {
+      "id": "computer_vision",
+      "name": "Computer Vision",
+      "description": "Fictional test preset for computer vision.",
+      "category_skills": {
+        "computer_vision": [
+          "OpenCV",
+          "Facial analysis"
+        ],
+        "ml_ai": [
+          "PyTorch"
+        ]
+      }
+    },
+    {
+      "id": "speech_audio",
+      "name": "Speech Audio",
+      "description": "Fictional test preset for speech audio.",
+      "category_skills": {
+        "speech_audio": [
+          "Whisper",
+          "Pyannote"
+        ]
+      }
+    },
+    {
+      "id": "medical_ai",
+      "name": "Medical Ai",
+      "description": "Fictional test preset for medical ai.",
+      "category_skills": {
+        "computer_vision": [
+          "Facial analysis"
+        ],
+        "ml_ai": [
+          "PyTorch",
+          "Anomaly detection"
+        ]
+      }
+    },
+    {
+      "id": "operations_research",
+      "name": "Operations Research",
+      "description": "Fictional test preset for operations research.",
+      "category_skills": {
+        "stats_signal": [
+          "Mathematical Optimization",
+          "Linear Programming",
+          "Mixed-Integer Programming",
+          "Optimization",
+          "Monte Carlo methods"
+        ],
+        "data_analysis": [
+          "Python",
+          "NumPy",
+          "SciPy"
+        ]
+      }
+    }
+  ],
+  "matching_keywords": {
+    "mixed": [
+      "mixed"
+    ],
+    "llm": [
+      "llm",
+      "genai",
+      "generative ai"
+    ],
+    "machine_learning": [
+      "machine learning"
+    ],
+    "reinforcement_learning": [
+      "reinforcement learning"
+    ],
+    "data_analyst": [
+      "data analyst",
+      "data analysis"
+    ],
+    "time_series": [
+      "time series"
+    ],
+    "computer_vision": [
+      "computer vision"
+    ],
+    "speech_audio": [
+      "speech audio"
+    ],
+    "medical_ai": [
+      "medical ai"
+    ],
+    "operations_research": [
+      "operations research",
+      "mixed-integer programming"
+    ]
+  }
+}

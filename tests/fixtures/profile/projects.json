@@ -1,0 +1,114 @@
+[
+  {
+    "id": "proj_evidence_rag",
+    "name": "Evidence RAG Verifier",
+    "status": "portfolio",
+    "url": "https://example.com/projects/proj_evidence_rag",
+    "keywords": [
+      "RAG",
+      "FAISS",
+      "BM25",
+      "Python"
+    ],
+    "bullets": [
+      {
+        "id": "proj_evidence_rag_evidence",
+        "text": "Built and evaluated Evidence RAG Verifier on a synthetic dataset using RAG, FAISS, BM25, Python. Compared model outputs with labeled examples and documented retrieval quality, classification errors, reproducibility, and limitations.",
+        "keywords": [
+          "RAG",
+          "FAISS",
+          "BM25",
+          "Python"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "proj_ner_camembert",
+    "name": "French Entity Recognition",
+    "status": "portfolio",
+    "url": "https://example.com/projects/proj_ner_camembert",
+    "keywords": [
+      "NLP",
+      "CamemBERT",
+      "PyTorch"
+    ],
+    "bullets": [
+      {
+        "id": "proj_ner_camembert_evidence",
+        "text": "Built and evaluated French Entity Recognition on a synthetic dataset using NLP, CamemBERT, PyTorch. Compared model outputs with labeled examples and documented retrieval quality, classification errors, reproducibility, and limitations.",
+        "keywords": [
+          "NLP",
+          "CamemBERT",
+          "PyTorch"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "proj_smartapply",
+    "name": "Application Document Assistant",
+    "status": "portfolio",
+    "url": "https://example.com/projects/proj_smartapply",
+    "keywords": [
+      "Python",
+      "SQL",
+      "RAG"
+    ],
+    "bullets": [
+      {
+        "id": "proj_smartapply_evidence",
+        "text": "Built and evaluated Application Document Assistant on a synthetic dataset using Python, SQL, RAG. Compared model outputs with labeled examples and documented retrieval quality, classification errors, reproducibility, and limitations.",
+        "keywords": [
+          "Python",
+          "SQL",
+          "RAG"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "proj_geometry",
+    "name": "Geometry Classification",
+    "status": "portfolio",
+    "url": "https://example.com/projects/proj_geometry",
+    "keywords": [
+      "Python",
+      "Scikit-learn",
+      "Computer vision"
+    ],
+    "bullets": [
+      {
+        "id": "proj_geometry_evidence",
+        "text": "Built and evaluated Geometry Classification on a synthetic dataset using Python, Scikit-learn, Computer vision. Compared model outputs with labeled examples and documented retrieval quality, classification errors, reproducibility, and limitations.",
+        "keywords": [
+          "Python",
+          "Scikit-learn",
+          "Computer vision"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "proj_gpt2",
+    "name": "Language Model Evaluation",
+    "status": "portfolio",
+    "url": "https://example.com/projects/proj_gpt2",
+    "keywords": [
+      "NLP",
+      "GPT-2",
+      "Transformers"
+    ],
+    "bullets": [
+      {
+        "id": "proj_gpt2_evidence",
+        "text": "Built and evaluated Language Model Evaluation on a synthetic dataset using NLP, GPT-2, Transformers. Compared model outputs with labeled examples and documented retrieval quality, classification errors, reproducibility, and limitations.",
+        "keywords": [
+          "NLP",
+          "GPT-2",
+          "Transformers"
+        ]
+      }
+    ]
+  }
+]

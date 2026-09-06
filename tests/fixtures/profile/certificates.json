@@ -1,0 +1,10 @@
+[
+  {
+    "id": "cert_example",
+    "name": "Example Certificate",
+    "issuer": "Example Issuer",
+    "description": "Optional certificate description.",
+    "date": "2024",
+    "url": "https://example.com/certificate"
+  }
+]

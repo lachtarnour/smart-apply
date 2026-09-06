@@ -99,20 +99,20 @@ def _valid_adapted_cv() -> AdaptedCV:
         ),
         selected_experiences=[
             AdaptedExperience(
-                source_id="exp_emobot_ds_2024",
+                source_id="exp_aurore_ds_2024",
                 bullets=[
                     AdaptedBullet(
-                        source_id="blt_emobot_ds_multimodal",
+                        source_id="blt_aurore_ds_multimodal",
                         text="Built multimodal pipelines reaching 0.67 correlation with clinical scores.",
                     ),
                     AdaptedBullet(
-                        source_id="blt_emobot_ds_speech_face",
+                        source_id="blt_aurore_ds_speech_face",
                         text="Developed speech/NLP and face-recognition pipelines using Whisper and Pyannote.",
                     ),
                 ],
             )
         ],
-        selected_project_ids=["proj_scifact_rag", "proj_ner_camembert"],
+        selected_project_ids=["proj_evidence_rag", "proj_ner_camembert"],
         skills_order=["ml_ai", "data_infra", "stats_signal"],
         warnings=[],
     )
@@ -216,10 +216,10 @@ def test_adapter_keeps_project_count_between_two_and_four() -> None:
     cv = _valid_adapted_cv().model_copy(
         update={
             "selected_project_ids": [
-                "proj_scifact_rag",
+                "proj_evidence_rag",
                 "proj_ner_camembert",
                 "proj_smartapply",
-                "orthogeo3d",
+                "proj_geometry",
                 "proj_gpt2",
             ],
         }
@@ -227,16 +227,16 @@ def test_adapter_keeps_project_count_between_two_and_four() -> None:
 
     capped = adapter._enforce_project_count(cv)
     assert capped.selected_project_ids == [
-        "proj_scifact_rag",
+        "proj_evidence_rag",
         "proj_ner_camembert",
         "proj_smartapply",
-        "orthogeo3d",
+        "proj_geometry",
     ]
 
-    short = cv.model_copy(update={"selected_project_ids": ["proj_scifact_rag"]})
+    short = cv.model_copy(update={"selected_project_ids": ["proj_evidence_rag"]})
     expanded = adapter._enforce_project_count(short)
     assert len(expanded.selected_project_ids) == 2
-    assert expanded.selected_project_ids[0] == "proj_scifact_rag"
+    assert expanded.selected_project_ids[0] == "proj_evidence_rag"
 
 
 # ---------------- Validator ----------------
@@ -370,7 +370,7 @@ def _repair_valid_body() -> str:
         "thoughtful collaboration."
     )
     openings = (
-        "The SciFact RAG Verifier project strengthened my approach to grounded "
+        "The Evidence RAG Verifier project strengthened my approach to grounded "
         "retrieval, evidence review, and dependable evaluation.",
         "This selected work reflects a practical way of connecting technical "
         "decisions with clear product priorities and team needs.",
@@ -485,7 +485,7 @@ def test_docx_renderer_produces_valid_file(tmp_path: Path) -> None:
 
     doc = Document(str(out))
     full_text = "\n".join(p.text for p in doc.paragraphs)
-    assert "Lachtar Nour" in full_text
+    assert "Camille Martin" in full_text
     assert "Data Scientist" in full_text
 
 
@@ -737,14 +737,14 @@ def test_application_draft_prompt_separates_matching_keywords_from_display_skill
         "Projects marked current or ongoing may still be described as current work"
         in application_draft.SYSTEM
     )
-    assert "During my experience at Emobot" in app_prompt
-    assert "At Emobot, I developed" in app_prompt
-    assert "Chez Emobot, j’ai développé" in app_prompt
-    assert "Lors de mon expérience chez Emobot" in app_prompt
+    assert "During my experience at [company]" in app_prompt
+    assert "At [company], I developed" in app_prompt
+    assert "Chez [entreprise], j’ai développé" in app_prompt
+    assert "Lors de mon expérience chez [entreprise]" in app_prompt
     assert "my current role" in app_prompt
-    assert "currently at Emobot" in app_prompt
+    assert "currently at [company]" in app_prompt
     assert "dans mon poste actuel" in app_prompt
-    assert "actuellement chez Emobot" in app_prompt
+    assert "actuellement chez [entreprise]" in app_prompt
     assert "Projects marked current or ongoing may still be described as current work" in app_prompt
     assert "In my role at" not in app_prompt
     assert "one concrete priority of the role or company" in application_draft.SYSTEM

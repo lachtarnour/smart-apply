@@ -29,7 +29,7 @@ Set credentials in `.env` for the providers you use:
 | `WTTJ_COOKIE` | Authenticated Welcome to the Jungle feed |
 | `EMBEDDINGS_PROVIDER` | `openai`, `local`, or `mock` |
 
-See [`.env.example`](../.env.example) for defaults and the [source guides](sources/README.md) for connector-specific setup. `WTTJ_COOKIE` can be added to `.env` when needed.
+See [`.env.example`](../.env.example) for defaults and the [source guides](sources/README.md) for connector-specific setup.
 
 To explore without an AI API key, use:
 
@@ -116,14 +116,11 @@ make test-fast
 
 ## Development
 
-The code is organized under `smartapply/`: `scrapers` collects offers, `filtering` and `ranking` select relevant roles, `llm` and `cv` prepare documents, `database` stores state, and `desktop` implements the Qt Quick interface.
-
 ```bash
-make lint
-make test-fast
+make check
 .venv/bin/elan --help
 ```
 
-Some existing tests reference specific skills, experience IDs, and project IDs in the original local profile. The public example alone does not satisfy those assertions. Tests use mock AI providers; tokenizer tests may download a public vocabulary on their first run.
+The test suite uses fictional fixtures and a temporary runtime, with no private profile or API credentials required. Tokenizer tests may download a public vocabulary on their first run.
 
-For UI checks, use the [visual verification guide](desktop-design.md). For changes to connectors, consult the [source documentation](sources/README.md).
+See [Contributing](../CONTRIBUTING.md) for the project structure and development workflow, the [visual verification guide](desktop-design.md) for UI checks, and the [source documentation](sources/README.md) for connectors.

@@ -1,5 +1,7 @@
 # Interface Élan — conventions et recette visuelle
 
+[Retour au README](../README.md)
+
 ## Direction commune
 
 Les sept pages utilisent le même thème sombre, une hiérarchie typographique commune,
@@ -18,21 +20,21 @@ vert pour l’envoi, ambre pour l’archivage et les avertissements.
 - Notifications : superposées en haut, fermables, sans modifier la géométrie du contenu.
 - Profil, descriptions, diagnostics : retour à la ligne et hauteur adaptée au contenu.
 
-Les tokens partagés sont dans `smartapply/desktop/qml/components/Theme.qml`.
-Les règles métier, les identités d’offres et la base de production ne sont pas modifiées par cette harmonisation.
+Les tokens partagés sont dans [`Theme.qml`](../smartapply/desktop/qml/components/Theme.qml).
 
 ## Vérification reproductible
 
 Depuis la racine du dépôt :
 
 ```sh
-.venv/bin/python tools/desktop_visual_check.py --database /chemin/vers/une-sauvegarde.db --output /tmp/elan-visual-review
+.venv/bin/python tools/desktop_visual_check.py --widths 1320,1480,1800,2524 --output /tmp/elan-visual-review
 .venv/bin/pytest tests/test_desktop_services.py -q
 .venv/bin/ruff check tools/desktop_visual_check.py
 ```
 
 Le contrôle visuel utilise PySide6, le style Basic et un moteur de rendu logiciel.
-Il copie la base fournie dans un répertoire temporaire et utilise le profil de démonstration.
+Il crée une base temporaire contenant des offres fictives et utilise le profil d’exemple public.
+Pour vérifier vos propres données, ajoutez `--database /chemin/vers/une-sauvegarde.db` : seule une copie temporaire est utilisée. Cette base doit contenir au moins deux offres prêtes à envoyer pour les interactions du tableau.
 Il n’effectue ni vérification réseau des sources, ni génération de documents, ni envoi,
 ni décision sur les doublons. Les états de sources connectées, de génération disponible,
 de profil long et de comparaison de doublons sont des fixtures en mémoire.
@@ -48,11 +50,6 @@ au clavier et la fermeture des notifications.
 
 ## Avant distribution
 
-Dernière recette visuelle du 6 septembre 2026, après reprise du tableau Offres : 42 captures, 225 contrôles réussis,
-aucun avertissement QML et sortie du processus réussie. Le rapport de cette session
-est dans `/tmp/elan-table-release-check/diagnostics.json` ; les captures sont dans le même dossier.
-
-Ces contrôles ne remplacent pas une recette de l’application macOS empaquetée :
+Compléter les contrôles automatiques par une recette de l’application macOS empaquetée :
 rendu Metal/Retina, plein écran natif, lecteurs d’écran, signature/notarisation,
 sources réellement connectées et parcours complets de génération et d’envoi.
-L’absence d’erreur dans cette recette n’est pas une garantie d’absence de défaut.

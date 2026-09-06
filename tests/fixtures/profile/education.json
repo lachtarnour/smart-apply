@@ -1,0 +1,22 @@
+[
+  {
+    "id": "edu_masters",
+    "title": "Master of Science",
+    "field": "Data Science",
+    "institution": "Example University",
+    "start_date": "09/2021",
+    "end_date": "09/2023",
+    "start_year": 2021,
+    "end_year": 2023
+  },
+  {
+    "id": "edu_bachelors",
+    "title": "Bachelor of Science",
+    "field": "Mathematics",
+    "institution": "Example University",
+    "start_date": "09/2018",
+    "end_date": "06/2021",
+    "start_year": 2018,
+    "end_year": 2021
+  }
+]

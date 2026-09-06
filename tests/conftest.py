@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -10,12 +11,24 @@ import pytest
 # Forcer un environnement de test reproductible avant l'import des modules.
 # On ECRASE (pas setdefault) les cles sensibles pour que les tests soient
 # independants du .env local et n'appellent jamais les vraies API.
-os.environ["LLM_PROVIDER"] = "mock"
-os.environ["EMBEDDINGS_PROVIDER"] = "mock"
-os.environ["OPENAI_API_KEY"] = ""
-os.environ["SERPAPI_API_KEY"] = ""
-os.environ["FRANCETRAVAIL_CLIENT_ID"] = ""
-os.environ["FRANCETRAVAIL_CLIENT_SECRET"] = ""
+_runtime = tempfile.TemporaryDirectory(prefix="elan-tests-")
+_runtime_path = Path(_runtime.name)
+os.environ.update(
+    ELAN_HOME=str(_runtime_path),
+    ELAN_ENV_FILE=str(_runtime_path / ".env"),
+    DATABASE_URL=f"sqlite:///{_runtime_path / 'test.db'}",
+    OUTPUT_DIR=str(_runtime_path / "documents"),
+    CACHE_DIR=str(_runtime_path / "cache"),
+    PROFILE_DIR=str(Path(__file__).parent / "fixtures" / "profile"),
+    LLM_PROVIDER="mock",
+    EMBEDDINGS_PROVIDER="mock",
+    OPENAI_API_KEY="",
+    SERPAPI_API_KEY="",
+    FRANCETRAVAIL_CLIENT_ID="",
+    FRANCETRAVAIL_CLIENT_SECRET="",
+    APIFY_TOKEN="",
+    WTTJ_COOKIE="",
+)
 
 # Clear any cached settings before tests
 from smartapply.config import get_settings as _gs  # noqa: E402

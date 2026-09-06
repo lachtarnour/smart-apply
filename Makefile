@@ -1,6 +1,6 @@
-.PHONY: help install install-desktop venv test test-fast lint format clean run-desktop build run-cli init-db refresh-embeddings
+.PHONY: help install install-desktop venv check test test-fast lint format clean run-desktop build run-cli init-db refresh-embeddings
 
-PY ?= /opt/homebrew/bin/python3.11
+PY ?= python3
 VENV = .venv
 BIN = $(VENV)/bin
 
@@ -12,12 +12,13 @@ help:
 	@echo "  make install-desktop  Installe l'application macOS et les outils de build"
 	@echo "  make init-db          Initialise la base SQLite"
 	@echo "  make refresh-embeddings  Pre-calcule les embeddings du profil et des projets"
+	@echo "  make check            Verifie le code et lance les tests rapides"
 	@echo "  make test             Lance les tests"
 	@echo "  make test-fast        Tests rapides (skip integration)"
 	@echo "  make lint             Verifie le code"
 	@echo "  make format           Formate le code"
 	@echo "  make run-desktop      Lance l'application macOS en développement"
-	@echo "  make build      Construit dist/Elan.app"
+	@echo "  make build            Construit dist/Elan.app"
 	@echo "  make run-cli          Lance la CLI de maintenance (elan --help)"
 	@echo "  make clean            Supprime caches et builds"
 
@@ -37,6 +38,8 @@ init-db:
 refresh-embeddings:
 	$(BIN)/elan refresh-embeddings
 
+check: lint test-fast
+
 test:
 	$(BIN)/pytest
 
@@ -44,11 +47,11 @@ test-fast:
 	$(BIN)/pytest -m "not integration and not llm"
 
 lint:
-	$(BIN)/ruff check smartapply tests
+	$(BIN)/ruff check smartapply tests tools/desktop_visual_check.py
 
 format:
-	$(BIN)/ruff format smartapply tests
-	$(BIN)/ruff check --fix smartapply tests
+	$(BIN)/ruff format smartapply tests tools/desktop_visual_check.py
+	$(BIN)/ruff check --fix smartapply tests tools/desktop_visual_check.py
 
 run-desktop:
 	$(BIN)/elan-desktop

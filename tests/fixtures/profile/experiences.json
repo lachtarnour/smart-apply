@@ -1,0 +1,102 @@
+[
+  {
+    "id": "exp_aurore_ds_2024",
+    "company": "Aurore Labs",
+    "title": "Data Scientist",
+    "location": "Paris, France",
+    "start_date": "2024-01",
+    "end_date": "2025-12",
+    "keywords": [
+      "Python",
+      "NLP",
+      "Machine Learning",
+      "HealthTech"
+    ],
+    "bullets": [
+      {
+        "id": "blt_aurore_ds_multimodal",
+        "text": "Built multimodal digital biomarker pipelines from facial, mobility and smartphone data, reaching 0.67 correlation with validated clinical scores.",
+        "numbers": [
+          "0.67"
+        ],
+        "keywords": [
+          "Python",
+          "NLP",
+          "Machine Learning"
+        ],
+        "evidence_level": "verified"
+      },
+      {
+        "id": "blt_aurore_ds_speech_face",
+        "text": "Developed speech/NLP and face-recognition pipelines using Whisper, Pyannote, RetinaFace, FaceNet and Flask APIs.",
+        "numbers": [],
+        "keywords": [
+          "Python",
+          "NLP",
+          "Machine Learning"
+        ],
+        "evidence_level": "verified"
+      },
+      {
+        "id": "blt_aurore_ds_patent",
+        "text": "Contributed to a patent-pending AI monitoring system and clinical preprint on passive mood markers.",
+        "numbers": [],
+        "keywords": [
+          "Python",
+          "NLP",
+          "Machine Learning"
+        ],
+        "evidence_level": "verified"
+      }
+    ]
+  },
+  {
+    "id": "exp_aurore_intern_2023",
+    "company": "Aurore Labs",
+    "title": "Data Science Intern",
+    "location": "Paris, France",
+    "start_date": "2023-01",
+    "end_date": "2023-06",
+    "keywords": [
+      "Python",
+      "NLP",
+      "Machine Learning",
+      "HealthTech"
+    ],
+    "bullets": [
+      {
+        "id": "blt_aurore_intern_anomaly",
+        "text": "Built an anomaly detection pipeline for identifying behavioral disruptions in mood tracking data.",
+        "numbers": [],
+        "keywords": [
+          "Python",
+          "NLP",
+          "Machine Learning"
+        ],
+        "evidence_level": "verified"
+      }
+    ]
+  },
+  {
+    "id": "exp_sillage",
+    "company": "Sillage Analytics",
+    "title": "Data Analyst Intern",
+    "location": "Lyon, France",
+    "start_date": "2022-03",
+    "end_date": "2022-09",
+    "keywords": [
+      "SQL",
+      "Python"
+    ],
+    "bullets": [
+      {
+        "id": "blt_sillage_data",
+        "text": "Prepared a fictional reporting dataset with Python and SQL.",
+        "keywords": [
+          "Python",
+          "SQL"
+        ]
+      }
+    ]
+  }
+]

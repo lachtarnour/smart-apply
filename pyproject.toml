@@ -46,6 +46,11 @@ dev = [
 elan = "smartapply.cli:cli"
 elan-desktop = "smartapply.desktop.app:main"
 
+[project.urls]
+Repository = "https://github.com/lachtarnour/elan-career"
+Documentation = "https://github.com/lachtarnour/elan-career/blob/main/docs/setup.md"
+Issues = "https://github.com/lachtarnour/elan-career/issues"
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["smartapply*"]
@@ -58,6 +63,7 @@ smartapply = [
   "desktop/resources/icons/*.svg",
   "desktop/qml/*.qml",
   "desktop/qml/components/*.qml",
+  "desktop/qml/components/qmldir",
   "desktop/qml/pages/*.qml",
   "llm/prompts/templates/*/*.j2",
   "profile/mock_profile/*.json",

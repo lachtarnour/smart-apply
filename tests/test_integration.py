@@ -128,7 +128,7 @@ def _register_llm_fixtures() -> None:
             nice_to_have=["AWS", "Docker"],
             match_reasons=[
                 "Forte expérience NLP/RAG",
-                "Projet SciFact RAG",
+                "Projet Evidence RAG",
                 "Pipelines speech via Whisper",
             ],
             risks=["Pas d'expérience prod cloud à grande échelle"],
@@ -154,10 +154,10 @@ def _register_llm_fixtures() -> None:
             ),
             selected_experiences=[
                 AdaptedExperience(
-                    source_id="exp_emobot_ds_2024",
+                    source_id="exp_aurore_ds_2024",
                     bullets=[
                         AdaptedBullet(
-                            source_id="blt_emobot_ds_multimodal",
+                            source_id="blt_aurore_ds_multimodal",
                             text=(
                                 "Built multimodal digital biomarker pipelines from facial, "
                                 "mobility and smartphone data, reaching 0.67 correlation "
@@ -165,14 +165,14 @@ def _register_llm_fixtures() -> None:
                             ),
                         ),
                         AdaptedBullet(
-                            source_id="blt_emobot_ds_speech_face",
+                            source_id="blt_aurore_ds_speech_face",
                             text=(
                                 "Developed speech/NLP and face-recognition pipelines using "
                                 "Whisper, Pyannote, RetinaFace, FaceNet and Flask APIs."
                             ),
                         ),
                         AdaptedBullet(
-                            source_id="blt_emobot_ds_patent",
+                            source_id="blt_aurore_ds_patent",
                             text=(
                                 "Contributed to a patent-pending AI monitoring system and "
                                 "clinical preprint on passive mood markers."
@@ -181,10 +181,10 @@ def _register_llm_fixtures() -> None:
                     ],
                 ),
                 AdaptedExperience(
-                    source_id="exp_emobot_intern_2023",
+                    source_id="exp_aurore_intern_2023",
                     bullets=[
                         AdaptedBullet(
-                            source_id="blt_emobot_intern_anomaly",
+                            source_id="blt_aurore_intern_anomaly",
                             text=(
                                 "Built an anomaly detection pipeline for identifying "
                                 "behavioral disruptions in mood tracking data."
@@ -194,7 +194,7 @@ def _register_llm_fixtures() -> None:
                 ),
             ],
             selected_project_ids=[
-                "proj_scifact_rag",
+                "proj_evidence_rag",
                 "proj_ner_camembert",
                 "proj_gpt2",
             ],
@@ -214,10 +214,10 @@ def _register_llm_fixtures() -> None:
             ),
             selected_experiences=[
                 AdaptedExperience(
-                    source_id="exp_emobot_ds_2024",
+                    source_id="exp_aurore_ds_2024",
                     bullets=[
                         AdaptedBullet(
-                            source_id="blt_emobot_ds_multimodal",
+                            source_id="blt_aurore_ds_multimodal",
                             text=(
                                 "Built multimodal digital biomarker pipelines from facial, "
                                 "mobility and smartphone data, reaching 0.67 correlation "
@@ -225,14 +225,14 @@ def _register_llm_fixtures() -> None:
                             ),
                         ),
                         AdaptedBullet(
-                            source_id="blt_emobot_ds_speech_face",
+                            source_id="blt_aurore_ds_speech_face",
                             text=(
                                 "Developed speech/NLP and face-recognition pipelines using "
                                 "Whisper, Pyannote, RetinaFace, FaceNet and Flask APIs."
                             ),
                         ),
                         AdaptedBullet(
-                            source_id="blt_emobot_ds_patent",
+                            source_id="blt_aurore_ds_patent",
                             text=(
                                 "Contributed to a patent-pending AI monitoring system and "
                                 "clinical preprint on passive mood markers."
@@ -241,10 +241,10 @@ def _register_llm_fixtures() -> None:
                     ],
                 ),
                 AdaptedExperience(
-                    source_id="exp_emobot_intern_2023",
+                    source_id="exp_aurore_intern_2023",
                     bullets=[
                         AdaptedBullet(
-                            source_id="blt_emobot_intern_anomaly",
+                            source_id="blt_aurore_intern_anomaly",
                             text=(
                                 "Built an anomaly detection pipeline for identifying "
                                 "behavioral disruptions in mood tracking data."
@@ -254,27 +254,27 @@ def _register_llm_fixtures() -> None:
                 ),
             ],
             selected_project_ids=[
-                "proj_scifact_rag",
+                "proj_evidence_rag",
                 "proj_ner_camembert",
                 "proj_gpt2",
             ],
             skills_order=["ml_ai", "data_infra", "stats_signal"],
             warnings=[],
-            motivation_letter_subject="Candidature - Data Scientist NLP - Lachtar Nour",
+            motivation_letter_subject="Candidature - Data Scientist NLP - Camille Martin",
             motivation_letter_body=(
                 "Bonjour,\n\n"
                 "Je vous adresse ma candidature pour le poste de Data Scientist NLP. "
-                "Mes deux années chez Emobot m'ont permis de construire des pipelines "
+                "Mes deux années chez Aurore Labs m'ont permis de construire des pipelines "
                 "NLP et speech avec Whisper et Pyannote, ainsi que des biomarqueurs "
                 "cliniques multimodaux atteignant 0.67 de corrélation avec des scores "
-                "validés. Le projet SciFact RAG, fondé sur BM25, FAISS, reranking et "
+                "validés. Le projet Evidence RAG, fondé sur BM25, FAISS, reranking et "
                 "génération de réponses sourcées, rejoint directement les missions de "
                 "RAG, de fine-tuning et de déploiement que vous décrivez. Ce parcours "
                 "combine expérimentation, évaluation et intégration logicielle sur des "
                 "données complexes. Je serais ravi d'échanger sur la manière dont ce "
                 "profil peut contribuer à vos sujets NLP et IA appliquée.\n\n"
                 "Cordialement,\n"
-                "Lachtar Nour"
+                "Camille Martin"
             ),
         ),
     )
@@ -333,7 +333,7 @@ def test_full_pipeline_on_realistic_sample(tmp_path: Path) -> None:
         # Anti-hallucination: no validation errors after auto-fix
         assert not report.validation_errors
 
-    # ---- Step 4: Verify generated CV contains real profile facts ----
+    # ---- Step 4: Verify generated CV contains the fixture's profile facts ----
     from docx import Document
 
     docx_path = reports[0].docx_path
@@ -345,9 +345,9 @@ def test_full_pipeline_on_realistic_sample(tmp_path: Path) -> None:
             for cell in row.cells:
                 text += "\n" + cell.text
 
-    # Real facts from the profile must appear
-    assert "Lachtar Nour" in text
-    assert "Emobot" in text
+    # Fixture facts from the profile must appear
+    assert "Camille Martin" in text
+    assert "Aurore Labs" in text
     assert "0.67" in text  # the validated quantified metric
     assert "Whisper" in text  # real tech from profile
     # Allowed skills should appear

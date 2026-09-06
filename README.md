@@ -7,6 +7,7 @@ Find relevant roles, assess your fit, prepare tailored CVs and cover letters, an
 [![macOS 13+](https://img.shields.io/badge/macOS-13%2B-111017?logo=apple&logoColor=white)](#getting-started)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](pyproject.toml)
 [![MIT License](https://img.shields.io/badge/License-MIT-55bd92)](LICENSE)
+[![CI](https://github.com/lachtarnour/elan-career/actions/workflows/ci.yml/badge.svg)](https://github.com/lachtarnour/elan-career/actions/workflows/ci.yml)
 
 <p align="center">
   <img src="docs/screenshots/jobs.png" alt="Élan offers workspace with ranked roles, profile fit, review points, and application documents" width="1000">
@@ -44,7 +45,7 @@ Requires **macOS 13+** and **Python 3.10+**.
 ```bash
 git clone https://github.com/lachtarnour/elan-career.git
 cd elan-career
-make install-desktop PY=python3
+make install-desktop
 ```
 
 Follow the [setup guide](docs/setup.md) to configure your profile and providers, then launch:
@@ -58,10 +59,9 @@ The guide also covers running with mock providers and building a standalone macO
 ## Development
 
 ```bash
-make lint
-make test-fast
+make check
 ```
 
-See the [development notes](docs/setup.md#development) for test prerequisites. Issues and pull requests are welcome; include reproduction steps for bug reports.
+Tests use fictional data and mock AI providers. See [Contributing](CONTRIBUTING.md) for the project structure, development workflow, and bug reports.
 
-[Profile and configuration](docs/setup.md) · [Source connectors](docs/sources/README.md) · [Interface guidelines](docs/desktop-design.md) · [MIT license](LICENSE)
+[Setup](docs/setup.md) · [Source connectors](docs/sources/README.md) · [Interface guidelines](docs/desktop-design.md) · [Contributing](CONTRIBUTING.md)

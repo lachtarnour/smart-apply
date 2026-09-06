@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Lint and tests (macOS)
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install application and development dependencies
+        run: make install-desktop
+      - name: Lint and run regression tests
+        run: make check
+      - name: Verify Python distribution
+        run: |
+          .venv/bin/python -m pip wheel --no-deps --no-build-isolation --wheel-dir dist .
+          .venv/bin/python - <<'PY'
+          import subprocess
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          tracked = subprocess.check_output(['git', 'ls-files', 'smartapply'], text=True).splitlines()
+          wheel = next(Path('dist').glob('*.whl'))
+          with ZipFile(wheel) as archive:
+              missing = set(tracked) - set(archive.namelist())
+          assert not missing, f'Application files missing from distribution: {sorted(missing)}'
+          PY

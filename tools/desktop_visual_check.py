@@ -1,6 +1,6 @@
-"""Capture every desktop page against an isolated copy of a database.
+"""Capture every desktop page using fictional offers in a temporary database.
 
-Run with .venv/bin/python tools/desktop_visual_check.py --database /path/to/db.
+Optionally pass --database /path/to/db to check an isolated copy of existing data.
 No source availability probes, document generation, or production writes run.
 """
 
@@ -14,6 +14,54 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+
+
+def seed_visual_fixtures() -> None:
+    """Create enough fictional rows to exercise scrolling, sorting, and filtering."""
+    from smartapply.database import (
+        Application,
+        Job,
+        JobAnalysis,
+        JobScore,
+        JobStatus,
+        init_db,
+        session_scope,
+    )
+
+    init_db()
+    with session_scope() as session:
+        for index in range(24):
+            status = (
+                JobStatus.READY_FOR_FORM_SUBMISSION
+                if index < 20
+                else JobStatus.ARCHIVED if index < 23 else JobStatus.SENT
+            )
+            session.add(
+                Job(
+                    external_id=f"visual-fixture-{index}",
+                    company=f"Example Company {index + 1:02d}",
+                    title="Machine Learning Engineer — Data Platform",
+                    location="Paris, Île-de-France, France",
+                    contract_type="CDI",
+                    remote_policy="hybrid",
+                    description=(
+                        "Offre fictive pour vérifier la présentation de l’interface. "
+                        "Concevoir des pipelines Python et SQL, évaluer les modèles et "
+                        "déployer des services fiables avec Docker et FastAPI. "
+                    ) * 8,
+                    application_url=f"https://example.com/jobs/{index}",
+                    source="manual",
+                    status=status,
+                    score=JobScore(final_score=0.9 - index * 0.01),
+                    analysis=JobAnalysis(
+                        fit_score=0.85 - index * 0.01,
+                        seniority="Junior",
+                        match_reasons=["Expérience en Python et en machine learning."],
+                        risks=["Vérifier les attentes en déploiement et en autonomie."],
+                    ),
+                    application=Application(status=status),
+                )
+            )
 
 
 def main() -> int:
@@ -39,6 +87,14 @@ def main() -> int:
         PROFILE_DIR=str(repo / "smartapply/profile/mock_profile"),
         OUTPUT_DIR=str(runtime / "documents"),
         CACHE_DIR=str(runtime / "cache"),
+        LLM_PROVIDER="mock",
+        EMBEDDINGS_PROVIDER="mock",
+        OPENAI_API_KEY="",
+        SERPAPI_API_KEY="",
+        FRANCETRAVAIL_CLIENT_ID="",
+        FRANCETRAVAIL_CLIENT_SECRET="",
+        APIFY_TOKEN="",
+        WTTJ_COOKIE="",
         QT_QPA_PLATFORM="offscreen",
         QT_QUICK_CONTROLS_STYLE="Basic",
         QT_QUICK_BACKEND="software",
@@ -59,6 +115,9 @@ def main() -> int:
     from smartapply.desktop import app as desktop
     from smartapply.desktop.bridge import DesktopBridge
     from smartapply.desktop.services import DesktopService
+
+    if not args.database:
+        seed_visual_fixtures()
 
     messages = []
     qInstallMessageHandler(lambda kind, context, message: messages.append(message))
@@ -114,6 +173,11 @@ def main() -> int:
         QTest.qWait(450)
 
     def capture(name):
+        if name.startswith("jobs-") and bridge.jobs:
+            if not bridge.currentJob.get("id"):
+                bridge.selectJob(int(bridge.jobs[0]["id"]))
+                settle()
+            check(bool(bridge.currentJob.get("id")), f"{name}: offer detail is selected")
         check(window.title() == "", f"{name}: native title bar has no app name")
         pages = window.findChild(QObject, "pages")
         check(pages is not None and pages.property("opacity") >= 0.99, f"{name}: page visible")
@@ -259,10 +323,14 @@ def main() -> int:
     QTest.qWait(250)
     click("offerSearchToggle")
     check(item("expandableSearch").property("expanded"), "Search button expands")
-    type_text("Citalid")
+    if len(bridge.jobs) < 2:
+        raise RuntimeError("Visual checks need at least two ready offers; omit --database to use fixtures.")
+    search_company = bridge.jobs[0]["company"]
+    type_text(search_company)
     settle()
     check(
-        bool(bridge.jobs) and all("citalid" in str(row).lower() for row in bridge.jobs),
+        bool(bridge.jobs)
+        and all(search_company.casefold() in row["company"].casefold() for row in bridge.jobs),
         "Offer search filters results",
     )
     QTest.keyClick(window, Qt.Key_Escape)

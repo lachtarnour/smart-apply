@@ -1,7 +1,7 @@
 """Integration tests for the end-to-end pipeline.
 
 Every external dependency is mocked: scrapers, LLM and embeddings. The
-pipeline is exercised against real profile data so the
+pipeline is exercised against fictional profile evidence so the
 anti-hallucination contract is validated too.
 """
 
@@ -76,20 +76,20 @@ def _register_llm_responses() -> None:
             ),
             selected_experiences=[
                 AdaptedExperience(
-                    source_id="exp_emobot_ds_2024",
+                    source_id="exp_aurore_ds_2024",
                     bullets=[
                         AdaptedBullet(
-                            source_id="blt_emobot_ds_multimodal",
+                            source_id="blt_aurore_ds_multimodal",
                             text="Built multimodal pipelines reaching 0.67 correlation with clinical scores.",
                         ),
                         AdaptedBullet(
-                            source_id="blt_emobot_ds_speech_face",
+                            source_id="blt_aurore_ds_speech_face",
                             text="Developed speech/NLP and face-recognition pipelines using Whisper and Pyannote.",
                         ),
                     ],
                 )
             ],
-            selected_project_ids=["proj_scifact_rag", "proj_ner_camembert"],
+            selected_project_ids=["proj_evidence_rag", "proj_ner_camembert"],
             skills_order=["ml_ai", "data_infra", "stats_signal"],
             warnings=[],
         ),
@@ -104,31 +104,31 @@ def _register_llm_responses() -> None:
             ),
             selected_experiences=[
                 AdaptedExperience(
-                    source_id="exp_emobot_ds_2024",
+                    source_id="exp_aurore_ds_2024",
                     bullets=[
                         AdaptedBullet(
-                            source_id="blt_emobot_ds_multimodal",
+                            source_id="blt_aurore_ds_multimodal",
                             text="Built multimodal pipelines reaching 0.67 correlation with clinical scores.",
                         ),
                         AdaptedBullet(
-                            source_id="blt_emobot_ds_speech_face",
+                            source_id="blt_aurore_ds_speech_face",
                             text="Developed speech/NLP and face-recognition pipelines using Whisper and Pyannote.",
                         ),
                     ],
                 )
             ],
-            selected_project_ids=["proj_scifact_rag", "proj_ner_camembert"],
+            selected_project_ids=["proj_evidence_rag", "proj_ner_camembert"],
             skills_order=["ml_ai", "data_infra", "stats_signal"],
             warnings=[],
-            motivation_letter_subject="Candidature - Data Scientist NLP - Lachtar Nour",
+            motivation_letter_subject="Candidature - Data Scientist NLP - Camille Martin",
             motivation_letter_body=(
                 "Bonjour,\n\n"
                 "Je vous adresse ma candidature pour le poste de Data Scientist NLP. "
-                "Mon expérience chez Emobot en biomarqueurs cliniques et NLP, ainsi que mon "
-                "projet RAG SciFact, correspondent bien aux pipelines que vous décrivez. "
+                "Mon expérience chez Aurore Labs en biomarqueurs cliniques et NLP, ainsi que mon "
+                "projet Evidence RAG, correspondent bien aux pipelines que vous décrivez. "
                 "Je serai ravi d'échanger sur la suite.\n\n"
                 "Cordialement,\n"
-                "Lachtar Nour"
+                "Camille Martin"
             ),
         ),
     )

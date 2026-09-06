@@ -13,22 +13,30 @@ from smartapply.profile import (
 )
 
 
-def test_loads_default_profile_with_real_data() -> None:
+def test_loads_default_profile_with_fictional_data() -> None:
     profile = load_profile()
-    assert profile.identity.full_name == "Lachtar Nour"
-    assert profile.identity.email.endswith("@dauphine.eu")
+    assert profile.identity.full_name == "Camille Martin"
+    assert profile.identity.email.endswith("@example.com")
     assert profile.identity.location == "Paris, France"
     assert len(profile.experiences) >= 3
     assert len(profile.projects) >= 5
     assert len(profile.education) == 2
     education_by_id = {degree.id: degree for degree in profile.education}
-    assert education_by_id["edu_msc_iasd"].start_date == "09/2021"
-    assert education_by_id["edu_msc_iasd"].end_date == "09/2023"
-    assert education_by_id["edu_bsc_mefa"].start_date == "09/2018"
-    assert education_by_id["edu_bsc_mefa"].end_date == "06/2021"
+    assert education_by_id["edu_masters"].start_date == "09/2021"
+    assert education_by_id["edu_masters"].end_date == "09/2023"
+    assert education_by_id["edu_bachelors"].start_date == "09/2018"
+    assert education_by_id["edu_bachelors"].end_date == "06/2021"
 
 
 # -------------------- New schema features --------------------
+
+
+def test_published_example_profile_is_valid() -> None:
+    profile_dir = Path(__file__).resolve().parents[1] / "smartapply/profile/mock_profile"
+    profile = load_profile(profile_dir)
+    assert profile.identity.email.endswith("@example.com")
+    assert profile.experiences
+    assert profile.skills.allowed_skills
 
 
 # Helper used by several tests above
@@ -149,7 +157,7 @@ def test_duplicate_bullet_ids_rejected(tmp_path: Path, sample_profile_files: Pat
 
 @pytest.fixture
 def sample_profile_files(tmp_path: Path) -> Path:
-    """Copy the real profile data into tmp_path so tests can mutate it safely."""
+    """Copy the fictional profile data into tmp_path so tests can mutate it safely."""
     from smartapply.config import get_settings
 
     src = get_settings().profile_dir
