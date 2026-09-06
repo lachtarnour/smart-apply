@@ -1,273 +1,67 @@
 # Élan
 
-<p align="center">
-  <strong>Open-source macOS job-search assistant for a more focused job search.</strong><br>
-  Find relevant opportunities, understand your fit, tailor your documents, and track every application from one native macOS app.
-</p>
+**A native macOS workspace for your job search.**
+
+Find relevant roles, assess your fit, prepare tailored CVs and cover letters, and track applications in one place. Built with Python, Qt Quick, and SQLite.
+
+[![macOS 13+](https://img.shields.io/badge/macOS-13%2B-111017?logo=apple&logoColor=white)](#getting-started)
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](pyproject.toml)
+[![MIT License](https://img.shields.io/badge/License-MIT-55bd92)](LICENSE)
 
 <p align="center">
-  <a href="https://github.com/lachtarnour/elan-career/stargazers"><img src="https://img.shields.io/github/stars/lachtarnour/elan-career?style=flat&color=7c5cff" alt="GitHub stars"></a>
-  <a href="https://github.com/lachtarnour/elan-career/network/members"><img src="https://img.shields.io/github/forks/lachtarnour/elan-career?style=flat&color=55bd92" alt="GitHub forks"></a>
-  <a href="https://github.com/lachtarnour/elan-career/releases"><img src="https://img.shields.io/github/v/release/lachtarnour/elan-career?display_name=tag&style=flat&color=9b8cff" alt="Latest release"></a>
-  <img src="https://img.shields.io/badge/macOS-13%2B-111017?logo=apple&logoColor=white" alt="macOS 13+"><br>
-  <img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white" alt="Python 3.10+">
-  <img src="https://img.shields.io/badge/License-MIT-55bd92" alt="MIT License">
+  <img src="docs/screenshots/jobs.png" alt="Élan offers workspace with ranked roles, profile fit, review points, and application documents" width="1000">
 </p>
 
-<p align="center">
-  <img src="docs/screenshots/dashboard.png" alt="Élan dark dashboard with offer counts, applications sent per day, and recent applications" width="1000">
-</p>
+## What it does
 
-<p align="center"><em>Accueil — offer counts, daily application activity, and recent applications at a glance.</em></p>
+- **Find opportunities** across France Travail, LinkedIn, Welcome to the Jungle, and Google Jobs, or add an offer manually.
+- **Review your fit** with ranked offers, match explanations, and a comparison view for suspected duplicates.
+- **Prepare applications** with CVs and cover letters grounded in your profile.
+- **Track progress** with application statuses, documents, and a dashboard of recent activity.
 
-<p align="center">
-  <a href="#features">Features</a> ·
-  <a href="#interface">Interface</a> ·
-  <a href="#quick-start">Quick start</a> ·
-  <a href="#adapt-élan-to-another-profile-or-project">Customize</a> ·
-  <a href="#contributing">Contribute</a>
-</p>
+Profile data and application history are stored locally. Connected providers process the data needed for search and AI features. You review documents and submit applications yourself.
 
-## Overview
+<details>
+<summary><strong>Explore the interface</strong></summary>
 
-Élan is an open-source macOS application that turns a scattered job search into a structured, review-first workflow:
+<table>
+  <tr>
+    <td width="50%"><strong>Dashboard</strong><br><a href="docs/screenshots/dashboard.png"><img src="docs/screenshots/dashboard.png" alt="Application counts, daily activity, and recent applications"></a></td>
+    <td width="50%"><strong>Search</strong><br><a href="docs/screenshots/search.png"><img src="docs/screenshots/search.png" alt="Job criteria and source selection"></a></td>
+  </tr>
+  <tr>
+    <td width="50%"><strong>Duplicate review</strong><br><a href="docs/screenshots/duplicates.png"><img src="docs/screenshots/duplicates.png" alt="Side-by-side comparison of suspected duplicate offers"></a></td>
+    <td width="50%"><strong>Manual entry</strong><br><a href="docs/screenshots/manual.png"><img src="docs/screenshots/manual.png" alt="Form for adding an offer and creating an application"></a></td>
+  </tr>
+</table>
 
-```text
-Discover → Filter → Rank → Review → Tailor documents → Track applications
-```
+</details>
 
-It collects opportunities from several sources, removes duplicates, evaluates fit against a candidate profile, generates grounded application documents, and keeps the final decision with the candidate.
+## Getting started
 
-## Features
-
-- **Multi-source search** — France Travail, Welcome to the Jungle, LinkedIn through Apify, and Google Jobs through SerpApi.
-- **Local and bilingual filtering** — relevance, location, seniority, contract type, and language rules run locally before ranking.
-- **Explainable matching** — alignment scores and review points help prioritize opportunities without making decisions for you.
-- **Grounded documents** — tailored CVs and motivation letters are checked against the source profile before they are saved.
-- **Unified offers workspace** — ranked opportunities, application statuses, fit explanations, documents, and tracking actions stay together in a split view.
-- **Manual offer entry** — add a job title, company, and description to create an application for an opportunity found elsewhere.
-- **Review-first email workflow** — Gmail integration prepares drafts for manual review; Élan never sends applications automatically.
-- **Local-first storage** — profile data, SQLite database, cache, and generated documents remain on your Mac by default.
-
-## Product boundaries
-
-Élan helps you find, evaluate, prepare, and organize applications. It does not automatically apply to jobs, make hiring decisions, or send emails without your review. External providers are optional, and the published profile is a mock profile with placeholder data.
-
-## Interface
-
-The redesigned desktop interface uses a dark background, violet accents, rounded panels, and a persistent sidebar. Green highlights profile alignment and sent statuses; amber draws attention to review points and archive actions.
-
-The sidebar connects **Accueil**, **Recherche**, **Doublons**, **Offres**, and **Ajouter une offre**, with **Profil** and **Réglages** at the bottom. The dashboard above brings together offer counts, offers awaiting analysis, ready applications, sent applications, a daily activity chart, and recent applications.
-
-### Search — Recherche
-
-Choose job titles, location, publication date, and the number of results per source. Select sources in the adjacent panel, then use the summary bar to review collected offers and launch analysis.
-
-<p align="center">
-  <img src="docs/screenshots/search.png" alt="Élan search screen with job criteria, selectable sources, result limits, and analysis controls" width="1000">
-</p>
-<p align="center"><em>Search criteria and source selection side by side, with analysis controls below.</em></p>
-
-### Compare duplicates — Doublons
-
-Review suspected duplicates from the list on the left. Compare the recent offer with the known offer side by side, including their similarity score, locations, sources, and descriptions, then choose **Même offre** or **Offres différentes**.
-
-<p align="center">
-  <img src="docs/screenshots/duplicates.png" alt="Élan duplicate review screen with suspected matches, side-by-side offer comparison, similarity scores, and same or different offer actions" width="1000">
-</p>
-<p align="center"><em>Compare suspected duplicates and decide whether they represent the same opportunity.</em></p>
-
-### Review and track — Offres
-
-Filter offers by status, compare AI and match scores, and select opportunities in the table on the left. The detail panel on the right displays profile alignment, points to verify, and the full job description. Shortlisting and document generation are available from the toolbar; CVs, letters, folders, archiving, and marking an application as sent are accessible from the selected offer.
-
-<p align="center">
-  <img src="docs/screenshots/jobs.png" alt="Élan offers split view with a ranked table, profile alignment, review points, job description, and application actions" width="1000">
-</p>
-<p align="center"><em>Ranked offers and application details share one workspace.</em></p>
-
-### Add an opportunity — Ajouter une offre
-
-Create an application from an offer found outside the connected sources. The form groups the job title, company, location, and original link above a full-width description field, with reset and creation actions at the bottom.
-
-<p align="center">
-  <img src="docs/screenshots/manual.png" alt="Élan manual offer form with job title, company, location, original link, description, and application creation action" width="1000">
-</p>
-<p align="center"><em>Bring an opportunity into Élan from a single form.</em></p>
-
-## Quick start
-
-### Requirements
-
-- macOS 13 or later
-- Python 3.10 or later
-
-### Install and run
+Requires **macOS 13+** and **Python 3.10+**.
 
 ```bash
 git clone https://github.com/lachtarnour/elan-career.git
 cd elan-career
+make install-desktop PY=python3
+```
 
-cp .env.example .env
-make install-desktop
-make init-db
+Follow the [setup guide](docs/setup.md) to configure your profile and providers, then launch:
+
+```bash
 make run-desktop
 ```
 
-To build the standalone macOS application:
-
-```bash
-make build
-open dist/Elan.app
-```
-
-For a first run without external credentials, use the mock providers in `.env`:
-
-```dotenv
-LLM_PROVIDER=mock
-EMBEDDINGS_PROVIDER=mock
-```
-
-Add API credentials only for the sources and providers you want to use.
-
-## Configuration
-
-Copy `.env.example` to `.env`. The main settings are:
-
-| Variable | Purpose | Required when… |
-|---|---|---|
-| `OPENAI_API_KEY` | Analysis, document adaptation, and embeddings | `LLM_PROVIDER` is not `mock` |
-| `FRANCETRAVAIL_CLIENT_ID` / `FRANCETRAVAIL_CLIENT_SECRET` | France Travail API access | France Travail is enabled |
-| `SERPAPI_API_KEY` | Google Jobs access | Google Jobs is enabled |
-| `APIFY_TOKEN` | LinkedIn job collection through Apify | LinkedIn is enabled |
-| `WTTJ_COOKIE` | Welcome to the Jungle access | WTTJ is enabled |
-| `EMBEDDINGS_PROVIDER` | `openai`, `local`, or `mock` | optional |
-| `PROFILE_DIR` | Location of the private candidate profile | optional |
-
-By default, runtime data is stored under `~/Library/Application Support/Elan`. Keep personal information, API keys, and generated documents out of version control.
-
-## Adapt Élan to another profile or project
-
-Élan is designed to be adapted. The repository publishes a safe example profile, while the deterministic matching rules are tuned for the original use case. When adapting the project to another candidate, country, role family, or hiring policy, update both the profile data and the static filters.
-
-### 1. Replace the profile data
-
-[`smartapply/profile/mock_profile/`](smartapply/profile/mock_profile/) is the published reference profile. It documents the expected JSON structure and contains no private candidate data.
-
-Create a private working profile from it:
-
-```bash
-mkdir -p smartapply/profile/data
-cp smartapply/profile/mock_profile/*.json smartapply/profile/data/
-```
-
-Edit the files in `smartapply/profile/data/`:
-
-| File | Content |
-|---|---|
-| `identity.json` | Name, contact details, title, location, and summary |
-| `preferences.json` | Target roles, accepted contracts, remote policies, languages, domains, and deal-breakers |
-| `skills.json` | Skills, matching keywords, evidence, and allowed claims |
-| `experiences.json` | Work history and verifiable achievements |
-| `projects.json`, `education.json`, `languages.json`, `certificates.json` | Optional supporting information |
-| `style_guide.json`, `template_style.json` | Writing and document presentation preferences |
-
-Set `PROFILE_DIR` in `.env` when the private profile lives outside `smartapply/profile/data/`. Do not commit real personal information; `mock_profile` is the publishable template.
-
-### 2. Update the hard-coded static filters
-
-The profile controls the main user preferences, but several deterministic vocabularies and safety gates are hard-coded for predictable filtering. Review these files when the default behavior does not match your domain:
-
-| File | What to change |
-|---|---|
-| [`smartapply/filtering/rules.py`](smartapply/filtering/rules.py) | Positive and negative title keywords, hard rejects, seniority gates, description penalties, blocked contracts, and score thresholds |
-| [`smartapply/pipeline/ingest/role_families.py`](smartapply/pipeline/ingest/role_families.py) | Search role families and bilingual aliases used to expand search queries |
-| [`smartapply/filtering/relevance.py`](smartapply/filtering/relevance.py) | Bilingual role concepts, title patterns, technical concepts, and off-target role patterns |
-| [`smartapply/filtering/role_signals.py`](smartapply/filtering/role_signals.py) | Domain, analytics, engineering, and off-target signal vocabularies |
-| [`smartapply/filtering/contract_signals.py`](smartapply/filtering/contract_signals.py) | Contract markers and contextual exceptions |
-| [`smartapply/filtering/seniority.py`](smartapply/filtering/seniority.py) | Seniority and people-management patterns |
-| [`smartapply/filtering/location_signals.py`](smartapply/filtering/location_signals.py) | Location markers and foreign-location detection patterns |
-
-Recommended order:
-
-1. Update `preferences.json` first.
-2. Adjust `rules.py` and `role_families.py` for the new target.
-3. Update the deeper signal files only when you need domain-specific vocabulary or different safety gates.
-4. Run the test suite after every filter change.
-
-```bash
-make test-fast
-```
-
-## Architecture
-
-```text
-Job sources
-    ↓
-Normalization and deduplication
-    ↓
-Bilingual local filtering
-    ↓
-Semantic ranking
-    ↓
-Structured analysis
-    ↓
-CV and motivation-letter generation
-    ↓
-Deterministic validation
-    ↓
-Application tracking in SQLite
-```
-
-```text
-smartapply/
-├── scrapers/       Source connectors
-├── filtering/      Local rules and bilingual signals
-├── ranking/        Embeddings and scoring
-├── llm/            Prompts and structured outputs
-├── cv/             Adaptation, validation, and rendering
-├── pipeline/       Workflow orchestration
-├── database/       Local SQLite persistence
-└── desktop/        Qt Quick macOS application
-```
+The guide also covers running with mock providers and building a standalone macOS app. Source credentials are configured separately for each [connector](docs/sources/README.md).
 
 ## Development
 
 ```bash
 make lint
 make test-fast
-make build
 ```
 
-The maintenance CLI is available for diagnostics:
+See the [development notes](docs/setup.md#development) for test prerequisites. Issues and pull requests are welcome; include reproduction steps for bug reports.
 
-```bash
-elan --help
-elan init-db
-elan stats
-```
-
-## Roadmap
-
-- [x] Multi-source search and manual offer entry
-- [x] Filtering, deduplication, and semantic ranking
-- [x] CV and motivation-letter generation with validation
-- [x] Application tracking workspace
-- [ ] Guided import of an existing CV
-- [ ] Additional connectors and optional synchronization
-- [ ] Simpler packaging and distribution
-
-## Contributing
-
-Bug reports, ideas, and pull requests are welcome. Please include context, reproduction steps, and an anonymized screenshot when relevant. Before opening a pull request, run:
-
-```bash
-make lint
-make test-fast
-```
-
-If Élan helps your job search, consider giving the project a ⭐ on GitHub. It helps other people discover it.
-
-## License
-
-MIT — see [LICENSE](LICENSE).
+[Profile and configuration](docs/setup.md) · [Source connectors](docs/sources/README.md) · [Interface guidelines](docs/desktop-design.md) · [MIT license](LICENSE)
