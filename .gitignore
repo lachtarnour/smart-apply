@@ -6,6 +6,8 @@ __pycache__/
 .Python
 build/
 dist/
+*.app/
+*.dmg
 *.egg-info/
 .eggs/
 .installed.cfg
@@ -15,6 +17,8 @@ dist/
 .mypy_cache/
 .ruff_cache/
 .coverage
+.coverage.*
+coverage.xml
 htmlcov/
 .tox/
 
@@ -26,19 +30,33 @@ ENV/
 
 # ---- Secrets ----
 .env
-.env.local
+.env.*
+!.env.example
 secrets/
-data/secrets/
 *.pem
 credentials.json
 token.json
 
-# ---- Data ----
-data/smartapply.db
-data/cache/
-data/output/
-data/scraped/
-smartapply/profile/data/
+# ---- Local runtime data and exports ----
+/data/
+/cache/
+/documents/
+/samples/
+/output/
+/tmp/
+/daily scrapper/
+/smartapply/profile/data/
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+*.log
+
+# ---- Local demo production and obsolete captures ----
+/tools/demo/
+/docs/screenshots/applications.png
 
 # ---- Editors ----
 .claude/
@@ -47,8 +65,3 @@ smartapply/profile/data/
 *.swp
 *.swo
 .DS_Store
-
-/data/
-tmp/
-output/
-daily scrapper/
